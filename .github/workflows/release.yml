@@ -1,0 +1,41 @@
+name: Release
+
+# Merging dev into master cuts a release: a vX.Y.Z tag + GitHub Release is
+# created from the version in build.gradle. Bump that version before releasing
+# again; re-runs at the same version are skipped (idempotent).
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag & GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version from build.gradle
+        id: ver
+        run: |
+          VERSION=$(grep -oP "^version\s*=\s*'\K[^']+" build.gradle | sed 's/-SNAPSHOT//')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
+      - name: Create release if the tag does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists — skipping."
+          else
+            gh release create "v$VERSION" \
+              --target master \
+              --title "v$VERSION" \
+              --generate-notes
+          fi
