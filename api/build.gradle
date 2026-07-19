@@ -1,0 +1,25 @@
+description = 'Driving REST adapter: controllers, web DTOs, validation, exception mapping.'
+
+dependencies {
+    // `implementation`, not `api`: nothing compiles against this module's controllers.
+    // implementation dependencies still land on :app's RUNTIME classpath transitively,
+    // which is all component scanning needs.
+    implementation project(':core')
+    implementation project(':domain')
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Annotations and principal types only (@PreAuthorize, @AuthenticationPrincipal,
+    // Authentication, Jwt). The filter chain, the decoder and @EnableMethodSecurity
+    // live in :app.
+    implementation 'org.springframework.security:spring-security-core'
+    implementation 'org.springframework.security:spring-security-oauth2-jose'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security'
+    testImplementation 'org.springframework.security:spring-security-test'
+    // JwtAuthenticationToken, used to populate the SecurityContext in slice tests. Main
+    // code needs only the Jwt type itself, which comes from spring-security-oauth2-jose.
+    testImplementation 'org.springframework.security:spring-security-oauth2-resource-server'
+}

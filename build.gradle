@@ -1,56 +1,91 @@
 plugins {
-    id 'java'
-    id 'org.springframework.boot' version '3.5.16'
-    id 'io.spring.dependency-management' version '1.1.7'
+    // `base` gives the root project clean/assemble/check so `./gradlew clean` is unambiguous.
+    id 'base'
+
+    // Put these on the build classpath ONCE and apply them nowhere here. Consequence:
+    // :app and :infra must apply them with a bare `id '...'` and NO version, otherwise
+    // Gradle fails with "Plugin request for plugin already on the classpath must not
+    // include a version".
+    alias(libs.plugins.spring.boot) apply false
+    alias(libs.plugins.jooq.codegen) apply false
 }
 
+// -----------------------------------------------------------------------------
+// DO NOT INDENT OR MOVE THE `version` LINE.
+// .github/workflows/cd.yml extracts the release version with
+//     grep -oP "^version\s*=\s*'\K[^']+" build.gradle
+// Moving it inside subprojects{}/allprojects{} breaks the ^ anchor; CD then tags the
+// image "ghcr.io/...:" and the push fails.
+// -----------------------------------------------------------------------------
 group = 'com.packing'
 version = '0.0.1-SNAPSHOT'
 description = '3d-packing-backend'
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
+subprojects {
+    apply plugin: 'java-library'
+
+    group = rootProject.group
+    version = rootProject.version
+
+    java {
+        toolchain {
+            // Gradle 8.14 cannot run on JDK 25. Gradle runs on JDK 21; the foojay
+            // resolver in settings.gradle provisions JDK 25 for compilation only.
+            languageVersion = JavaLanguageVersion.of(25)
+        }
     }
-}
 
-repositories {
-    mavenCentral()
-}
+    dependencies {
+        // Gradle-native BOM import (no io.spring.dependency-management). Constraints are
+        // per-configuration, so the platforms must be added to every declarable
+        // configuration that resolves — including the annotation processor paths, or
+        // version-less Lombok fails to resolve.
+        //
+        // `jooqCodegen` is deliberately absent: jooq-meta-extensions brings its own H2
+        // and forcing Boot's H2 version onto that classpath is an untested combination.
+        ['api', 'implementation', 'compileOnly', 'annotationProcessor', 'runtimeOnly',
+         'testImplementation', 'testCompileOnly', 'testAnnotationProcessor', 'testRuntimeOnly'
+        ].each { conf ->
+            add(conf, platform(libs.spring.boot.bom))
+            add(conf, platform(libs.spring.cloud.azure.bom))
+        }
 
-ext {
-    set('springCloudAzureVersion', "6.1.0")
-}
+        // Lombok annotations are SOURCE-retention, so nothing survives into the bytecode.
+        // This does not violate ":domain depends on no third-party library".
+        compileOnly 'org.projectlombok:lombok'
+        annotationProcessor 'org.projectlombok:lombok'
+        testCompileOnly 'org.projectlombok:lombok'
+        testAnnotationProcessor 'org.projectlombok:lombok'
 
-dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
-    implementation 'org.springframework.boot:spring-boot-starter-security'
-    implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'com.azure.spring:spring-cloud-azure-starter-keyvault'
-    implementation 'com.azure.spring:spring-cloud-azure-starter-storage'
-    implementation 'org.flywaydb:flyway-core'
-    implementation 'org.flywaydb:flyway-database-postgresql'
-    compileOnly 'org.projectlombok:lombok'
-    runtimeOnly 'org.postgresql:postgresql'
-    annotationProcessor 'org.projectlombok:lombok'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
-    testImplementation 'org.springframework.security:spring-security-test'
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:postgresql'
-    testCompileOnly 'org.projectlombok:lombok'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    testAnnotationProcessor 'org.projectlombok:lombok'
-}
-
-dependencyManagement {
-    imports {
-        mavenBom "com.azure.spring:spring-cloud-azure-dependencies:${springCloudAzureVersion}"
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
-}
 
-tasks.named('test') {
-    useJUnitPlatform()
+    // The testFixtures configurations are created later by the java-test-fixtures plugin,
+    // so they are not covered by the list above.
+    plugins.withId('java-test-fixtures') {
+        dependencies {
+            testFixturesApi platform(libs.spring.boot.bom)
+            testFixturesApi platform(libs.spring.cloud.azure.bom)
+            testFixturesAnnotationProcessor platform(libs.spring.boot.bom)
+            testFixturesCompileOnly 'org.projectlombok:lombok'
+            testFixturesAnnotationProcessor 'org.projectlombok:lombok'
+        }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        // Load-bearing. The Spring Boot Gradle plugin adds -parameters for free, but it
+        // is now applied only to :app. Without this, :api compiles without parameter
+        // names and every implicitly-named @RequestParam/@PathVariable fails at runtime
+        // with "Name for argument of type [...] not specified".
+        options.compilerArgs << '-parameters'
+    }
+
+    tasks.named('test') {
+        useJUnitPlatform()
+        testLogging {
+            events 'passed', 'skipped', 'failed'
+            exceptionFormat = 'full'
+        }
+    }
 }
