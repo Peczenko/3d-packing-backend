@@ -1,0 +1,149 @@
+plugins {
+    // NO version on jooq-codegen-gradle: it is already on the build classpath from the
+    // root `apply false` declaration, and re-declaring a version fails the build.
+    id 'org.jooq.jooq-codegen-gradle'
+    id 'java-test-fixtures'
+}
+
+description = 'Driven adapters: jOOQ persistence, Flyway migrations, Firebase and Azure clients.'
+
+dependencies {
+    implementation project(':core')
+    implementation project(':domain')
+
+    // Replaces spring-boot-starter-data-jpa. Brings org.jooq:jooq, spring-boot-starter-jdbc
+    // and spring-tx. No Spring Data JPA repositories for new persistence code.
+    implementation 'org.springframework.boot:spring-boot-starter-jooq'
+
+    // For @Validated/@NotBlank on the @ConfigurationProperties records owned by this module.
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    implementation 'org.flywaydb:flyway-core'
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    implementation 'com.azure.spring:spring-cloud-azure-starter-keyvault'
+    implementation 'com.azure.spring:spring-cloud-azure-starter-storage'
+
+    implementation libs.firebase.admin
+
+    // Code-generation classpath: build-time only, never on the application classpath.
+    // Deliberately not constrained by the Spring Boot BOM (see the root build) —
+    // jooq-meta-extensions brings the H2 build it was tested against, and DDLDatabase
+    // depends on H2 directly.
+    jooqCodegen libs.jooq.meta.extensions
+
+    // Shared Testcontainers setup, consumed by :app via testFixtures(project(':infra')).
+    // spring-boot-test (not the full starter) supplies @TestConfiguration; the fixtures
+    // artifact has no business carrying junit/mockito/assertj.
+    testFixturesApi 'org.springframework.boot:spring-boot-test'
+    testFixturesApi 'org.springframework.boot:spring-boot-testcontainers'
+    testFixturesApi 'org.testcontainers:postgresql'
+    testFixturesApi 'org.testcontainers:junit-jupiter'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
+    testRuntimeOnly 'org.postgresql:postgresql'
+}
+
+// -----------------------------------------------------------------------------
+// jOOQ code generation — fully offline.
+//
+// DDLDatabase parses the Flyway migration scripts with jOOQ's parser, TRANSLATES THEM
+// TO THE H2 DIALECT, replays them onto a throwaway in-memory H2 database and reverse
+// engineers the result. No PostgreSQL, no Docker daemon — which is what keeps both
+// `./gradlew build` and the Dockerfile build stage hermetic.
+//
+// The consequence is that generated types reflect H2's interpretation of the DDL, not
+// PostgreSQL's. The Testcontainers integration test in src/test is the compensating
+// control: it is the only thing that proves the H2 simulation did not lie.
+//
+// PostgreSQL-only DDL that jOOQ's parser or H2 cannot handle (CREATE EXTENSION, GIN and
+// GiST indexes, plpgsql functions, triggers, materialized views, RLS, partitioning) must
+// be wrapped in `-- [jooq ignore start]` / `-- [jooq ignore stop]` comments: Flyway still
+// executes them, the generator skips them. Never hide CREATE TABLE or ADD COLUMN that
+// way — the generated code would not know about them.
+//
+// The task runs IN-PROCESS in the Gradle daemon (this plugin does not fork), so codegen
+// executes on the Gradle JVM = JDK 21, not on the JDK 25 toolchain. jOOQ 3.19 is fine
+// with that. If it ever OOMs, raise org.gradle.jvmargs — there is no fork setting.
+// -----------------------------------------------------------------------------
+
+// Captured as local variables on purpose: the plugin sets Closure.DELEGATE_FIRST on its
+// DSL closures, so bare property lookups inside them resolve against the JAXB delegate
+// first. Locals are captured lexically and are always safe.
+// Both paths are relative to `basedir`, which defaults to this subproject's directory.
+def jooqMigrationScripts = 'src/main/resources/db/migration/*.sql'
+def jooqTargetDirectory = 'build/generated-src/jooq'
+
+jooq {
+    configuration {
+        generator {
+            name = 'org.jooq.codegen.JavaGenerator'
+
+            database {
+                name = 'org.jooq.meta.extensions.ddl.DDLDatabase'
+
+                // No inputSchema on purpose: with unqualifiedSchema=none, H2's PUBLIC
+                // becomes the default (unnamed) schema, so generated code renders table
+                // names UNQUALIFIED and resolves them through the PostgreSQL search_path
+                // at runtime.
+                properties {
+                    property {
+                        key = 'scripts'
+                        value = jooqMigrationScripts
+                    }
+                    property {
+                        // Flyway version ordering (V1, V2, ... V10), not plain alphanumeric.
+                        key = 'sort'
+                        value = 'flyway'
+                    }
+                    property {
+                        // MANDATORY. H2 folds unquoted identifiers to UPPER, PostgreSQL
+                        // folds to lower. Without this, every generated name renders
+                        // quoted and upper case and fails at runtime with
+                        //   relation "USERS" does not exist
+                        key = 'defaultNameCase'
+                        value = 'lower'
+                    }
+                    property {
+                        key = 'unqualifiedSchema'
+                        value = 'none'
+                    }
+                }
+            }
+
+            generate {
+                javaTimeTypes = true
+                // Domain records live in :domain and adapters are hand-written, so the
+                // generator only needs the table/record metadata.
+                pojos = false
+                daos = false
+                fluentSetters = false
+            }
+
+            target {
+                packageName = 'com.packing.backend.infra.persistence.jooq'
+                // Must be set: the plugin default is build/generated-sources/jooq.
+                directory = jooqTargetDirectory
+                encoding = 'UTF-8'
+                // Wipe stale classes when a table is dropped from the schema.
+                clean = true
+            }
+        }
+    }
+}
+
+// The plugin registers its output directory on sourceSets.main.java, but it does NOT
+// wire task ordering, and the DirectoryProperty it hands over carries no task provenance
+// so Gradle cannot infer the dependency either. Without this, a clean build can run
+// compileJava before jooqCodegen and fail with "package ... does not exist".
+tasks.named('compileJava') {
+    dependsOn tasks.named('jooqCodegen')
+}
+
+// Belt and braces for IDE sync. srcDirs is a Set, so declaring the same directory twice
+// is a no-op.
+sourceSets.main.java.srcDir(layout.buildDirectory.dir('generated-src/jooq'))

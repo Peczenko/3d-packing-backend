@@ -1,0 +1,10 @@
+description = 'Pure domain model: aggregates, entities, value objects, domain events, invariants.'
+
+// No project dependencies. No Spring, no jOOQ, no JPA, no JDBC, no web, no Azure.
+// Toolchain, Lombok and the BOM platforms come from the root build.
+// Deliberately NOT spring-boot-starter-test, so Spring never reaches this module's
+// classpath even in tests. Enforced by ArchUnit in :app.
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.assertj:assertj-core'
+}
