@@ -25,7 +25,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       image: ${{ steps.img.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve version from build.gradle
         id: ver
