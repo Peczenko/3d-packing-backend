@@ -1,0 +1,20 @@
+description = 'Application layer: use cases, commands/results, input ports, output ports.'
+
+dependencies {
+    // `api`, not `implementation`: the port signatures in this module expose domain
+    // types, so :api and :infra need them on their COMPILE classpath transitively.
+    api project(':domain')
+
+    // DOCUMENTED EXCEPTION to "core is framework-free" (see CLAUDE.md).
+    // spring-tx is an annotation-only dependency used for @Transactional on the
+    // application services; transaction boundaries belong at the application layer and
+    // the alternative (a TransactionRunner output port) is pure ceremony for identical
+    // behaviour. The services are still plain classes registered as beans from :app —
+    // no @Service, no @Component, no Spring context dependency. :domain stays pure.
+    api 'org.springframework:spring-tx'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.assertj:assertj-core'
+    testImplementation 'org.mockito:mockito-core'
+    testImplementation 'org.mockito:mockito-junit-jupiter'
+}

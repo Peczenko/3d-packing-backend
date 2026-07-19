@@ -1,6 +1,27 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
 plugins {
-    // Auto-provisions the Java 25 toolchain (Gradle 8.14 itself runs on JDK 21).
+    // The version stays literal: settings plugins{} is evaluated before the version
+    // catalog exists. Auto-provisions the Java 25 toolchain (Gradle itself runs on 21).
     id 'org.gradle.toolchains.foojay-resolver-convention' version '0.9.0'
 }
 
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.PREFER_SETTINGS
+    repositories {
+        mavenCentral()
+    }
+}
+
 rootProject.name = 'packing-backend'
+
+include 'domain'
+include 'core'
+include 'api'
+include 'infra'
+include 'app'

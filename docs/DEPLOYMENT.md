@@ -140,13 +140,169 @@ Once `DEPLOY_ENABLED=true`, the next push to `master` (or a manual `workflow_dis
 
 ---
 
-## 5. Runtime configuration (future work)
+## 5. Runtime configuration: Postgres via Azure Key Vault
 
-The container app still needs its own runtime settings as the backend grows — the
-PostgreSQL connection, Azure Key Vault endpoint, OAuth2 issuer, storage account, etc.
-Add these as container-app environment variables / secrets, e.g.:
+The `azure` Spring profile (`application-azure.properties`) reads the Postgres endpoint,
+username, and password from Azure Key Vault at `https://packing-kv.vault.azure.net/`,
+authenticating with the container app's **system-assigned managed identity** (no client
+secret, consistent with the OIDC-only approach used for CD).
+
+Spring Cloud Azure's Key Vault property source maps dots to dashes, so property
+`db.endpoint` reads secret `db-endpoint`, etc. — this is why the secrets below use that
+naming.
+
+### 5a. Store the secrets
+
+```bash
+VAULT=packing-kv
+
+az keyvault secret set --vault-name "$VAULT" --name db-endpoint --value "<postgres-server-fqdn>"
+az keyvault secret set --vault-name "$VAULT" --name db-username --value "<db-username>"
+az keyvault secret set --vault-name "$VAULT" --name db-password --value "<db-password>"
+```
+
+### 5b. Grant the container app access to the vault
+
+```bash
+# Enable a system-assigned managed identity on the container app
+az containerapp identity assign --name "$APP" --resource-group "$RG" --system-assigned
+PRINCIPAL_ID=$(az containerapp identity show --name "$APP" --resource-group "$RG" --query principalId -o tsv)
+
+VAULT_ID=$(az keyvault show --name "$VAULT" --query id -o tsv)
+
+# If the vault uses RBAC authorization (recommended):
+az role assignment create --assignee "$PRINCIPAL_ID" --role "Key Vault Secrets User" --scope "$VAULT_ID"
+
+# If the vault instead uses classic access policies:
+az keyvault set-policy --name "$VAULT" --object-id "$PRINCIPAL_ID" --secret-permissions get list
+```
+
+### 5c. Activate the profile
 
 ```bash
 az containerapp update --name "$APP" --resource-group "$RG" \
-  --set-env-vars SPRING_DATASOURCE_URL=... SPRING_CLOUD_AZURE_KEYVAULT_SECRET_ENDPOINT=...
+  --set-env-vars SPRING_PROFILES_ACTIVE=azure
 ```
+
+`DB_PORT` / `DB_NAME` default to `5432` / `packing` and only need overriding via
+`--set-env-vars` if the server differs from that.
+
+---
+
+## 6. Runtime configuration: Firebase via Azure Key Vault
+
+Firebase Authentication owns user identity. The backend needs two things from it:
+
+| What | Why | Secret |
+|------|-----|--------|
+| Project id | Derives the token issuer (`https://securetoken.google.com/<project-id>`) and the expected `aud` claim. Required even without the Admin SDK. | `firebase-project-id` |
+| Service-account JSON | Lets the Admin SDK set custom claims (roles), revoke refresh tokens and delete users. | `firebase-service-account` |
+
+Verifying ID tokens needs **only** the project id — the signing keys are public. The
+service account is required solely for the operations that *change* Firebase-side state.
+
+### 6a. Store the secrets
+
+Get the service-account JSON from the Firebase console:
+**Project settings → Service accounts → Generate new private key**.
+
+```bash
+VAULT=packing-kv
+
+az keyvault secret set --vault-name "$VAULT" --name firebase-project-id \
+  --value "<firebase-project-id>"
+
+# Base64-encoded, so no shell quoting or line-ending handling can mangle the PEM
+# private key embedded in the JSON. Raw JSON is also accepted by the application.
+az keyvault secret set --vault-name "$VAULT" --name firebase-service-account \
+  --value "$(base64 -w0 firebase-service-account.json)"
+```
+
+> The container app's managed identity already has vault access from step 5b — no
+> additional role assignment is needed.
+
+The `azure` profile reads these via placeholder indirection
+(`firebase.project-id=${firebase.project.id}`), because Spring Cloud Azure resolves a
+requested property by swapping `.` for `-`. This is the same
+`Environment.getProperty()` path the `db.*` settings use; see the comments in
+`application-azure.properties` for why binding `firebase.project-id` directly would not
+work.
+
+### 6b. How roles actually work
+
+The backend **does not trust the `roles` custom claim** for authorization. That claim is a
+snapshot taken when the token was minted, and Firebase's revocation API only invalidates
+*refresh* tokens — an ID token already in the client's hands keeps working for up to an
+hour. Authorization therefore reads `users.role` from PostgreSQL on every request.
+
+The claim is still written (after the database commits) so a frontend can render admin UI
+without an extra round trip. Treat it as advisory: if it disagrees with the database, the
+database wins.
+
+Two consequences worth knowing operationally:
+
+- A role change takes effect on the **next request**, not on the next token refresh.
+- Deleting an account anonymises the row and keeps a tombstone rather than removing it, so
+  a token issued just before the deletion is rejected immediately instead of silently
+  re-provisioning a fresh profile. Only the opaque `firebase_uid` is retained.
+
+### 6c. Running without the Admin SDK
+
+Set `firebase.admin-enabled=false` to skip Admin SDK initialisation entirely. Token
+verification keeps working; only Firebase-side mutations (role assignment, account
+deletion) become unavailable and fail loudly with a 503. This is what CI uses, since no
+credentials exist there.
+
+### 6d. Local development
+
+`docker-compose.yml` provides the local stack. Copy `.env.example` to `.env` first (it is
+gitignored) and set at least `FIREBASE_PROJECT_ID`.
+
+**The usual loop — database in Docker, app from Gradle.** Faster restarts, a debugger, and
+no image rebuild per change:
+
+```bash
+docker compose up -d          # postgres only; `app` is behind a Compose profile
+
+export FIREBASE_PROJECT_ID=<your-dev-firebase-project>
+export FIREBASE_ADMIN_ENABLED=false                                                # optional
+export FIREBASE_SERVICE_ACCOUNT_B64="$(base64 -w0 firebase-service-account.json)"  # optional
+./gradlew :app:bootRun --args='--spring.profiles.active=local'
+```
+
+Note the Gradle path does **not** read `.env` — export the variables in your shell.
+
+**The whole thing in Docker**, when you want to exercise the real container image:
+
+```bash
+docker compose --profile app up --build     # reads .env
+```
+
+Either way: `docker compose down` to stop, `docker compose down -v` to also drop the
+database volume and start from an empty schema.
+
+Without `FIREBASE_SERVICE_ACCOUNT_B64` the Admin SDK falls back to Application Default
+Credentials (`gcloud auth application-default login` or
+`GOOGLE_APPLICATION_CREDENTIALS`). If neither is available, set
+`FIREBASE_ADMIN_ENABLED=false`.
+
+> Every setting in `application-local.properties` is read through an explicit
+> `${ENV_VAR}` placeholder rather than Spring's environment-variable binding. That is
+> deliberate: relaxed binding uppercases and **drops hyphens**, so `firebase.project-id`
+> would have to be set as `FIREBASE_PROJECTID`, while the intuitive `FIREBASE_PROJECT_ID`
+> maps to `firebase.project.id` and silently fails to bind. Naming the variable in the
+> properties file removes the trap.
+
+To call the API manually, sign in through a Firebase client for the same project and pass
+the resulting ID token:
+
+```bash
+curl -H "Authorization: Bearer <firebase-id-token>" http://localhost:8080/api/v1/users/me
+```
+
+The first such call provisions the local user row (just-in-time provisioning); subsequent
+calls return the same profile.
+
+### 6e. Other runtime settings (future work)
+
+The storage account still needs to be wired the same way as the backend grows.

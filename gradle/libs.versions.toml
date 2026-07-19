@@ -1,0 +1,19 @@
+[versions]
+springBoot = "3.5.16"
+springCloudAzure = "6.1.0"
+jooq = "3.19.35"
+firebaseAdmin = "9.9.0"
+archunit = "1.4.1"
+
+[libraries]
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
+spring-cloud-azure-bom = { module = "com.azure.spring:spring-cloud-azure-dependencies", version.ref = "springCloudAzure" }
+
+jooq-meta-extensions = { module = "org.jooq:jooq-meta-extensions", version.ref = "jooq" }
+
+firebase-admin = { module = "com.google.firebase:firebase-admin", version.ref = "firebaseAdmin" }
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+
+[plugins]
+spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
+jooq-codegen = { id = "org.jooq.jooq-codegen-gradle", version.ref = "jooq" }
