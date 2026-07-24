@@ -1,10 +1,6 @@
 package com.packing.backend.api.shared.security;
 
-import java.lang.annotation.Documented;
-import java.lang.annotation.ElementType;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
+import java.lang.annotation.*;
 
 /**
  * Injects the {@link AuthenticatedUser} for the current request into a controller method

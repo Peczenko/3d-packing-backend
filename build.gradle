@@ -18,7 +18,7 @@ plugins {
 // image "ghcr.io/...:" and the push fails.
 // -----------------------------------------------------------------------------
 group = 'com.packing'
-version = '0.0.3-SNAPSHOT'
+version = '0.0.4-SNAPSHOT'
 description = '3d-packing-backend'
 
 subprojects {

@@ -1,5 +1,9 @@
 package com.packing.backend.app.config;
 
+import com.packing.backend.core.file.FileApplicationService;
+import com.packing.backend.core.file.port.out.BinaryStorage;
+import com.packing.backend.core.file.port.out.FileOwnerLookup;
+import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.UserApplicationService;
 import com.packing.backend.core.user.port.out.UserRepository;
@@ -31,6 +35,15 @@ public class UseCaseConfiguration {
                                                          DomainEventPublisher eventPublisher,
                                                          Clock clock) {
         return new UserApplicationService(users, eventPublisher, clock);
+    }
+
+    @Bean
+    public FileApplicationService fileApplicationService(FileRepository files,
+                                                         BinaryStorage storage,
+                                                         FileOwnerLookup ownerLookup,
+                                                         DomainEventPublisher eventPublisher,
+                                                         Clock clock) {
+        return new FileApplicationService(files, storage, ownerLookup, eventPublisher, clock);
     }
 
     /**
