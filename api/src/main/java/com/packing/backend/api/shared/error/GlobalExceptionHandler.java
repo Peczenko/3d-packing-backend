@@ -8,11 +8,7 @@ import com.packing.backend.domain.shared.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
-import org.springframework.http.ProblemDetail;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -83,7 +79,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "You do not have permission to perform this action.", request);
     }
 
-    /** A dependency is down. Distinct from a 5xx caused by our own bug. */
     @ExceptionHandler(ExternalServiceException.class)
     public ProblemDetail handleExternalService(ExternalServiceException e, HttpServletRequest request) {
         log.error("Call to external service '{}' failed", e.service(), e);
@@ -156,7 +151,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem;
     }
 
-    /** {@link WebRequest#getDescription(boolean)} returns {@code uri=/the/path}. */
     private String pathOf(WebRequest request) {
         String description = request.getDescription(false);
         return description.startsWith("uri=") ? description.substring(4) : description;

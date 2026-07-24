@@ -9,14 +9,7 @@ import com.packing.backend.core.user.port.in.UpdateUserProfileUseCase;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
@@ -63,7 +56,6 @@ public class UserController {
                         caller.firebaseUid(), request.username(), request.displayName())));
     }
 
-    /** Deletes both the local profile and the Firebase identity. Not reversible. */
     @DeleteMapping("/me")
     public ResponseEntity<Void> deleteCurrentUser(@CurrentUser AuthenticatedUser caller) {
         deleteUserAccount.deleteAccount(caller.firebaseUid());

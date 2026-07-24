@@ -69,6 +69,12 @@ class ModuleBoundaryTest {
                     "org.jooq..", "jakarta.persistence..", "java.sql..", "com.azure..", "com.google..")
             .because("persistence and cloud details belong in infra");
 
+    @ArchTest
+    static final ArchRule azureSdkStaysInInfra = noClasses()
+            .that().resideOutsideOfPackage(INFRA)
+            .should().dependOnClassesThat().resideInAnyPackage("com.azure..")
+            .because("cloud SDK types must not leak past the driven adapter");
+
     /** Generated jOOQ classes are an implementation detail of the persistence adapter. */
     @ArchTest
     static final ArchRule generatedJooqCodeStaysInInfra = noClasses()

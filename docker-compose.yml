@@ -21,6 +21,21 @@ services:
       retries: 12
       start_period: 10s
 
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.31.0
+    container_name: packing-azurite
+    restart: unless-stopped
+    command: "azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck"
+    ports:
+      - "${AZURITE_BLOB_PORT:-10000}:10000"
+    volumes:
+      - azurite-data:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "10000"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   app:
     profiles: ["app"]
     build:
@@ -30,6 +45,8 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      azurite:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: local
@@ -41,8 +58,13 @@ services:
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
       FIREBASE_SERVICE_ACCOUNT_B64: ${FIREBASE_SERVICE_ACCOUNT_B64:-}
       FIREBASE_ADMIN_ENABLED: ${FIREBASE_ADMIN_ENABLED:-false}
+      # Inside the Compose network the emulator answers to its service name, not localhost.
+      AZURITE_HOST: azurite
+      AZURITE_BLOB_PORT: 10000
+      STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
     ports:
       - "${APP_PORT:-8080}:8080"
 
 volumes:
   postgres-data:
+  azurite-data:

@@ -6,7 +6,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.List;
 
-/** Registers {@link CurrentUserArgumentResolver} with Spring MVC. */
+/**
+ * Registers {@link CurrentUserArgumentResolver} with Spring MVC.
+ */
 @Configuration(proxyBeanMethods = false)
 public class WebSecurityArgumentResolverConfig implements WebMvcConfigurer {
 
