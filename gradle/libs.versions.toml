@@ -1,5 +1,5 @@
 [versions]
-springBoot = "3.5.16"
+springBoot = "4.1.0"
 springCloudAzure = "6.1.0"
 jooq = "3.19.35"
 firebaseAdmin = "9.9.0"
