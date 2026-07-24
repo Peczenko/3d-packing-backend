@@ -25,6 +25,8 @@ dependencies {
     implementation 'com.azure.spring:spring-cloud-azure-starter-keyvault'
     implementation 'com.azure.spring:spring-cloud-azure-starter-storage'
 
+    implementation 'com.azure:azure-storage-blob'
+
     implementation libs.firebase.admin
 
     // Code-generation classpath: build-time only, never on the application classpath.
@@ -45,6 +47,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
+
+    testImplementation 'org.testcontainers:azure'
     testRuntimeOnly 'org.postgresql:postgresql'
 }
 
