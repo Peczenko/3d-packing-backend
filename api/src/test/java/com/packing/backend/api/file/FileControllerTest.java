@@ -1,10 +1,11 @@
 package com.packing.backend.api.file;
 
 import com.packing.backend.core.file.FileView;
-import com.packing.backend.core.file.port.in.DeleteFileUseCase;
-import com.packing.backend.core.file.port.in.DownloadFileUseCase;
-import com.packing.backend.core.file.port.in.ListFilesUseCase;
-import com.packing.backend.core.file.port.in.UploadFileUseCase;
+import com.packing.backend.core.file.FileApplicationService;
+import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
+import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
+import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
+import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.shared.ContentSource;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.domain.file.FileStatus;
@@ -54,13 +55,7 @@ class FileControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private UploadFileUseCase uploadFile;
-    @MockitoBean
-    private ListFilesUseCase listFiles;
-    @MockitoBean
-    private DownloadFileUseCase downloadFile;
-    @MockitoBean
-    private DeleteFileUseCase deleteFile;
+    private FileApplicationService files;
 
     @AfterEach
     void clearSecurityContext() {
@@ -93,7 +88,7 @@ class FileControllerTest {
     void uploadReturns201WithTheStoredFile() throws Exception {
         authenticate();
         UUID id = UUID.randomUUID();
-        when(uploadFile.upload(any())).thenReturn(view(id));
+        when(files.upload(any())).thenReturn(view(id));
 
         mockMvc.perform(multipart("/api/v1/files").file(part(BYTES)))
                 .andExpect(status().isCreated())
@@ -107,14 +102,14 @@ class FileControllerTest {
     @Test
     void uploadPassesTheCallersUidAndTheOriginalFilename() throws Exception {
         authenticate();
-        when(uploadFile.upload(any())).thenReturn(view(UUID.randomUUID()));
-        ArgumentCaptor<UploadFileUseCase.UploadFileCommand> command =
-                ArgumentCaptor.forClass(UploadFileUseCase.UploadFileCommand.class);
+        when(files.upload(any())).thenReturn(view(UUID.randomUUID()));
+        ArgumentCaptor<UploadFileCommand> command =
+                ArgumentCaptor.forClass(UploadFileCommand.class);
 
         mockMvc.perform(multipart("/api/v1/files").file(part(BYTES)))
                 .andExpect(status().isCreated());
 
-        verify(uploadFile).upload(command.capture());
+        verify(files).upload(command.capture());
         assertThat(command.getValue().firebaseUid()).isEqualTo(UID);
         assertThat(command.getValue().originalFilename()).isEqualTo("bracket.stl");
         assertThat(command.getValue().declaredSizeBytes()).isEqualTo(BYTES.length);
@@ -123,14 +118,14 @@ class FileControllerTest {
     @Test
     void theContentSourceCanBeOpenedTwiceAndYieldsTheSameBytes() throws Exception {
         authenticate();
-        when(uploadFile.upload(any())).thenReturn(view(UUID.randomUUID()));
-        ArgumentCaptor<UploadFileUseCase.UploadFileCommand> command =
-                ArgumentCaptor.forClass(UploadFileUseCase.UploadFileCommand.class);
+        when(files.upload(any())).thenReturn(view(UUID.randomUUID()));
+        ArgumentCaptor<UploadFileCommand> command =
+                ArgumentCaptor.forClass(UploadFileCommand.class);
 
         mockMvc.perform(multipart("/api/v1/files").file(part(BYTES)))
                 .andExpect(status().isCreated());
 
-        verify(uploadFile).upload(command.capture());
+        verify(files).upload(command.capture());
         ContentSource source = command.getValue().content();
         try (InputStream first = source.open(); InputStream second = source.open()) {
             assertThat(first.readAllBytes()).isEqualTo(BYTES);
@@ -149,7 +144,7 @@ class FileControllerTest {
     @Test
     void uploadSurfacesAnUnsupportedFormatAs422() throws Exception {
         authenticate();
-        when(uploadFile.upload(any()))
+        when(files.upload(any()))
                 .thenThrow(new DomainRuleViolationException("Unsupported 3D model format 'txt'"));
 
         mockMvc.perform(multipart("/api/v1/files").file(part(BYTES)))
@@ -160,7 +155,7 @@ class FileControllerTest {
     @Test
     void listReturnsAPageOfTheCallersFiles() throws Exception {
         authenticate();
-        when(listFiles.listFiles(any()))
+        when(files.listFiles(any()))
                 .thenReturn(new Page<>(List.of(view(UUID.randomUUID())), 0, 20, 1L));
 
         mockMvc.perform(get("/api/v1/files"))
@@ -175,13 +170,13 @@ class FileControllerTest {
     @Test
     void listDefaultsToTheFirstPage() throws Exception {
         authenticate();
-        when(listFiles.listFiles(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
-        ArgumentCaptor<ListFilesUseCase.ListFilesCommand> command =
-                ArgumentCaptor.forClass(ListFilesUseCase.ListFilesCommand.class);
+        when(files.listFiles(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListFilesCommand> command =
+                ArgumentCaptor.forClass(ListFilesCommand.class);
 
         mockMvc.perform(get("/api/v1/files")).andExpect(status().isOk());
 
-        verify(listFiles).listFiles(command.capture());
+        verify(files).listFiles(command.capture());
         assertThat(command.getValue().page()).isZero();
         assertThat(command.getValue().size()).isEqualTo(20);
     }
@@ -206,8 +201,8 @@ class FileControllerTest {
     void downloadRedirectsToTheTemporaryUrlAndForbidsCaching() throws Exception {
         authenticate();
         UUID id = UUID.randomUUID();
-        when(downloadFile.prepareDownload(any())).thenReturn(
-                new DownloadFileUseCase.FileDownload(
+        when(files.prepareDownload(any())).thenReturn(
+                new BinaryStorage.TemporaryUrl(
                         URI.create("https://acct.blob.core.windows.net/models/files/x?sig=y"),
                         Instant.parse("2026-07-19T10:20:30Z")));
 
@@ -222,7 +217,7 @@ class FileControllerTest {
     @Test
     void downloadOfAnUnreachableFileIs404() throws Exception {
         authenticate();
-        when(downloadFile.prepareDownload(any()))
+        when(files.prepareDownload(any()))
                 .thenThrow(new StoredFileNotFoundException("No file with id x"));
 
         mockMvc.perform(get("/api/v1/files/{id}/content", UUID.randomUUID()))
@@ -246,9 +241,9 @@ class FileControllerTest {
         mockMvc.perform(delete("/api/v1/files/{id}", id))
                 .andExpect(status().isNoContent());
 
-        ArgumentCaptor<DeleteFileUseCase.DeleteFileCommand> command =
-                ArgumentCaptor.forClass(DeleteFileUseCase.DeleteFileCommand.class);
-        verify(deleteFile).deleteFile(command.capture());
+        ArgumentCaptor<DeleteFileCommand> command =
+                ArgumentCaptor.forClass(DeleteFileCommand.class);
+        verify(files).deleteFile(command.capture());
         assertThat(command.getValue().firebaseUid()).isEqualTo(UID);
         assertThat(command.getValue().fileId()).isEqualTo(id);
     }
@@ -257,7 +252,7 @@ class FileControllerTest {
     void deleteOfAnUnreachableFileIs404() throws Exception {
         authenticate();
         org.mockito.Mockito.doThrow(new StoredFileNotFoundException("No file with id x"))
-                .when(deleteFile).deleteFile(any());
+                .when(files).deleteFile(any());
 
         mockMvc.perform(delete("/api/v1/files/{id}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());

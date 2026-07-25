@@ -11,6 +11,7 @@ import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.domain.user.UsernameAlreadyTakenException;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
+import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -28,13 +29,11 @@ import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
  * services in {@code :core}, and this adapter always runs inside one of theirs.
  */
 @Repository
+@RequiredArgsConstructor
 public class JooqUserRepository implements UserRepository {
 
     private final DSLContext dsl;
 
-    public JooqUserRepository(DSLContext dsl) {
-        this.dsl = dsl;
-    }
 
     /**
      * Upsert on the primary key, guarded by the aggregate's version.

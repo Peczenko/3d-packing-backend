@@ -1,7 +1,6 @@
 package com.packing.backend.infra.firebase;
 
 import com.packing.backend.core.shared.ExternalServiceException;
-import com.packing.backend.core.user.port.out.FirebaseUserDirectory;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.UserRole;
 

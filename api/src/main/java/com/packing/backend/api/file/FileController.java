@@ -2,13 +2,16 @@ package com.packing.backend.api.file;
 
 import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
-import com.packing.backend.core.file.port.in.DeleteFileUseCase;
-import com.packing.backend.core.file.port.in.DownloadFileUseCase;
-import com.packing.backend.core.file.port.in.ListFilesUseCase;
-import com.packing.backend.core.file.port.in.UploadFileUseCase;
+import com.packing.backend.core.file.FileApplicationService;
+import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
+import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
+import com.packing.backend.core.file.FileApplicationService.PrepareDownloadCommand;
+import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
+import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,22 +20,10 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/files")
+@RequiredArgsConstructor
 public class FileController {
 
-    private final UploadFileUseCase uploadFile;
-    private final ListFilesUseCase listFiles;
-    private final DownloadFileUseCase downloadFile;
-    private final DeleteFileUseCase deleteFile;
-
-    public FileController(UploadFileUseCase uploadFile,
-                          ListFilesUseCase listFiles,
-                          DownloadFileUseCase downloadFile,
-                          DeleteFileUseCase deleteFile) {
-        this.uploadFile = uploadFile;
-        this.listFiles = listFiles;
-        this.downloadFile = downloadFile;
-        this.deleteFile = deleteFile;
-    }
+    private final FileApplicationService files;
 
     /**
      * {@code MultipartFile::getInputStream} is handed over as the content source because it
@@ -45,7 +36,7 @@ public class FileController {
         if (file.isEmpty()) {
             throw new DomainRuleViolationException("Uploaded file is empty");
         }
-        return FileResponse.from(uploadFile.upload(new UploadFileUseCase.UploadFileCommand(
+        return FileResponse.from(files.upload(new UploadFileCommand(
                 caller.firebaseUid(),
                 file.getOriginalFilename(),
                 file.getSize(),
@@ -56,9 +47,9 @@ public class FileController {
     public FilePageResponse list(
             @CurrentUser AuthenticatedUser caller,
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
-        return FilePageResponse.from(listFiles.listFiles(
-                new ListFilesUseCase.ListFilesCommand(caller.firebaseUid(), page, size)));
+            @RequestParam(defaultValue = "20") @Min(1) @Max(ListFilesCommand.MAX_SIZE) int size) {
+        return FilePageResponse.from(files.listFiles(
+                new ListFilesCommand(caller.firebaseUid(), page, size)));
     }
 
     /**
@@ -68,8 +59,8 @@ public class FileController {
     @GetMapping("/{fileId}/content")
     public ResponseEntity<Void> download(@CurrentUser AuthenticatedUser caller,
                                          @PathVariable UUID fileId) {
-        DownloadFileUseCase.FileDownload download = downloadFile.prepareDownload(
-                new DownloadFileUseCase.PrepareDownloadCommand(caller.firebaseUid(), fileId));
+        BinaryStorage.TemporaryUrl download = files.prepareDownload(
+                new PrepareDownloadCommand(caller.firebaseUid(), fileId));
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(download.url())
                 .cacheControl(CacheControl.noStore())
@@ -80,8 +71,7 @@ public class FileController {
     @DeleteMapping("/{fileId}")
     public ResponseEntity<Void> delete(@CurrentUser AuthenticatedUser caller,
                                        @PathVariable UUID fileId) {
-        deleteFile.deleteFile(
-                new DeleteFileUseCase.DeleteFileCommand(caller.firebaseUid(), fileId));
+        files.deleteFile(new DeleteFileCommand(caller.firebaseUid(), fileId));
         return ResponseEntity.noContent().build();
     }
 }

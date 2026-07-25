@@ -65,6 +65,33 @@ services:
     ports:
       - "${APP_PORT:-8080}:8080"
 
+  storage-ui:
+    profiles: ["tools"]
+    image: rclone/rclone:latest
+    container_name: packing-storage-ui
+    restart: unless-stopped
+    depends_on:
+      azurite:
+        condition: service_healthy
+    environment:
+      RCLONE_CONFIG_AZURITE_TYPE: azureblob
+      RCLONE_CONFIG_AZURITE_ACCOUNT: devstoreaccount1
+      RCLONE_CONFIG_AZURITE_KEY: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+      RCLONE_CONFIG_AZURITE_ENDPOINT: http://azurite:10000/devstoreaccount1
+    entrypoint:
+      - rclone
+      - rcd
+      - --rc-web-gui
+      - --rc-web-gui-no-open-browser
+      - --rc-addr=:5572
+      - --rc-user=${STORAGE_UI_USER:-admin}
+      - --rc-pass=${STORAGE_UI_PASSWORD:-admin}
+    volumes:
+      - rclone-cache:/root/.cache/rclone
+    ports:
+      - "${STORAGE_UI_PORT:-5572}:5572"
+
 volumes:
   postgres-data:
   azurite-data:
+  rclone-cache:

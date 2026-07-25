@@ -6,11 +6,6 @@ import java.lang.annotation.*;
  * Injects the {@link AuthenticatedUser} for the current request into a controller method
  * parameter.
  *
- * <pre>{@code
- * @GetMapping("/me")
- * UserResponse me(@CurrentUser AuthenticatedUser caller) { ... }
- * }</pre>
- *
  * @see CurrentUserArgumentResolver
  */
 @Target(ElementType.PARAMETER)

@@ -17,14 +17,6 @@ public record UserId(UUID value) {
         return new UserId(UUID.randomUUID());
     }
 
-    public static UserId of(String value) {
-        try {
-            return new UserId(UUID.fromString(value));
-        } catch (IllegalArgumentException e) {
-            throw new DomainRuleViolationException("User id is not a valid UUID: " + value);
-        }
-    }
-
     @Override
     public String toString() {
         return value.toString();

@@ -2,6 +2,7 @@ package com.packing.backend.infra.shared;
 
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.shared.DomainEvent;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
@@ -14,13 +15,11 @@ import java.util.Collection;
  * into {@code @TransactionalEventListener} to run only after a successful commit.
  */
 @Component
+@RequiredArgsConstructor
 public class SpringDomainEventPublisher implements DomainEventPublisher {
 
     private final ApplicationEventPublisher delegate;
 
-    public SpringDomainEventPublisher(ApplicationEventPublisher delegate) {
-        this.delegate = delegate;
-    }
 
     @Override
     public void publishAll(Collection<? extends DomainEvent> events) {

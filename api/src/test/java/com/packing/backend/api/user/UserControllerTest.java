@@ -1,10 +1,10 @@
 package com.packing.backend.api.user;
 
+import com.packing.backend.core.user.UserApplicationService;
+import com.packing.backend.core.user.UserApplicationService.AssignUserRoleCommand;
+import com.packing.backend.core.user.UserApplicationService.ResolveCurrentUserCommand;
+import com.packing.backend.core.user.UserApplicationService.UpdateUserProfileCommand;
 import com.packing.backend.core.user.UserView;
-import com.packing.backend.core.user.port.in.AssignUserRoleUseCase;
-import com.packing.backend.core.user.port.in.DeleteUserAccountUseCase;
-import com.packing.backend.core.user.port.in.ResolveCurrentUserUseCase;
-import com.packing.backend.core.user.port.in.UpdateUserProfileUseCase;
 import com.packing.backend.domain.user.UserRole;
 import com.packing.backend.domain.user.UserStatus;
 import com.packing.backend.domain.user.Username;
@@ -52,13 +52,7 @@ class UserControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private ResolveCurrentUserUseCase resolveCurrentUser;
-    @MockitoBean
-    private UpdateUserProfileUseCase updateUserProfile;
-    @MockitoBean
-    private DeleteUserAccountUseCase deleteUserAccount;
-    @MockitoBean
-    private AssignUserRoleUseCase assignUserRole;
+    private UserApplicationService users;
 
     @AfterEach
     void clearSecurityContext() {
@@ -85,7 +79,7 @@ class UserControllerTest {
     @Test
     void getMeReturnsTheResolvedProfile() throws Exception {
         authenticateAs("USER");
-        when(resolveCurrentUser.resolveCurrentUser(any())).thenReturn(view());
+        when(users.resolveCurrentUser(any())).thenReturn(view());
 
         mockMvc.perform(get("/api/v1/users/me"))
                 .andExpect(status().isOk())
@@ -99,27 +93,27 @@ class UserControllerTest {
     @Test
     void getMePassesTheTokenClaimsToTheUseCase() throws Exception {
         authenticateAs("USER");
-        when(resolveCurrentUser.resolveCurrentUser(any())).thenReturn(view());
+        when(users.resolveCurrentUser(any())).thenReturn(view());
 
         mockMvc.perform(get("/api/v1/users/me")).andExpect(status().isOk());
 
-        verify(resolveCurrentUser).resolveCurrentUser(
-                new ResolveCurrentUserUseCase.ResolveCurrentUserCommand(
+        verify(users).resolveCurrentUser(
+                new ResolveCurrentUserCommand(
                         UID, "ada@example.com", "Ada Lovelace"));
     }
 
     @Test
     void patchMeUpdatesTheProfile() throws Exception {
         authenticateAs("USER");
-        when(updateUserProfile.updateProfile(any())).thenReturn(view());
+        when(users.updateProfile(any())).thenReturn(view());
 
         mockMvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"ada.l\",\"displayName\":\"Ada L.\"}"))
                 .andExpect(status().isOk());
 
-        verify(updateUserProfile).updateProfile(
-                new UpdateUserProfileUseCase.UpdateUserProfileCommand(UID, "ada.l", "Ada L."));
+        verify(users).updateProfile(
+                new UpdateUserProfileCommand(UID, "ada.l", "Ada L."));
     }
 
     @Test
@@ -137,7 +131,7 @@ class UserControllerTest {
     @Test
     void aTakenUsernameIsReportedAsAConflict() throws Exception {
         authenticateAs("USER");
-        when(updateUserProfile.updateProfile(any()))
+        when(users.updateProfile(any()))
                 .thenThrow(new UsernameAlreadyTakenException(new Username("taken")));
 
         mockMvc.perform(patch("/api/v1/users/me")
@@ -153,13 +147,13 @@ class UserControllerTest {
 
         mockMvc.perform(delete("/api/v1/users/me")).andExpect(status().isNoContent());
 
-        verify(deleteUserAccount).deleteAccount(UID);
+        verify(users).deleteAccount(UID);
     }
 
     @Test
     void assigningARoleIsAllowedForAdmins() throws Exception {
         authenticateAs("ADMIN");
-        when(assignUserRole.assignRole(any())).thenReturn(view());
+        when(users.assignRole(any())).thenReturn(view());
         UUID target = UUID.randomUUID();
 
         mockMvc.perform(put("/api/v1/users/{id}/role", target)
@@ -167,8 +161,8 @@ class UserControllerTest {
                         .content("{\"role\":\"ADMIN\"}"))
                 .andExpect(status().isOk());
 
-        verify(assignUserRole).assignRole(
-                new AssignUserRoleUseCase.AssignUserRoleCommand(target, UserRole.ADMIN));
+        verify(users).assignRole(
+                new AssignUserRoleCommand(target, UserRole.ADMIN));
     }
 
     @Test
@@ -232,7 +226,7 @@ class UserControllerTest {
     void aNonJwtPrincipalIsAConfigurationErrorNotABadRequest() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("someone", "n/a", List.of()));
-        when(resolveCurrentUser.resolveCurrentUser(any())).thenReturn(view());
+        when(users.resolveCurrentUser(any())).thenReturn(view());
 
         mockMvc.perform(get("/api/v1/users/me"))
                 .andExpect(status().isInternalServerError());

@@ -12,6 +12,7 @@ import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.domain.file.StorageKey;
+import lombok.RequiredArgsConstructor;
 
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -22,6 +23,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+@RequiredArgsConstructor
 public class AzureBlobBinaryStorage implements BinaryStorage {
 
     private static final String SERVICE = "azure-blob-storage";
@@ -36,14 +38,6 @@ public class AzureBlobBinaryStorage implements BinaryStorage {
     private final BlobSasIssuer sasIssuer;
     private final BlobStorageProperties properties;
     private final AtomicBoolean containerEnsured = new AtomicBoolean();
-
-    public AzureBlobBinaryStorage(BlobServiceClient serviceClient,
-                                  BlobSasIssuer sasIssuer,
-                                  BlobStorageProperties properties) {
-        this.serviceClient = serviceClient;
-        this.sasIssuer = sasIssuer;
-        this.properties = properties;
-    }
 
     @Override
     public void write(StorageKey key, InputStream content, long contentLength, String contentType) {
