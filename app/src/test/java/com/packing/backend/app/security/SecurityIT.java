@@ -38,6 +38,14 @@ class SecurityIT {
     }
 
     @Test
+    void infoExposesTheBuildVersionWithoutAToken() throws Exception {
+        mockMvc.perform(get("/actuator/info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.build.version").exists())
+                .andExpect(jsonPath("$.build.group").value("com.packing"));
+    }
+
+    @Test
     void theApiRejectsRequestsWithoutAToken() throws Exception {
         mockMvc.perform(get("/api/v1/users/me")).andExpect(status().isUnauthorized());
     }
