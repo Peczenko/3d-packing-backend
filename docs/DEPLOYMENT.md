@@ -11,18 +11,37 @@ deployment to **Azure Container Apps**. The pipelines are already committed; dep
 | Branch    | Purpose                                                                 |
 |-----------|-------------------------------------------------------------------------|
 | `dev`     | Integration branch (default). Feature branches are PR'd here.            |
-| `master`  | Release branch. Merging `dev → master` cuts a release.                   |
+| `master`  | Release branch. Staging area for the next release; the release PR cuts it. |
+
+Versioning is fully automated by [Release Please](https://github.com/googleapis/release-please).
+**Nobody edits `version` in `build.gradle` by hand** — the next version is derived from
+the Conventional Commit prefixes that have landed since the last tag (`fix:` → patch,
+`feat:` → minor, `!`/`BREAKING CHANGE:` → major).
 
 Flow:
 
 1. Branch off `dev`, open a PR back into `dev` → **CI** (`ci.yml`) runs `./gradlew build`.
-2. When ready to release, bump `version` in `build.gradle` (e.g. `0.0.1-SNAPSHOT` →
-   `0.0.2-SNAPSHOT`) on `dev`, then open a PR `dev → master`.
-3. On merge to `master`:
-   - **`release.yml`** creates tag `vX.Y.Z` + a GitHub Release (notes auto-generated).
-     The `-SNAPSHOT` suffix is stripped, so `0.0.2-SNAPSHOT` releases as `v0.0.2`.
-     Re-runs at the same version are skipped, so bump the version to release again.
-   - **`cd.yml`** builds the Docker image, pushes it to GHCR, and (if enabled) deploys.
+   Give the PR a Conventional Commit title (`feat: …`, `fix: …`); squash-merging into
+   `dev` is fine, and that title becomes the changelog line.
+2. When ready to release, open a PR `dev → master` and merge it with a **merge commit**.
+   *Never squash this one* — a squash collapses dev's history into a single commit and
+   the release notes then list only the release PR itself, hiding every feature. The
+   `master` ruleset pins the allowed merge method to `merge` to prevent this.
+3. Merging to `master` does **not** release. `release.yml` runs Release Please, which
+   opens (or updates) a **`chore: release vX.Y.Z`** PR containing the `build.gradle`
+   version bump and the new `CHANGELOG.md` section, grouped by type with links to
+   every PR included.
+4. **Merging that release PR is the release.** It creates tag `vX.Y.Z` and the GitHub
+   Release, then chains into `cd.yml`, which builds the image from the tagged commit,
+   pushes it to GHCR, and (if enabled) deploys.
+5. Merge `master` back into `dev` so `dev` picks up the bump and the changelog.
+
+Because the image is built only when a tag is created — and its version comes from the
+tag, not from a grep of `build.gradle` — an already-published `ghcr.io/…:X.Y.Z` can no
+longer be silently overwritten by an ordinary push to `master`.
+
+To redeploy an existing release without changing anything, run the **CD** workflow via
+`workflow_dispatch` and give it the tag (e.g. `v0.0.5`).
 
 ---
 

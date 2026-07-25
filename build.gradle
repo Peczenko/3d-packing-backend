@@ -10,15 +10,8 @@ plugins {
     alias(libs.plugins.jooq.codegen) apply false
 }
 
-// -----------------------------------------------------------------------------
-// DO NOT INDENT OR MOVE THE `version` LINE.
-// .github/workflows/cd.yml extracts the release version with
-//     grep -oP "^version\s*=\s*'\K[^']+" build.gradle
-// Moving it inside subprojects{}/allprojects{} breaks the ^ anchor; CD then tags the
-// image "ghcr.io/...:" and the push fails.
-// -----------------------------------------------------------------------------
 group = 'com.packing'
-version = '0.0.4-SNAPSHOT'
+version = '0.0.4' // x-release-please-version
 description = '3d-packing-backend'
 
 subprojects {
