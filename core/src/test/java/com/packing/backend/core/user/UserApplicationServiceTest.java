@@ -1,9 +1,9 @@
 package com.packing.backend.core.user;
 
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
-import com.packing.backend.core.user.port.in.AssignUserRoleUseCase.AssignUserRoleCommand;
-import com.packing.backend.core.user.port.in.ResolveCurrentUserUseCase.ResolveCurrentUserCommand;
-import com.packing.backend.core.user.port.in.UpdateUserProfileUseCase.UpdateUserProfileCommand;
+import com.packing.backend.core.user.UserApplicationService.AssignUserRoleCommand;
+import com.packing.backend.core.user.UserApplicationService.ResolveCurrentUserCommand;
+import com.packing.backend.core.user.UserApplicationService.UpdateUserProfileCommand;
 import com.packing.backend.core.user.port.out.UserRepository;
 import com.packing.backend.domain.shared.DomainEvent;
 import com.packing.backend.domain.shared.DomainRuleViolationException;

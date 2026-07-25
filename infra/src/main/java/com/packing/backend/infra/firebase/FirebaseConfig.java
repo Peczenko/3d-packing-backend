@@ -3,7 +3,6 @@ package com.packing.backend.infra.firebase;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.FirebaseAuth;
-import com.packing.backend.core.user.port.out.FirebaseUserDirectory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,7 +30,7 @@ public class FirebaseConfig {
     @Bean(destroyMethod = "")
     @ConditionalOnProperty(prefix = "firebase", name = ADMIN_ENABLED,
             havingValue = "true", matchIfMissing = true)
-    public FirebaseApp firebaseApp(FirebaseProperties properties) throws IOException {
+    public FirebaseApp firebaseApp(FirebaseProperties properties) {
         // FirebaseApp keeps a static registry, so initialising twice in one JVM throws.
         // Reuse whatever is already there — again, test contexts.
         return FirebaseApp.getApps().stream()

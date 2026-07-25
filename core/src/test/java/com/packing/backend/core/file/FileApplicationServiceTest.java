@@ -1,10 +1,9 @@
 package com.packing.backend.core.file;
 
-import com.packing.backend.core.file.port.in.DeleteFileUseCase.DeleteFileCommand;
-import com.packing.backend.core.file.port.in.DownloadFileUseCase.FileDownload;
-import com.packing.backend.core.file.port.in.DownloadFileUseCase.PrepareDownloadCommand;
-import com.packing.backend.core.file.port.in.ListFilesUseCase.ListFilesCommand;
-import com.packing.backend.core.file.port.in.UploadFileUseCase.UploadFileCommand;
+import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
+import com.packing.backend.core.file.FileApplicationService.PrepareDownloadCommand;
+import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
+import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.file.port.out.FileOwnerLookup;
 import com.packing.backend.core.file.port.out.FileRepository;
@@ -217,7 +216,7 @@ class FileApplicationServiceTest {
         when(storage.temporaryReadUrl(file.storageKey(), "cube.stl", "model/stl"))
                 .thenReturn(new BinaryStorage.TemporaryUrl(URI.create("https://blob/cube?sig=x"), expiry));
 
-        FileDownload download = service.prepareDownload(
+        BinaryStorage.TemporaryUrl download = service.prepareDownload(
                 new PrepareDownloadCommand(UID, id.value()));
 
         assertThat(download.url()).isEqualTo(URI.create("https://blob/cube?sig=x"));

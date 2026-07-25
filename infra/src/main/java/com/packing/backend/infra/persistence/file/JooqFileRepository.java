@@ -8,6 +8,7 @@ import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
+import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -23,13 +24,11 @@ import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
  * transactional, so a save on the upload path commits on its own — that is intended.
  */
 @Repository
+@RequiredArgsConstructor
 public class JooqFileRepository implements FileRepository {
 
     private final DSLContext dsl;
 
-    public JooqFileRepository(DSLContext dsl) {
-        this.dsl = dsl;
-    }
 
     /**
      * Upsert on the primary key, guarded by the aggregate's version.

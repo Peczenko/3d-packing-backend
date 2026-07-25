@@ -4,11 +4,11 @@ import com.google.firebase.auth.AuthErrorCode;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.packing.backend.core.shared.ExternalServiceException;
-import com.packing.backend.core.user.port.out.FirebaseUserDirectory;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.UserRole;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.Map;
@@ -18,6 +18,8 @@ import java.util.Map;
  * is translated into {@link ExternalServiceException} so that nothing above {@code :infra}
  * has to know Firebase exists.
  */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
+@Slf4j
 class FirebaseAdminUserDirectory implements FirebaseUserDirectory {
 
     /**
@@ -26,13 +28,7 @@ class FirebaseAdminUserDirectory implements FirebaseUserDirectory {
      */
     static final String ROLES_CLAIM = "roles";
 
-    private static final Logger log = LoggerFactory.getLogger(FirebaseAdminUserDirectory.class);
-
     private final FirebaseAuth firebaseAuth;
-
-    FirebaseAdminUserDirectory(FirebaseAuth firebaseAuth) {
-        this.firebaseAuth = firebaseAuth;
-    }
 
     @Override
     public void assignRole(FirebaseUid uid, UserRole role) {
