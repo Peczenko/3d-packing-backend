@@ -15,9 +15,9 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
  */
 @SpringBootApplication(scanBasePackages = "com.packing.backend")
 @ConfigurationPropertiesScan("com.packing.backend")
-public class Application {
+public class PackingBackend {
 
     public static void main(String[] args) {
-        SpringApplication.run(Application.class, args);
+        SpringApplication.run(PackingBackend.class, args);
     }
 }

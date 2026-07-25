@@ -1,41 +1,40 @@
 name: Release
 
-# Merging dev into master cuts a release: a vX.Y.Z tag + GitHub Release is
-# created from the version in build.gradle. Bump that version before releasing
-# again; re-runs at the same version are skipped (idempotent).
 on:
   push:
     branches: [master]
 
 permissions:
   contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-master
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Tag & GitHub Release
+  release-please:
+    name: Maintain release PR / cut release
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: googleapis/release-please-action@v4
+        id: release
         with:
-          fetch-depth: 0
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
 
-      - name: Resolve version from build.gradle
-        id: ver
-        run: |
-          VERSION=$(grep -oP "^version\s*=\s*'\K[^']+" build.gradle | sed 's/-SNAPSHOT//')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: $VERSION"
-
-      - name: Create release if the tag does not exist
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "Release v$VERSION already exists — skipping."
-          else
-            gh release create "v$VERSION" \
-              --target master \
-              --title "v$VERSION" \
-              --generate-notes
-          fi
+  publish:
+    name: Publish & deploy
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    uses: ./.github/workflows/cd.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag }}
+    secrets: inherit

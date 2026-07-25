@@ -1,48 +1,31 @@
 package com.packing.backend.core.user;
 
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
-import com.packing.backend.core.user.port.in.AssignUserRoleUseCase;
-import com.packing.backend.core.user.port.in.DeleteUserAccountUseCase;
 import com.packing.backend.core.user.port.in.LoadUserAuthorizationUseCase;
-import com.packing.backend.core.user.port.in.ResolveCurrentUserUseCase;
-import com.packing.backend.core.user.port.in.UpdateUserProfileUseCase;
 import com.packing.backend.core.user.port.out.UserRepository;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.user.Email;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.UserId;
+import com.packing.backend.domain.user.UserRole;
 import com.packing.backend.domain.user.UserNotFoundException;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.domain.user.UsernameAlreadyTakenException;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
-/**
- * Orchestrates the user use cases. Business rules live in {@link User}; this class only
- * sequences repository calls and event publication.
- *
- * <p>It deliberately makes <em>no</em> calls to Firebase. Anything that mutates
- * Firebase-side state is driven by a domain event handled after the database commits, so
- * that a rollback can never leave PostgreSQL and Firebase disagreeing about a role — the
- * two systems cannot participate in one transaction, and a failed commit must not leave
- * an elevated claim behind.
- *
- * <p>This is a plain class — no {@code @Service}, no {@code @Component}. It is registered
- * as a bean from {@code :app}. The single Spring import is {@code @Transactional}, a
- * documented exception recorded in {@code CLAUDE.md}.
- */
+
+@Service
 @Transactional
-public class UserApplicationService implements
-        ResolveCurrentUserUseCase,
-        UpdateUserProfileUseCase,
-        DeleteUserAccountUseCase,
-        AssignUserRoleUseCase,
-        LoadUserAuthorizationUseCase {
+@RequiredArgsConstructor
+public class UserApplicationService implements LoadUserAuthorizationUseCase {
 
     /**
      * How many sequential suffixes to try before giving up on a readable username. Past
@@ -54,14 +37,6 @@ public class UserApplicationService implements
     private final UserRepository users;
     private final DomainEventPublisher eventPublisher;
     private final Clock clock;
-
-    public UserApplicationService(UserRepository users,
-                                  DomainEventPublisher eventPublisher,
-                                  Clock clock) {
-        this.users = Objects.requireNonNull(users, "users");
-        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
-        this.clock = Objects.requireNonNull(clock, "clock");
-    }
 
     @Override
     @Transactional(readOnly = true)
@@ -76,7 +51,6 @@ public class UserApplicationService implements
      *
      * <p>The email is refreshed on every call because Firebase, not this system, owns it.
      */
-    @Override
     public UserView resolveCurrentUser(ResolveCurrentUserCommand command) {
         Instant now = clock.instant();
         FirebaseUid firebaseUid = new FirebaseUid(command.firebaseUid());
@@ -108,7 +82,6 @@ public class UserApplicationService implements
         return UserView.from(user);
     }
 
-    @Override
     public UserView updateProfile(UpdateUserProfileCommand command) {
         Instant now = clock.instant();
         User user = requireByFirebaseUid(new FirebaseUid(command.firebaseUid()));
@@ -133,7 +106,6 @@ public class UserApplicationService implements
      * issued before it stays cryptographically valid for up to an hour, and the
      * authorisation lookup rejects it on the strength of this row.
      */
-    @Override
     public void deleteAccount(String firebaseUid) {
         Instant now = clock.instant();
         User user = requireByFirebaseUid(new FirebaseUid(firebaseUid));
@@ -141,7 +113,6 @@ public class UserApplicationService implements
         saveAndPublish(user);
     }
 
-    @Override
     public UserView assignRole(AssignUserRoleCommand command) {
         Instant now = clock.instant();
         UserId userId = new UserId(command.userId());
@@ -205,5 +176,14 @@ public class UserApplicationService implements
         }
         throw new IllegalStateException(
                 "Could not derive a username for Firebase uid " + firebaseUid);
+    }
+
+    public record ResolveCurrentUserCommand(String firebaseUid, String email, String displayName) {
+    }
+
+    public record UpdateUserProfileCommand(String firebaseUid, String username, String displayName) {
+    }
+
+    public record AssignUserRoleCommand(UUID userId, UserRole role) {
     }
 }

@@ -1,9 +1,5 @@
 package com.packing.backend.core.file;
 
-import com.packing.backend.core.file.port.in.DeleteFileUseCase;
-import com.packing.backend.core.file.port.in.DownloadFileUseCase;
-import com.packing.backend.core.file.port.in.ListFilesUseCase;
-import com.packing.backend.core.file.port.in.UploadFileUseCase;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.file.port.out.FileOwnerLookup;
 import com.packing.backend.core.file.port.out.FileRepository;
@@ -20,6 +16,8 @@ import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.UserNotFoundException;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
@@ -28,17 +26,13 @@ import java.io.UncheckedIOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
-import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 
-public class FileApplicationService implements
-        UploadFileUseCase,
-        DownloadFileUseCase,
-        ListFilesUseCase,
-        DeleteFileUseCase {
+@Service
+@RequiredArgsConstructor
+public class FileApplicationService {
 
     private static final String DIGEST_ALGORITHM = "SHA-256";
     private static final int DIGEST_BUFFER_BYTES = 8192;
@@ -48,18 +42,6 @@ public class FileApplicationService implements
     private final FileOwnerLookup ownerLookup;
     private final DomainEventPublisher eventPublisher;
     private final Clock clock;
-
-    public FileApplicationService(FileRepository files,
-                                  BinaryStorage storage,
-                                  FileOwnerLookup ownerLookup,
-                                  DomainEventPublisher eventPublisher,
-                                  Clock clock) {
-        this.files = Objects.requireNonNull(files, "files");
-        this.storage = Objects.requireNonNull(storage, "storage");
-        this.ownerLookup = Objects.requireNonNull(ownerLookup, "ownerLookup");
-        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
-        this.clock = Objects.requireNonNull(clock, "clock");
-    }
 
     /**
      * Not transactional: the blob write can move a hundred megabytes over the network, and
@@ -72,7 +54,6 @@ public class FileApplicationService implements
      * {@code docs/repo-scalability-audit.md}); the {@code files/{uuid}} key layout keeps a
      * future reconciliation sweep to a set difference against {@code storage_key}.
      */
-    @Override
     public FileView upload(UploadFileCommand command) {
         UserId owner = requireActiveOwner(command.firebaseUid());
         FileName name = new FileName(command.originalFilename());
@@ -95,18 +76,16 @@ public class FileApplicationService implements
         return FileView.from(file);
     }
 
-    @Override
+    /** The returned URL embeds a credential. It must not be logged, cached or stored. */
     @Transactional(readOnly = true)
-    public FileDownload prepareDownload(PrepareDownloadCommand command) {
+    public BinaryStorage.TemporaryUrl prepareDownload(PrepareDownloadCommand command) {
         UserId owner = requireActiveOwner(command.firebaseUid());
         StoredFile file = requireReachable(command.fileId(), owner);
 
-        BinaryStorage.TemporaryUrl url = storage.temporaryReadUrl(
+        return storage.temporaryReadUrl(
                 file.storageKey(), file.name().value(), file.contentType());
-        return new FileDownload(url.url(), url.expiresAt());
     }
 
-    @Override
     @Transactional(readOnly = true)
     public Page<FileView> listFiles(ListFilesCommand command) {
         UserId owner = requireActiveOwner(command.firebaseUid());
@@ -127,7 +106,6 @@ public class FileApplicationService implements
      * {@code @Transactional} is required even for this single write, because an
      * after-commit listener only fires if there is a transaction to commit.
      */
-    @Override
     @Transactional
     public void deleteFile(DeleteFileCommand command) {
         UserId owner = requireActiveOwner(command.firebaseUid());
@@ -194,5 +172,33 @@ public class FileApplicationService implements
     }
 
     private record Content(long sizeBytes, Checksum checksum) {
+    }
+
+    public record UploadFileCommand(String firebaseUid,
+                                    String originalFilename,
+                                    long declaredSizeBytes,
+                                    ContentSource content) {
+    }
+
+    public record PrepareDownloadCommand(String firebaseUid, UUID fileId) {
+    }
+
+    public record ListFilesCommand(String firebaseUid, int page, int size) {
+
+        public static final int DEFAULT_SIZE = 20;
+        public static final int MAX_SIZE = 100;
+
+        public ListFilesCommand {
+            if (page < 0) {
+                throw new DomainRuleViolationException("Page must not be negative");
+            }
+            if (size < 1 || size > MAX_SIZE) {
+                throw new DomainRuleViolationException(
+                        "Page size must be between 1 and " + MAX_SIZE);
+            }
+        }
+    }
+
+    public record DeleteFileCommand(String firebaseUid, UUID fileId) {
     }
 }

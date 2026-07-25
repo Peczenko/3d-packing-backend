@@ -1,10 +1,10 @@
 package com.packing.backend.infra.firebase;
 
-import com.packing.backend.core.user.port.out.FirebaseUserDirectory;
 import com.packing.backend.domain.user.event.UserAccountDeleted;
 import com.packing.backend.domain.user.event.UserRoleChanged;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -25,15 +25,11 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * failed.
  */
 @Component
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
+@Slf4j
 class FirebaseUserMirroringListener {
 
-    private static final Logger log = LoggerFactory.getLogger(FirebaseUserMirroringListener.class);
-
     private final FirebaseUserDirectory firebaseDirectory;
-
-    FirebaseUserMirroringListener(FirebaseUserDirectory firebaseDirectory) {
-        this.firebaseDirectory = firebaseDirectory;
-    }
 
     /**
      * Mirrors the role into a custom claim and revokes refresh tokens so the client picks

@@ -4,6 +4,7 @@ import com.packing.backend.core.file.port.out.FileOwnerLookup;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.UserStatus;
+import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -16,13 +17,11 @@ import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
  * account must not reach its files.
  */
 @Repository
+@RequiredArgsConstructor
 public class JooqFileOwnerLookup implements FileOwnerLookup {
 
     private final DSLContext dsl;
 
-    public JooqFileOwnerLookup(DSLContext dsl) {
-        this.dsl = dsl;
-    }
 
     @Override
     public Optional<UserId> findActiveOwner(FirebaseUid firebaseUid) {

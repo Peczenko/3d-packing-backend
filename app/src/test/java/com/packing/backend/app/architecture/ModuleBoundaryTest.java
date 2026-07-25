@@ -44,22 +44,20 @@ class ModuleBoundaryTest {
                     "com.google..")
             .because("the domain model must not depend on any framework or infrastructure");
 
-    /**
-     * {@code :core} is framework-free apart from one documented exception:
-     * {@code @Transactional}, which is inert metadata used to place transaction boundaries
-     * at the application layer. Everything else Spring is still forbidden.
-     */
     @ArchTest
-    static final ArchRule coreOnlyUsesSpringForTransactionBoundaries = noClasses()
+    static final ArchRule coreOnlyUsesSpringForTransactionBoundariesAndStereotypes = noClasses()
             .that().resideInAPackage(CORE)
             .should().dependOnClassesThat(
                     com.tngtech.archunit.base.DescribedPredicate.describe(
                             "reside in org.springframework.. but not in "
-                                    + "org.springframework.transaction.annotation..",
+                                    + "org.springframework.transaction.annotation.. or "
+                                    + "org.springframework.stereotype..",
                             javaClass -> javaClass.getPackageName().startsWith("org.springframework")
                                     && !javaClass.getPackageName()
-                                    .startsWith("org.springframework.transaction.annotation")))
-            .because("core may use @Transactional but nothing else from Spring "
+                                    .startsWith("org.springframework.transaction.annotation")
+                                    && !javaClass.getPackageName()
+                                    .startsWith("org.springframework.stereotype")))
+            .because("core may use @Transactional and @Service but nothing else from Spring "
                     + "(documented exception in CLAUDE.md)");
 
     @ArchTest

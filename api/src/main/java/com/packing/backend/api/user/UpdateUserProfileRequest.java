@@ -1,16 +1,11 @@
 package com.packing.backend.api.user;
 
+import com.packing.backend.domain.user.User;
+import com.packing.backend.domain.user.Username;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
-/**
- * Bean Validation here is a cheap first pass that produces per-field errors. The
- * authoritative rules live in the {@code Username} value object, which rejects anything
- * this misses.
- *
- * @param displayName null or blank clears the display name
- */
 public record UpdateUserProfileRequest(
-        @NotBlank @Size(min = 3, max = 64) String username,
-        @Size(max = 128) String displayName) {
+        @NotBlank @Size(min = Username.MIN_LENGTH, max = Username.MAX_LENGTH) String username,
+        @Size(max = User.MAX_DISPLAY_NAME_LENGTH) String displayName) {
 }

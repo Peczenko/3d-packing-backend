@@ -4,6 +4,8 @@ import com.packing.backend.domain.file.event.FileDeleted;
 import com.packing.backend.domain.shared.AggregateRoot;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.user.UserId;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -14,6 +16,8 @@ import java.util.UUID;
  * retried upload overwrites its own blob instead of leaving an orphan. {@code projectId}
  * is always null: the project aggregate does not exist yet.
  */
+@Getter
+@EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
 public final class StoredFile extends AggregateRoot {
 
     /**
@@ -24,7 +28,9 @@ public final class StoredFile extends AggregateRoot {
 
     public static final long INITIAL_VERSION = 0L;
 
+    @EqualsAndHashCode.Include
     private final FileId id;
+
     private final UserId ownerId;
     private final FileName name;
     private final StorageKey storageKey;
@@ -150,69 +156,6 @@ public final class StoredFile extends AggregateRoot {
             throw new DomainRuleViolationException(
                     "File must be at most " + MAX_SIZE_BYTES + " bytes, got " + sizeBytes);
         }
-    }
-
-    public FileId id() {
-        return id;
-    }
-
-    public UserId ownerId() {
-        return ownerId;
-    }
-
-    public UUID projectId() {
-        return projectId;
-    }
-
-    public FileName name() {
-        return name;
-    }
-
-    public StorageKey storageKey() {
-        return storageKey;
-    }
-
-    public ModelFormat format() {
-        return format;
-    }
-
-    public long sizeBytes() {
-        return sizeBytes;
-    }
-
-    public Checksum checksum() {
-        return checksum;
-    }
-
-    public FileStatus status() {
-        return status;
-    }
-
-    public long version() {
-        return version;
-    }
-
-    public Instant createdAt() {
-        return createdAt;
-    }
-
-    public Instant updatedAt() {
-        return updatedAt;
-    }
-
-    /** Null until the file is deleted. */
-    public Instant deletedAt() {
-        return deletedAt;
-    }
-
-    @Override
-    public boolean equals(Object other)  {
-        return other instanceof StoredFile file && id.equals(file.id);
-    }
-
-    @Override
-    public int hashCode() {
-        return id.hashCode();
     }
 
     @Override

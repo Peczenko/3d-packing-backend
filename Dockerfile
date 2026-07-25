@@ -12,7 +12,7 @@ WORKDIR /workspace
 # which every module script needs.
 COPY gradlew ./
 COPY gradle ./gradle
-COPY settings.gradle build.gradle gradle.properties ./
+COPY settings.gradle build.gradle gradle.properties lombok.config ./
 COPY domain/build.gradle ./domain/
 COPY core/build.gradle ./core/
 COPY api/build.gradle ./api/

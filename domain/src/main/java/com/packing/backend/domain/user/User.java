@@ -6,6 +6,8 @@ import com.packing.backend.domain.user.event.UserAccountDeleted;
 import com.packing.backend.domain.user.event.UserProfileChanged;
 import com.packing.backend.domain.user.event.UserRegistered;
 import com.packing.backend.domain.user.event.UserRoleChanged;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -25,6 +27,8 @@ import java.util.Objects;
  * would both write their full snapshot and the later one would silently revert the
  * other's change.
  */
+@Getter
+@EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
 public final class User extends AggregateRoot {
 
     public static final int MAX_DISPLAY_NAME_LENGTH = 128;
@@ -39,13 +43,17 @@ public final class User extends AggregateRoot {
     private static final String TOMBSTONE_EMAIL_DOMAIN = "@deleted.invalid";
     private static final String TOMBSTONE_PREFIX = "deleted-";
 
+    @EqualsAndHashCode.Include
     private final UserId id;
+
     private final FirebaseUid firebaseUid;
     private final Instant createdAt;
 
     private Email email;
     private Username username;
+
     private String displayName;
+
     private UserRole role;
     private UserStatus status;
     private long version;
@@ -250,63 +258,6 @@ public final class User extends AggregateRoot {
                     "Display name must be at most " + MAX_DISPLAY_NAME_LENGTH + " characters");
         }
         return trimmed;
-    }
-
-    public UserId id() {
-        return id;
-    }
-
-    public FirebaseUid firebaseUid() {
-        return firebaseUid;
-    }
-
-    public Email email() {
-        return email;
-    }
-
-    public Username username() {
-        return username;
-    }
-
-    /** May be null: Firebase accounts are not required to have a display name. */
-    public String displayName() {
-        return displayName;
-    }
-
-    public UserRole role() {
-        return role;
-    }
-
-    public UserStatus status() {
-        return status;
-    }
-
-    public long version() {
-        return version;
-    }
-
-    public Instant createdAt() {
-        return createdAt;
-    }
-
-    public Instant updatedAt() {
-        return updatedAt;
-    }
-
-    /** Null until the user's first recorded sign-in. */
-    public Instant lastLoginAt() {
-        return lastLoginAt;
-    }
-
-    /** Identity is the aggregate id; no other field participates. */
-    @Override
-    public boolean equals(Object other) {
-        return other instanceof User user && id.equals(user.id);
-    }
-
-    @Override
-    public int hashCode() {
-        return id.hashCode();
     }
 
     @Override
