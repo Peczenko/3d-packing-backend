@@ -1,5 +1,6 @@
 package com.packing.backend.api.user;
 
+import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.user.UserApplicationService;
 import com.packing.backend.core.user.UserApplicationService.AssignUserRoleCommand;
 import com.packing.backend.core.user.UserApplicationService.ResolveCurrentUserCommand;
@@ -53,6 +54,9 @@ class UserControllerTest {
 
     @MockitoBean
     private UserApplicationService users;
+
+    @MockitoBean
+    private ErrorAlerter alerter;
 
     @AfterEach
     void clearSecurityContext() {
