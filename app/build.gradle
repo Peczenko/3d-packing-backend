@@ -1,5 +1,4 @@
 plugins {
-    // NO version: already on the build classpath from the root `apply false` declaration.
     id 'org.springframework.boot'
 }
 
@@ -15,9 +14,6 @@ dependencies {
     implementation project(':core')
     implementation project(':domain')
 
-    // Declared explicitly even though :api/:infra bring them transitively — :app owns
-    // the servlet container and the security filter chain, so it should not inherit
-    // them by accident.
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
@@ -30,17 +26,9 @@ dependencies {
     testImplementation 'org.testcontainers:postgresql'
     testImplementation testFixtures(project(':infra'))
 
-    // :app is the only module whose test classpath sees all five modules.
     testImplementation libs.archunit.junit5
 }
 
-springBoot {
-    buildInfo()
-}
-
-// Boot 2.5+ also emits app-<version>-plain.jar from the `jar` task. Disabling it keeps
-// the Dockerfile's `COPY app/build/libs/*.jar` matching exactly one file. Nothing
-// depends on :app's plain jar.
 tasks.named('jar') {
     enabled = false
 }
