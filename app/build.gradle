@@ -34,6 +34,10 @@ dependencies {
     testImplementation libs.archunit.junit5
 }
 
+springBoot {
+    buildInfo()
+}
+
 // Boot 2.5+ also emits app-<version>-plain.jar from the `jar` task. Disabling it keeps
 // the Dockerfile's `COPY app/build/libs/*.jar` matching exactly one file. Nothing
 // depends on :app's plain jar.

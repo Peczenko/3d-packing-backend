@@ -1,6 +1,7 @@
 package com.packing.backend.api.file;
 
 import com.packing.backend.core.file.FileView;
+import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.file.FileApplicationService;
 import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
 import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
@@ -56,6 +57,9 @@ class FileControllerTest {
 
     @MockitoBean
     private FileApplicationService files;
+
+    @MockitoBean
+    private ErrorAlerter alerter;
 
     @AfterEach
     void clearSecurityContext() {
