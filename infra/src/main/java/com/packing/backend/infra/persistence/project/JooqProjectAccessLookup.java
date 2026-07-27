@@ -39,7 +39,7 @@ public class JooqProjectAccessLookup implements ProjectAccessLookup {
                 .where(USERS.FIREBASE_UID.eq(firebaseUid.value())
                         .and(USERS.STATUS.eq(UserStatus.ACTIVE.name()))
                         .and(PROJECT_MEMBERS.PROJECT_ID.eq(projectId.value()))
-                        .and(PROJECTS.STATUS.ne(ProjectStatus.DELETED.name())))
+                        .and(ProjectQueries.notDeleted()))
                 .fetchOptional()
                 .map(record -> new ProjectAccess(
                         new UserId(record.get(USERS.ID)),

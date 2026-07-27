@@ -14,6 +14,9 @@ import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.TestcontainersConfiguration;
 import com.packing.backend.infra.persistence.user.JooqUserRepository;
 import org.jooq.DSLContext;
+import org.jooq.ExecuteContext;
+import org.jooq.ExecuteListenerProvider;
+import org.jooq.impl.DefaultExecuteListener;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +28,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.packing.backend.infra.persistence.jooq.tables.ProjectMembers.PROJECT_MEMBERS;
 import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECTS;
@@ -262,6 +266,54 @@ class JooqProjectRepositoryIT {
         assertThat(found).filteredOn(p -> p.id().equals(second.id()))
                 .singleElement()
                 .satisfies(p -> assertThat(p.members()).hasSize(1));
+    }
+
+    /**
+     * The roster arrives through a correlated MULTISET rather than a follow-up query. Worth
+     * pinning: the obvious refactor back to "fetch projects, then fetch their members" is
+     * silently wrong under {@code READ COMMITTED}, because the two statements see two
+     * snapshots and the roster can then contradict the version the optimistic lock writes on.
+     */
+    @Test
+    void aPageOfProjectsAndEveryRosterIsOneStatement() {
+        Project project = persistedProject();
+        project.grantAccess(member, ProjectPermission.WRITE, creator, now());
+        repository().save(project);
+
+        AtomicInteger statements = new AtomicInteger();
+        DSLContext counting = dsl.configuration()
+                .derive((ExecuteListenerProvider) () -> new DefaultExecuteListener() {
+                    @Override
+                    public void executeStart(ExecuteContext ctx) {
+                        statements.incrementAndGet();
+                    }
+                })
+                .dsl();
+
+        List<Project> found = new JooqProjectRepository(counting).findByMember(creator, 0, 10);
+
+        assertThat(found).singleElement()
+                .satisfies(p -> assertThat(p.members()).hasSize(2));
+        assertThat(statements).hasValue(1);
+    }
+
+    @Test
+    void loadingOneProjectWithItsRosterIsOneStatement() {
+        Project project = persistedProject();
+
+        AtomicInteger statements = new AtomicInteger();
+        DSLContext counting = dsl.configuration()
+                .derive((ExecuteListenerProvider) () -> new DefaultExecuteListener() {
+                    @Override
+                    public void executeStart(ExecuteContext ctx) {
+                        statements.incrementAndGet();
+                    }
+                })
+                .dsl();
+
+        assertThat(new JooqProjectRepository(counting).findById(project.id()))
+                .hasValueSatisfying(p -> assertThat(p.members()).hasSize(1));
+        assertThat(statements).hasValue(1);
     }
 
     @Test

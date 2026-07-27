@@ -5,7 +5,6 @@ import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectMember;
-import com.packing.backend.domain.project.ProjectStatus;
 import com.packing.backend.domain.user.UserId;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -13,16 +12,15 @@ import org.jooq.Query;
 import org.jooq.Record;
 import org.springframework.stereotype.Repository;
 
-
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 import static com.packing.backend.infra.persistence.jooq.tables.ProjectMembers.PROJECT_MEMBERS;
 import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECTS;
+import static com.packing.backend.infra.persistence.project.ProjectQueries.MEMBERS;
+import static com.packing.backend.infra.persistence.project.ProjectQueries.memberIs;
+import static com.packing.backend.infra.persistence.project.ProjectQueries.notDeleted;
 
 /**
  * No {@code @Transactional} here: transaction boundaries belong to the application services
@@ -83,38 +81,32 @@ public class JooqProjectRepository implements ProjectRepository {
 
     @Override
     public Optional<Project> findById(ProjectId id) {
-        return dsl.selectFrom(PROJECTS)
+        return dsl.select(PROJECTS.asterisk(), MEMBERS)
+                .from(PROJECTS)
                 .where(PROJECTS.ID.eq(id.value()))
                 .fetchOptional()
-                .map(record -> ProjectRecordMapper.toDomain(record, membersOf(List.of(id.value()))
-                        .getOrDefault(id.value(), List.of())));
+                .map(JooqProjectRepository::toProject);
     }
 
     /**
      * Ordered newest first with the id as a tiebreak, so paging stays stable when two
-     * projects share a timestamp. Members for the whole page are fetched in one follow-up
-     * query rather than one per project.
+     * projects share a timestamp.
+     *
+     * <p>The join to {@code PROJECT_MEMBERS} filters and nothing more — the roster itself
+     * arrives through {@link ProjectQueries#MEMBERS}. It cannot multiply rows, because
+     * {@code (project_id, user_id)} is the primary key, so one user matches at most once per
+     * project.
      */
     @Override
     public List<Project> findByMember(UserId userId, int offset, int limit) {
-        List<Record> rows = dsl.select(PROJECTS.fields())
+        return dsl.select(PROJECTS.asterisk(), MEMBERS)
                 .from(PROJECTS)
                 .join(PROJECT_MEMBERS).on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                .where(PROJECT_MEMBERS.USER_ID.eq(userId.value())
-                        .and(PROJECTS.STATUS.ne(ProjectStatus.DELETED.name())))
+                .where(memberIs(userId).and(notDeleted()))
                 .orderBy(PROJECTS.CREATED_AT.desc(), PROJECTS.ID.desc())
                 .offset(offset)
                 .limit(limit)
-                .fetch();
-
-        List<UUID> ids = rows.stream().map(row -> row.get(PROJECTS.ID)).toList();
-        Map<UUID, List<ProjectMember>> members = membersOf(ids);
-
-        return rows.stream()
-                .map(row -> ProjectRecordMapper.toDomain(
-                        row.into(PROJECTS),
-                        members.getOrDefault(row.get(PROJECTS.ID), List.of())))
-                .toList();
+                .fetch(JooqProjectRepository::toProject);
     }
 
     @Override
@@ -122,8 +114,11 @@ public class JooqProjectRepository implements ProjectRepository {
         return dsl.fetchCount(dsl.select(PROJECTS.ID)
                 .from(PROJECTS)
                 .join(PROJECT_MEMBERS).on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                .where(PROJECT_MEMBERS.USER_ID.eq(userId.value())
-                        .and(PROJECTS.STATUS.ne(ProjectStatus.DELETED.name()))));
+                .where(memberIs(userId).and(notDeleted())));
+    }
+
+    private static Project toProject(Record row) {
+        return ProjectRecordMapper.toDomain(row.into(PROJECTS), row.get(MEMBERS));
     }
 
     private void replaceMembers(Project project) {
@@ -149,18 +144,4 @@ public class JooqProjectRepository implements ProjectRepository {
         dsl.batch(inserts).execute();
     }
 
-    /** Ordered by {@code added_at} so the aggregate rehydrates members in grant order. */
-    private Map<UUID, List<ProjectMember>> membersOf(List<UUID> projectIds) {
-        if (projectIds.isEmpty()) {
-            return Map.of();
-        }
-        return dsl.selectFrom(PROJECT_MEMBERS)
-                .where(PROJECT_MEMBERS.PROJECT_ID.in(projectIds))
-                .orderBy(PROJECT_MEMBERS.ADDED_AT.asc(), PROJECT_MEMBERS.USER_ID.asc())
-                .fetch()
-                .stream()
-                .collect(Collectors.groupingBy(
-                        record -> record.get(PROJECT_MEMBERS.PROJECT_ID),
-                        Collectors.mapping(ProjectRecordMapper::toDomain, Collectors.toList())));
-    }
 }
