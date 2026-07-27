@@ -1,18 +1,26 @@
 package com.packing.backend.infra.notification;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packing.backend.core.notification.EmailMessage;
+import com.packing.backend.core.shared.ExternalHttpException;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.infra.shared.http.ExternalApi;
-import com.packing.backend.infra.shared.http.ExternalApiErrorMapper;
+import com.packing.backend.infra.shared.http.ExternalApiClients;
+import com.packing.backend.infra.shared.http.ExternalApiSpec;
+import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatusCode;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.http.MediaType;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,14 +43,20 @@ class BrevoEmailSenderTest {
 
     @BeforeEach
     void setUp() {
-        RestClient.Builder builder = RestClient.builder().baseUrl(BASE_URL);
-        server = MockRestServiceServer.bindTo(builder).build();
+        ExternalApiClients clients = new ExternalApiClients(
+                RestClient.builder(),
+                requestFactoryBuilder(),
+                ClientHttpRequestFactorySettings.defaults(),
+                new ObjectMapper());
+        ExternalApi api = clients.create(
+                new ExternalApiSpec("brevo", URI.create(BASE_URL),
+                        Duration.ofSeconds(1), Duration.ofSeconds(1)),
+                builder -> {
+                    server = MockRestServiceServer.bindTo(builder).build();
+                    builder.defaultHeader("api-key", API_KEY);
+                });
 
-        ExternalApiErrorMapper errors = new ExternalApiErrorMapper("brevo");
-        builder.defaultHeader("api-key", API_KEY)
-                .defaultStatusHandler(HttpStatusCode::isError, errors::raise);
-
-        sender = new BrevoEmailSender(new ExternalApi(builder.build(), errors), properties());
+        sender = new BrevoEmailSender(api, properties());
     }
 
     @Test
@@ -62,7 +76,7 @@ class BrevoEmailSenderTest {
                           "htmlContent": "<p>boom</p>",
                           "textContent": "boom",
                           "attachment": [{"name": "trace.txt", "content": "cmVwb3J0"}]
-                        }""", true))
+                        }""", JsonCompareMode.STRICT))
                 .andRespond(withSuccess("{\"messageId\":\"<1@brevo>\"}", MediaType.APPLICATION_JSON));
 
         sender.send(EmailMessage.to("ops@example.com")
@@ -87,7 +101,7 @@ class BrevoEmailSenderTest {
                           "to": [{"email": "ops@example.com"}],
                           "subject": "Boom",
                           "htmlContent": "<p>boom</p>"
-                        }""", true))
+                        }""", JsonCompareMode.STRICT))
                 .andRespond(withSuccess());
 
         sender.send(EmailMessage.to("ops@example.com").subject("Boom").html("<p>boom</p>").build());
@@ -105,13 +119,15 @@ class BrevoEmailSenderTest {
         Throwable thrown = catchThrowable(() -> sender.send(
                 EmailMessage.to("ops@example.com").subject("Boom").html("<p>x</p>").build()));
 
-        assertThat(thrown).isInstanceOf(ExternalServiceException.class);
+        assertThat(thrown).isInstanceOf(ExternalHttpException.class);
         assertThat(((ExternalServiceException) thrown).service()).isEqualTo("brevo");
+        assertThat(((ExternalHttpException) thrown).statusCode()).isEqualTo(401);
+        assertThat(((ExternalHttpException) thrown).providerCode()).isEqualTo("unauthorized");
         assertThat(thrown.getMessage()).contains("401", "unauthorized").doesNotContain(API_KEY);
     }
 
     @Test
-    void refusesAttachmentsOverTheProviderLimitBeforeCallingOut() {
+    void refusesAttachmentsOverTheApplicationSafetyLimitBeforeCallingOut() {
         byte[] oversized = new byte[11 * 1024 * 1024];
         oversized[0] = 1;
 
@@ -121,14 +137,36 @@ class BrevoEmailSenderTest {
                 .attach("huge.bin", oversized)
                 .build()))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("over Brevo's limit");
+                .hasMessageContaining("application's raw attachment safety limit");
+
+        server.verify();
+    }
+
+    @Test
+    void refusesMoreThanNinetyNineRecipientsWhenAttachmentsArePresent() {
+        var recipients = IntStream.range(0, 100)
+                .mapToObj(index -> "recipient-" + index + "@example.com")
+                .toList();
+
+        assertThatThrownBy(() -> sender.send(EmailMessage.to(recipients.toArray(String[]::new))
+                .subject("Boom")
+                .html("<p>x</p>")
+                .attach("trace.txt", "report".getBytes(StandardCharsets.UTF_8))
+                .build()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at most 99 recipients");
 
         server.verify();
     }
 
     private EmailProperties properties() {
-        return new EmailProperties(true, "noreply@3dpacking.dev", "3D Packing",
-                new EmailProperties.Brevo(BASE_URL, API_KEY,
+        return new EmailProperties("noreply@3dpacking.dev", "3D Packing",
+                new EmailProperties.Brevo(URI.create(BASE_URL), API_KEY,
                         Duration.ofSeconds(1), Duration.ofSeconds(1)));
+    }
+
+    private ClientHttpRequestFactoryBuilder<?> requestFactoryBuilder() {
+        return ClientHttpRequestFactoryBuilder.httpComponents()
+                .withHttpClientCustomizer(HttpClientBuilder::disableAutomaticRetries);
     }
 }

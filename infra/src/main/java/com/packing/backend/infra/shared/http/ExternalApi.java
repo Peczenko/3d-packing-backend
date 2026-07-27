@@ -2,11 +2,21 @@ package com.packing.backend.infra.shared.http;
 
 import org.springframework.web.client.RestClient;
 
-import java.util.function.Supplier;
+import java.util.Objects;
+import java.util.function.Function;
 
-public record ExternalApi(RestClient client, ExternalApiErrorMapper errors) {
+public final class ExternalApi {
 
-    public <T> T call(Supplier<T> action) {
-        return errors.translating(action);
+    private final RestClient client;
+    private final ExternalApiErrorMapper errors;
+
+    ExternalApi(RestClient client, ExternalApiErrorMapper errors) {
+        this.client = Objects.requireNonNull(client, "client");
+        this.errors = Objects.requireNonNull(errors, "errors");
+    }
+
+    public <T> T execute(Function<RestClient, T> action) {
+        Objects.requireNonNull(action, "action");
+        return errors.translating(() -> action.apply(client));
     }
 }

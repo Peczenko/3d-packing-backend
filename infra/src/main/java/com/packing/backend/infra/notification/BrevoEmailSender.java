@@ -17,7 +17,8 @@ class BrevoEmailSender implements EmailSender {
 
     private static final String SEND_PATH = "/v3/smtp/email";
 
-    private static final long MAX_ATTACHMENT_BYTES = 10L * 1024 * 1024;
+    private static final int MAX_RECIPIENTS_WITH_ATTACHMENTS = 99;
+    private static final long APPLICATION_ATTACHMENT_SAFETY_LIMIT_BYTES = 10L * 1024 * 1024;
 
     private final ExternalApi brevo;
     private final EmailProperties properties;
@@ -25,7 +26,7 @@ class BrevoEmailSender implements EmailSender {
     @Override
     public void send(EmailMessage message) {
         SendRequest request = toRequest(message);
-        brevo.call(() -> brevo.client().post()
+        brevo.execute(client -> client.post()
                 .uri(SEND_PATH)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(request)
@@ -34,6 +35,7 @@ class BrevoEmailSender implements EmailSender {
     }
 
     private SendRequest toRequest(EmailMessage message) {
+        validateAttachmentRecipients(message);
         return new SendRequest(
                 new Contact(properties.fromName(), properties.fromAddress()),
                 contacts(message.to()),
@@ -52,16 +54,29 @@ class BrevoEmailSender implements EmailSender {
 
     private List<Attachment> attachments(List<EmailAttachment> attachments) {
         long total = attachments.stream().mapToLong(EmailAttachment::sizeBytes).sum();
-        if (total > MAX_ATTACHMENT_BYTES) {
+        if (total > APPLICATION_ATTACHMENT_SAFETY_LIMIT_BYTES) {
             throw new IllegalArgumentException(
-                    "Attachments total " + total + " bytes, over Brevo's limit of "
-                            + MAX_ATTACHMENT_BYTES);
+                    "Attachments total " + total + " bytes, over the application's raw "
+                            + "attachment safety limit of "
+                            + APPLICATION_ATTACHMENT_SAFETY_LIMIT_BYTES);
         }
         return attachments.stream()
                 .map(attachment -> new Attachment(
                         attachment.fileName(),
                         Base64.getEncoder().encodeToString(attachment.content())))
                 .toList();
+    }
+
+    private void validateAttachmentRecipients(EmailMessage message) {
+        if (message.attachments().isEmpty()) {
+            return;
+        }
+        int recipients = message.to().size() + message.cc().size() + message.bcc().size();
+        if (recipients > MAX_RECIPIENTS_WITH_ATTACHMENTS) {
+            throw new IllegalArgumentException(
+                    "Brevo allows at most " + MAX_RECIPIENTS_WITH_ATTACHMENTS
+                            + " recipients when an API email contains attachments");
+        }
     }
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)

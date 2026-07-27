@@ -22,7 +22,7 @@ public class EmailConfig {
     private static final String MAIL_SERVICE = "brevo";
 
     @Bean
-    @ConditionalOnProperty(prefix = "app.email", name = "enabled", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "app.email", name = "enabled", havingValue = "true")
     public EmailSender brevoEmailSender(EmailProperties properties, ExternalApiClients apiClients) {
         EmailProperties.Brevo brevo = properties.brevo();
 
@@ -42,7 +42,7 @@ public class EmailConfig {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "app.email", name = "enabled", havingValue = "false")
+    @ConditionalOnProperty(prefix = "app.email", name = "enabled", havingValue = "false", matchIfMissing = true)
     public EmailSender loggingEmailSender() {
         return new LoggingEmailSender();
     }

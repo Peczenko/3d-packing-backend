@@ -1,5 +1,6 @@
 package com.packing.backend.infra.shared.http;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packing.backend.core.shared.ExternalServiceException;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.ResourceAccessException;
@@ -13,7 +14,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ExternalApiErrorMapperTest {
 
-    private final ExternalApiErrorMapper mapper = new ExternalApiErrorMapper("brevo");
+    private final ExternalApiErrorMapper mapper =
+            new ExternalApiErrorMapper("brevo", new ObjectMapper());
 
     @Test
     void returnsTheValueWhenTheCallSucceeds() {
