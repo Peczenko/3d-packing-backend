@@ -5,6 +5,10 @@ plugins {
 
 description = 'Spring Boot composition root: application class, security config, bean wiring.'
 
+springBoot {
+    buildInfo()
+}
+
 dependencies {
     implementation project(':api')
     implementation project(':infra')
