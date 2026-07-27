@@ -7,6 +7,7 @@ import com.packing.backend.domain.file.FileStatus;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StorageKey;
 import com.packing.backend.domain.file.StoredFile;
+import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.jooq.tables.records.FilesRecord;
 
@@ -27,7 +28,7 @@ final class FileRecordMapper {
         return StoredFile.rehydrate(
                 new FileId(record.getId()),
                 new UserId(record.getOwnerUserId()),
-                record.getProjectId(),
+                new ProjectId(record.getProjectId()),
                 new FileName(record.getOriginalFilename()),
                 new StorageKey(record.getStorageKey()),
                 ModelFormat.valueOf(record.getFormat()),

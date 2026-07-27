@@ -94,8 +94,11 @@
 <body>
 <div class="card">
     <div th:replace="${content}">The body of the email goes here.</div>
-    <p class="footer">Sent by 3D Packing. You are receiving this because your address is
-        listed in <code>app.alerts.recipients</code>.</p>
+    <!--/* Every template supplies its own "why you got this" line: the reason differs per
+           email, and an operational alert and a member notification have nothing in common
+           beyond the frame. */-->
+    <p class="footer">Sent by 3D Packing.
+        <span th:text="${footerNote}">Why you are receiving this.</span></p>
 </div>
 </body>
 </html>

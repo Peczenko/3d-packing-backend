@@ -1,11 +1,10 @@
-package com.packing.backend.infra.persistence.file;
+package com.packing.backend.infra.persistence.user;
 
 import com.packing.backend.domain.user.Email;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.TestcontainersConfiguration;
-import com.packing.backend.infra.persistence.user.JooqUserRepository;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,13 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @JooqTest
 @Import(TestcontainersConfiguration.class)
-class JooqFileOwnerLookupIT {
+class JooqActiveUserLookupIT {
 
     @Autowired
     private DSLContext dsl;
 
-    private JooqFileOwnerLookup lookup() {
-        return new JooqFileOwnerLookup(dsl);
+    private JooqActiveUserLookup lookup() {
+        return new JooqActiveUserLookup(dsl);
     }
 
     private User persistedUser(String uid) {
@@ -40,13 +39,13 @@ class JooqFileOwnerLookupIT {
     void resolvesAnActiveUserToTheirId() {
         User user = persistedUser("uid-active");
 
-        assertThat(lookup().findActiveOwner(new FirebaseUid("uid-active")))
+        assertThat(lookup().findActiveUser(new FirebaseUid("uid-active")))
                 .hasValue(user.id());
     }
 
     @Test
     void isEmptyForAnIdentityWithNoProfile() {
-        assertThat(lookup().findActiveOwner(new FirebaseUid("uid-unknown"))).isEmpty();
+        assertThat(lookup().findActiveUser(new FirebaseUid("uid-unknown"))).isEmpty();
     }
 
     @Test
@@ -55,7 +54,7 @@ class JooqFileOwnerLookupIT {
         user.disable(Instant.now().truncatedTo(ChronoUnit.MICROS));
         new JooqUserRepository(dsl).save(user);
 
-        assertThat(lookup().findActiveOwner(new FirebaseUid("uid-disabled"))).isEmpty();
+        assertThat(lookup().findActiveUser(new FirebaseUid("uid-disabled"))).isEmpty();
     }
 
     @Test
@@ -64,6 +63,6 @@ class JooqFileOwnerLookupIT {
         user.delete(Instant.now().truncatedTo(ChronoUnit.MICROS));
         new JooqUserRepository(dsl).save(user);
 
-        assertThat(lookup().findActiveOwner(new FirebaseUid("uid-deleted"))).isEmpty();
+        assertThat(lookup().findActiveUser(new FirebaseUid("uid-deleted"))).isEmpty();
     }
 }

@@ -2,7 +2,7 @@ package com.packing.backend.core.file.port.out;
 
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.StoredFile;
-import com.packing.backend.domain.user.UserId;
+import com.packing.backend.domain.project.ProjectId;
 
 import java.util.List;
 import java.util.Optional;
@@ -17,11 +17,20 @@ public interface FileRepository {
      */
     StoredFile save(StoredFile file);
 
+    /**
+     * Writes several aggregates in one batch, each guarded on its own version. Used by the
+     * project deletion cascade.
+     */
+    List<StoredFile> saveAll(List<StoredFile> files);
+
     /** Returns deleted files too — the caller decides what a tombstone means to it. */
     Optional<StoredFile> findById(FileId id);
 
     /** Newest first, tombstones excluded. */
-    List<StoredFile> findAvailableByOwner(UserId ownerId, int offset, int limit);
+    List<StoredFile> findAvailableByProject(ProjectId projectId, int offset, int limit);
 
-    long countAvailableByOwner(UserId ownerId);
+    long countAvailableByProject(ProjectId projectId);
+
+    /** Unpaged, for the deletion cascade, which has to see every file exactly once. */
+    List<StoredFile> findAllAvailableByProject(ProjectId projectId);
 }

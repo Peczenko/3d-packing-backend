@@ -1,6 +1,7 @@
 package com.packing.backend.domain.file;
 
 import com.packing.backend.domain.file.event.FileDeleted;
+import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.AggregateRoot;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.user.UserId;
@@ -9,12 +10,17 @@ import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * {@link #storageKey()} is derived from the id before either system is written, so a
- * retried upload overwrites its own blob instead of leaving an orphan. {@code projectId}
- * is always null: the project aggregate does not exist yet.
+ * retried upload overwrites its own blob instead of leaving an orphan.
+ *
+ * <p>Content is immutable once uploaded — only {@link #rename} exists, and it cannot change
+ * the format. That is what lets a future packing job record its inputs by file id and still
+ * mean the same bytes when the job is read back months later.
+ *
+ * <p>{@code ownerId} records who uploaded the file. It carries no authorisation weight:
+ * access is decided by the caller's permission on {@link #projectId()}.
  */
 @Getter
 @EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
@@ -32,14 +38,14 @@ public final class StoredFile extends AggregateRoot {
     private final FileId id;
 
     private final UserId ownerId;
-    private final FileName name;
+    private final ProjectId projectId;
     private final StorageKey storageKey;
     private final ModelFormat format;
     private final long sizeBytes;
     private final Checksum checksum;
     private final Instant createdAt;
 
-    private UUID projectId;
+    private FileName name;
     private FileStatus status;
     private long version;
     private Instant updatedAt;
@@ -47,7 +53,7 @@ public final class StoredFile extends AggregateRoot {
 
     private StoredFile(FileId id,
                        UserId ownerId,
-                       UUID projectId,
+                       ProjectId projectId,
                        FileName name,
                        StorageKey storageKey,
                        ModelFormat format,
@@ -60,7 +66,7 @@ public final class StoredFile extends AggregateRoot {
                        Instant deletedAt) {
         this.id = Objects.requireNonNull(id, "id");
         this.ownerId = Objects.requireNonNull(ownerId, "ownerId");
-        this.projectId = projectId;
+        this.projectId = Objects.requireNonNull(projectId, "projectId");
         this.name = Objects.requireNonNull(name, "name");
         this.storageKey = Objects.requireNonNull(storageKey, "storageKey");
         this.format = Objects.requireNonNull(format, "format");
@@ -78,6 +84,7 @@ public final class StoredFile extends AggregateRoot {
      */
     public static StoredFile upload(FileId id,
                                     UserId ownerId,
+                                    ProjectId projectId,
                                     FileName name,
                                     long sizeBytes,
                                     Checksum checksum,
@@ -86,7 +93,7 @@ public final class StoredFile extends AggregateRoot {
         return new StoredFile(
                 id,
                 ownerId,
-                null,
+                projectId,
                 name,
                 StorageKey.forFile(id),
                 name.format(),
@@ -102,7 +109,7 @@ public final class StoredFile extends AggregateRoot {
     /** Only the persistence adapter should call this. */
     public static StoredFile rehydrate(FileId id,
                                        UserId ownerId,
-                                       UUID projectId,
+                                       ProjectId projectId,
                                        FileName name,
                                        StorageKey storageKey,
                                        ModelFormat format,
@@ -115,6 +122,29 @@ public final class StoredFile extends AggregateRoot {
                                        Instant deletedAt) {
         return new StoredFile(id, ownerId, projectId, name, storageKey, format, sizeBytes,
                 checksum, status, version, createdAt, updatedAt, deletedAt);
+    }
+
+    /**
+     * Changes the display name only. The new name must resolve to the same
+     * {@link ModelFormat}, because the format is derived from the extension: allowing
+     * {@code model.stl -> model.obj} would leave the record describing bytes that were never
+     * uploaded, and a download would then advertise the wrong content type.
+     */
+    public void rename(FileName newName, Instant now) {
+        Objects.requireNonNull(newName, "name");
+        if (isDeleted()) {
+            throw new DomainRuleViolationException("Cannot rename a deleted file: " + id);
+        }
+        if (this.name.equals(newName)) {
+            return;
+        }
+        if (newName.format() != format) {
+            throw new DomainRuleViolationException(
+                    "Cannot rename a " + format + " file to " + newName
+                            + ": the extension must keep the same format");
+        }
+        this.name = newName;
+        this.updatedAt = now;
     }
 
     /** Idempotent: deleting twice is a no-op that records only one event. */
@@ -134,6 +164,10 @@ public final class StoredFile extends AggregateRoot {
 
     public boolean isOwnedBy(UserId candidate) {
         return ownerId.equals(candidate);
+    }
+
+    public boolean belongsTo(ProjectId candidate) {
+        return projectId.equals(candidate);
     }
 
     public String contentType() {

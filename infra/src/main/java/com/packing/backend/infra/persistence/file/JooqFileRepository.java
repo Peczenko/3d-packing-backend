@@ -5,10 +5,11 @@ import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileStatus;
 import com.packing.backend.domain.file.StoredFile;
+import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.ResourceConflictException;
-import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -40,36 +41,38 @@ public class JooqFileRepository implements FileRepository {
     @Override
     public StoredFile save(StoredFile file) {
         long expectedVersion = file.version();
-        int affected = constraintTranslatorFor(file).translating(() -> dsl.insertInto(FILES)
-                .set(FILES.ID, file.id().value())
-                .set(FILES.OWNER_USER_ID, file.ownerId().value())
-                .set(FILES.PROJECT_ID, file.projectId())
-                .set(FILES.ORIGINAL_FILENAME, file.name().value())
-                .set(FILES.STORAGE_KEY, file.storageKey().value())
-                .set(FILES.FORMAT, file.format().name())
-                .set(FILES.CONTENT_TYPE, file.contentType())
-                .set(FILES.SIZE_BYTES, file.sizeBytes())
-                .set(FILES.CHECKSUM_SHA256, file.checksum().value())
-                .set(FILES.STATUS, file.status().name())
-                // Both branches store expectedVersion + 1 so a write always advances the
-                // version by exactly one, whether it inserted or updated.
-                .set(FILES.VERSION, expectedVersion + 1)
-                .set(FILES.CREATED_AT, FileRecordMapper.toOffsetDateTime(file.createdAt()))
-                .set(FILES.UPDATED_AT, FileRecordMapper.toOffsetDateTime(file.updatedAt()))
-                .set(FILES.DELETED_AT, FileRecordMapper.toOffsetDateTime(file.deletedAt()))
-                .onConflict(FILES.ID)
-                .doUpdate()
-                // id, owner_user_id, storage_key, original_filename, format, content_type,
-                // size_bytes, checksum and created_at are immutable in the domain, so they
-                // are deliberately absent from the update set. Only the project link and
-                // the lifecycle columns can change.
-                .set(FILES.PROJECT_ID, file.projectId())
-                .set(FILES.STATUS, file.status().name())
-                .set(FILES.VERSION, expectedVersion + 1)
-                .set(FILES.UPDATED_AT, FileRecordMapper.toOffsetDateTime(file.updatedAt()))
-                .set(FILES.DELETED_AT, FileRecordMapper.toOffsetDateTime(file.deletedAt()))
-                .where(FILES.VERSION.eq(expectedVersion))
-                .execute());
+        int affected = constraintTranslatorFor(file).translating(
+                () -> dsl.insertInto(FILES)
+                        .set(FILES.ID, file.id().value())
+                        .set(FILES.OWNER_USER_ID, file.ownerId().value())
+                        .set(FILES.PROJECT_ID, file.projectId().value())
+                        .set(FILES.ORIGINAL_FILENAME, file.name().value())
+                        .set(FILES.STORAGE_KEY, file.storageKey().value())
+                        .set(FILES.FORMAT, file.format().name())
+                        .set(FILES.CONTENT_TYPE, file.contentType())
+                        .set(FILES.SIZE_BYTES, file.sizeBytes())
+                        .set(FILES.CHECKSUM_SHA256, file.checksum().value())
+                        .set(FILES.STATUS, file.status().name())
+                        // Both branches store expectedVersion + 1 so a write always advances
+                        // the version by exactly one, whether it inserted or updated.
+                        .set(FILES.VERSION, expectedVersion + 1)
+                        .set(FILES.CREATED_AT, FileRecordMapper.toOffsetDateTime(file.createdAt()))
+                        .set(FILES.UPDATED_AT, FileRecordMapper.toOffsetDateTime(file.updatedAt()))
+                        .set(FILES.DELETED_AT, FileRecordMapper.toOffsetDateTime(file.deletedAt()))
+                        .onConflict(FILES.ID)
+                        .doUpdate()
+                        // id, owner_user_id, project_id, storage_key, format, content_type,
+                        // size_bytes, checksum and created_at are immutable in the domain, so
+                        // they are deliberately absent from the update set. The filename is
+                        // not: renaming is the one mutation a file's content-bearing state
+                        // allows.
+                        .set(FILES.ORIGINAL_FILENAME, file.name().value())
+                        .set(FILES.STATUS, file.status().name())
+                        .set(FILES.VERSION, expectedVersion + 1)
+                        .set(FILES.UPDATED_AT, FileRecordMapper.toOffsetDateTime(file.updatedAt()))
+                        .set(FILES.DELETED_AT, FileRecordMapper.toOffsetDateTime(file.deletedAt()))
+                        .where(FILES.VERSION.eq(expectedVersion))
+                        .execute());
 
         if (affected == 0) {
             throw new ConcurrentUpdateException(
@@ -78,6 +81,16 @@ public class JooqFileRepository implements FileRepository {
         }
         file.markPersisted();
         return file;
+    }
+
+    /**
+     * Deliberately a loop over {@link #save}, not a bulk {@code UPDATE}: each file carries
+     * its own version, and collapsing them into one statement would drop the optimistic lock
+     * exactly where the cascade is most likely to race a concurrent upload.
+     */
+    @Override
+    public List<StoredFile> saveAll(List<StoredFile> files) {
+        return files.stream().map(this::save).toList();
     }
 
     @Override
@@ -90,14 +103,13 @@ public class JooqFileRepository implements FileRepository {
 
     /**
      * Ordered newest first with the id as a tiebreak, so paging stays stable when two
-     * uploads share a timestamp. Backed by {@code ix_files_owner_created}, scanned
+     * uploads share a timestamp. Backed by {@code ix_files_project_created}, scanned
      * backwards.
      */
     @Override
-    public List<StoredFile> findAvailableByOwner(UserId ownerId, int offset, int limit) {
+    public List<StoredFile> findAvailableByProject(ProjectId projectId, int offset, int limit) {
         return dsl.selectFrom(FILES)
-                .where(FILES.OWNER_USER_ID.eq(ownerId.value())
-                        .and(FILES.STATUS.eq(FileStatus.AVAILABLE.name())))
+                .where(availableIn(projectId))
                 .orderBy(FILES.CREATED_AT.desc(), FILES.ID.desc())
                 .offset(offset)
                 .limit(limit)
@@ -106,10 +118,22 @@ public class JooqFileRepository implements FileRepository {
     }
 
     @Override
-    public long countAvailableByOwner(UserId ownerId) {
-        return dsl.fetchCount(dsl.selectFrom(FILES)
-                .where(FILES.OWNER_USER_ID.eq(ownerId.value())
-                        .and(FILES.STATUS.eq(FileStatus.AVAILABLE.name()))));
+    public long countAvailableByProject(ProjectId projectId) {
+        return dsl.fetchCount(dsl.selectFrom(FILES).where(availableIn(projectId)));
+    }
+
+    @Override
+    public List<StoredFile> findAllAvailableByProject(ProjectId projectId) {
+        return dsl.selectFrom(FILES)
+                .where(availableIn(projectId))
+                .orderBy(FILES.CREATED_AT.desc(), FILES.ID.desc())
+                .fetch()
+                .map(FileRecordMapper::toDomain);
+    }
+
+    private Condition availableIn(ProjectId projectId) {
+        return FILES.PROJECT_ID.eq(projectId.value())
+                .and(FILES.STATUS.eq(FileStatus.AVAILABLE.name()));
     }
 
     /**

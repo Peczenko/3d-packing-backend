@@ -1,8 +1,9 @@
 package com.packing.backend.core.file;
 
 import com.packing.backend.core.file.port.out.BinaryStorage;
-import com.packing.backend.core.file.port.out.FileOwnerLookup;
 import com.packing.backend.core.file.port.out.FileRepository;
+import com.packing.backend.core.project.port.out.ProjectAccessLookup;
+import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.ContentSource;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.core.shared.Page;
@@ -12,10 +13,11 @@ import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.file.StoredFileNotFoundException;
+import com.packing.backend.domain.project.ProjectId;
+import com.packing.backend.domain.project.ProjectNotFoundException;
+import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.user.FirebaseUid;
-import com.packing.backend.domain.user.UserId;
-import com.packing.backend.domain.user.UserNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,11 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Every operation authorises against the caller's permission on the owning project. A file's
+ * {@code ownerId} records who uploaded it and grants nothing — a WRITE member may delete or
+ * rename anything in the project, including files they did not upload.
+ */
 @Service
 @RequiredArgsConstructor
 public class FileApplicationService {
@@ -39,7 +46,7 @@ public class FileApplicationService {
 
     private final FileRepository files;
     private final BinaryStorage storage;
-    private final FileOwnerLookup ownerLookup;
+    private final ProjectAccessLookup projectAccess;
     private final DomainEventPublisher eventPublisher;
     private final Clock clock;
 
@@ -55,7 +62,8 @@ public class FileApplicationService {
      * future reconciliation sweep to a set difference against {@code storage_key}.
      */
     public FileView upload(UploadFileCommand command) {
-        UserId owner = requireActiveOwner(command.firebaseUid());
+        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
+                ProjectPermission.WRITE).requireWritable();
         FileName name = new FileName(command.originalFilename());
         FileId id = FileId.generate();
 
@@ -63,8 +71,8 @@ public class FileApplicationService {
         // domain limit must hold against what was really received.
         Content content = digestAndCount(command.content());
 
-        StoredFile file = StoredFile.upload(id, owner, name, content.sizeBytes(),
-                content.checksum(), clock.instant());
+        StoredFile file = StoredFile.upload(id, access.userId(), access.projectId(), name,
+                content.sizeBytes(), content.checksum(), clock.instant());
 
         try (InputStream stream = command.content().open()) {
             storage.write(file.storageKey(), stream, file.sizeBytes(), file.contentType());
@@ -79,8 +87,9 @@ public class FileApplicationService {
     /** The returned URL embeds a credential. It must not be logged, cached or stored. */
     @Transactional(readOnly = true)
     public BinaryStorage.TemporaryUrl prepareDownload(PrepareDownloadCommand command) {
-        UserId owner = requireActiveOwner(command.firebaseUid());
-        StoredFile file = requireReachable(command.fileId(), owner);
+        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
+                ProjectPermission.READ);
+        StoredFile file = requireReachable(command.fileId(), access.projectId());
 
         return storage.temporaryReadUrl(
                 file.storageKey(), file.name().value(), file.contentType());
@@ -88,16 +97,28 @@ public class FileApplicationService {
 
     @Transactional(readOnly = true)
     public Page<FileView> listFiles(ListFilesCommand command) {
-        UserId owner = requireActiveOwner(command.firebaseUid());
+        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
+                ProjectPermission.READ);
 
         int offset = command.page() * command.size();
-        List<FileView> content = files.findAvailableByOwner(owner, offset, command.size())
+        List<FileView> content = files
+                .findAvailableByProject(access.projectId(), offset, command.size())
                 .stream()
                 .map(FileView::from)
                 .toList();
 
         return new Page<>(content, command.page(), command.size(),
-                files.countAvailableByOwner(owner));
+                files.countAvailableByProject(access.projectId()));
+    }
+
+    @Transactional
+    public FileView renameFile(RenameFileCommand command) {
+        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
+                ProjectPermission.WRITE).requireWritable();
+        StoredFile file = requireReachable(command.fileId(), access.projectId());
+
+        file.rename(new FileName(command.name()), clock.instant());
+        return FileView.from(files.save(file));
     }
 
     /**
@@ -108,29 +129,36 @@ public class FileApplicationService {
      */
     @Transactional
     public void deleteFile(DeleteFileCommand command) {
-        UserId owner = requireActiveOwner(command.firebaseUid());
-        StoredFile file = requireReachable(command.fileId(), owner);
+        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
+                ProjectPermission.WRITE).requireWritable();
+        StoredFile file = requireReachable(command.fileId(), access.projectId());
 
         file.delete(clock.instant());
         StoredFile saved = files.save(file);
         eventPublisher.publishAll(saved.pullDomainEvents());
     }
 
-    private UserId requireActiveOwner(String firebaseUid) {
-        FirebaseUid uid = new FirebaseUid(firebaseUid);
-        return ownerLookup.findActiveOwner(uid)
-                .orElseThrow(() -> UserNotFoundException.byFirebaseUid(uid));
+    /**
+     * An inactive caller, a deleted project and a project the caller is not a member of all
+     * collapse into the same 404 — anything else would confirm that a project id exists.
+     */
+    private ProjectAccess requireAccess(String firebaseUid, UUID projectId,
+                                        ProjectPermission required) {
+        ProjectId id = new ProjectId(projectId);
+        return projectAccess.findAccess(new FirebaseUid(firebaseUid), id)
+                .orElseThrow(() -> ProjectNotFoundException.byId(id))
+                .requireAtLeast(required);
     }
 
     /**
-     * Absent, deleted and someone else's all collapse into the same 404. Distinguishing
-     * them would confirm that an id exists, which turns the endpoint into an enumeration
-     * oracle.
+     * Absent, deleted and belonging to another project all collapse into the same 404.
+     * Distinguishing them would confirm that an id exists, which turns the endpoint into an
+     * enumeration oracle.
      */
-    private StoredFile requireReachable(UUID fileId, UserId owner) {
+    private StoredFile requireReachable(UUID fileId, ProjectId projectId) {
         FileId id = new FileId(fileId);
         return files.findById(id)
-                .filter(file -> file.isOwnedBy(owner))
+                .filter(file -> file.belongsTo(projectId))
                 .filter(file -> !file.isDeleted())
                 .orElseThrow(() -> StoredFileNotFoundException.byId(id));
     }
@@ -175,15 +203,19 @@ public class FileApplicationService {
     }
 
     public record UploadFileCommand(String firebaseUid,
+                                    UUID projectId,
                                     String originalFilename,
                                     long declaredSizeBytes,
                                     ContentSource content) {
     }
 
-    public record PrepareDownloadCommand(String firebaseUid, UUID fileId) {
+    public record PrepareDownloadCommand(String firebaseUid, UUID projectId, UUID fileId) {
     }
 
-    public record ListFilesCommand(String firebaseUid, int page, int size) {
+    public record RenameFileCommand(String firebaseUid, UUID projectId, UUID fileId, String name) {
+    }
+
+    public record ListFilesCommand(String firebaseUid, UUID projectId, int page, int size) {
 
         public static final int DEFAULT_SIZE = 20;
         public static final int MAX_SIZE = 100;
@@ -199,6 +231,6 @@ public class FileApplicationService {
         }
     }
 
-    public record DeleteFileCommand(String firebaseUid, UUID fileId) {
+    public record DeleteFileCommand(String firebaseUid, UUID projectId, UUID fileId) {
     }
 }

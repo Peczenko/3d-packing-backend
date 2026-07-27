@@ -6,6 +6,7 @@ import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import com.packing.backend.domain.shared.PermissionDeniedException;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.shared.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -48,6 +49,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ResourceConflictException.class)
     public ProblemDetail handleConflict(ResourceConflictException e, HttpServletRequest request) {
         return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage(), request);
+    }
+
+    /**
+     * Unrelated to Spring Security's {@link AccessDeniedException} below, which reports a
+     * failure of the filter chain. This one carries a domain decision — the caller can see
+     * the resource but lacks the level this operation needs — so its message is safe to
+     * pass through, and the two must not be merged.
+     */
+    @ExceptionHandler(PermissionDeniedException.class)
+    public ProblemDetail handlePermissionDenied(PermissionDeniedException e,
+                                                HttpServletRequest request) {
+        return problem(HttpStatus.FORBIDDEN, "Forbidden", e.getMessage(), request);
     }
 
     @ExceptionHandler(DomainRuleViolationException.class)

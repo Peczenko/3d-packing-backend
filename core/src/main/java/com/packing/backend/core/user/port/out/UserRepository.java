@@ -6,7 +6,9 @@ import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.Username;
 
+import java.util.Collection;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /** Output port for user persistence. Implemented by the jOOQ adapter in {@code :infra}. */
@@ -35,6 +37,14 @@ public interface UserRepository {
     Optional<User> findById(UserId id);
 
     Optional<User> findByFirebaseUid(FirebaseUid firebaseUid);
+
+    /** Both lookups back "add this person to my project", so they include tombstones. */
+    Optional<User> findByEmail(Email email);
+
+    Optional<User> findByUsername(Username username);
+
+    /** Resolves a project's whole member roster in one query. Missing ids are skipped. */
+    List<User> findAllByIds(Collection<UserId> ids);
 
     boolean existsByUsername(Username username);
 }
