@@ -32,6 +32,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 @JooqTest
 @Import(TestcontainersConfiguration.class)
@@ -131,6 +132,24 @@ class JooqProjectFinderIT {
                     assertThat(summary.myPermission()).isEqualTo(ProjectPermission.WRITE);
                     assertThat(summary.status()).isEqualTo(ProjectStatus.ACTIVE);
                 });
+    }
+
+    /**
+     * Two projects with different rosters, so an uncorrelated {@code count(*)} over
+     * {@code project_members} — which would return 3 for both rows — cannot pass.
+     */
+    @Test
+    void theMemberCountIsCorrelatedToItsOwnProject() {
+        Project shared = persistedProject();
+        shared.grantAccess(member, ProjectPermission.WRITE, creator, now());
+        repository().save(shared);
+        repository().save(Project.create(new ProjectName("Solo"), creator, now().plusSeconds(1)));
+
+        Page<ProjectSummaryView> page = finder().listForMember(creator, new PageRequest(0, 10));
+
+        assertThat(page.content())
+                .extracting(ProjectSummaryView::name, ProjectSummaryView::memberCount)
+                .containsExactly(tuple("Solo", 1), tuple("Chassis packing", 2));
     }
 
     /** The listing must not pay for a roster per row — that is why this port exists. */
