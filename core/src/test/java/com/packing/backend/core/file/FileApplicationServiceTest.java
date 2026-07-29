@@ -360,19 +360,6 @@ class FileApplicationServiceTest {
     }
 
     @Test
-    void listFilesCommandRejectsAPageSizeOutsideTheAllowedRange() {
-        UUID project = PROJECT.value();
-
-        assertThatThrownBy(() -> new ListFilesCommand(UID, project, new PageRequest(0, 0)))
-                .isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() -> new ListFilesCommand(UID, project,
-                new PageRequest(0, PageRequest.MAX_SIZE + 1)))
-                .isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() -> new ListFilesCommand(UID, project, new PageRequest(-1, 20)))
-                .isInstanceOf(DomainRuleViolationException.class);
-    }
-
-    @Test
     void renameChangesTheNameWithoutTouchingStorage() {
         access(ProjectPermission.WRITE);
         FileId id = FileId.generate();

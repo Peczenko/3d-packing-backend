@@ -32,6 +32,11 @@ public class JooqProjectRepository implements ProjectRepository {
     private final AggregateWriter writer;
 
 
+    /**
+     * Delete-then-insert rather than a diff: membership is small, and the optimistic lock on
+     * {@code projects.version} is what actually serialises two concurrent edits. Because the
+     * version guard runs first, a stale caller never reaches the member rewrite.
+     */
     @Override
     public Project save(Project project) {
         writer.upsert(ProjectRecordMapper.TABLE, ProjectRecordMapper.toRecord(project),

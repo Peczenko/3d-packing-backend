@@ -89,20 +89,28 @@ class JooqProjectFinderIT {
         assertThat(page.totalElements()).isEqualTo(1L);
     }
 
+    /** DISABLED is a read-only archive, not a hidden project — it must still appear in a listing. */
     @Test
-    void listExcludesTombstonesAndReturnsNewestFirst() {
-        persistedProject();
-        repository().save(Project.create(new ProjectName("Newer"), creator, now().plusSeconds(1)));
-        Project removed = Project.create(new ProjectName("Removed"), creator, now());
+    void listExcludesDeletedButKeepsDisabledProjectsNewestFirst() {
+        Instant base = now();
+        repository().save(Project.create(new ProjectName("Chassis packing"), creator, base));
+        repository().save(Project.create(new ProjectName("Newer"), creator, base.plusSeconds(1)));
+
+        Project disabled = Project.create(new ProjectName("Disabled"), creator, base.plusSeconds(2));
+        repository().save(disabled);
+        disabled.disable(base.plusSeconds(3));
+        repository().save(disabled);
+
+        Project removed = Project.create(new ProjectName("Removed"), creator, base.plusSeconds(4));
         repository().save(removed);
-        removed.delete(now());
+        removed.delete(base.plusSeconds(5));
         repository().save(removed);
 
         Page<ProjectSummaryView> page = finder().listForMember(creator, new PageRequest(0, 10));
 
         assertThat(page.content()).extracting(ProjectSummaryView::name)
-                .containsExactly("Newer", "Chassis packing");
-        assertThat(page.totalElements()).isEqualTo(2L);
+                .containsExactly("Disabled", "Newer", "Chassis packing");
+        assertThat(page.totalElements()).isEqualTo(3L);
     }
 
     @Test

@@ -18,5 +18,8 @@ public record AggregateTable<R extends UpdatableRecord<R>>(
 
     public AggregateTable {
         immutable = Set.copyOf(immutable);
+        if (immutable.contains(version)) {
+            throw new IllegalArgumentException("The version column must stay mutable");
+        }
     }
 }

@@ -4,7 +4,6 @@ import com.packing.backend.domain.shared.DomainRuleViolationException;
 
 public record PageRequest(int page, int size) {
 
-    public static final int DEFAULT_SIZE = 20;
     public static final int MAX_SIZE = 100;
 
     public PageRequest {

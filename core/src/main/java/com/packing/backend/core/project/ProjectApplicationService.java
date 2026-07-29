@@ -226,10 +226,9 @@ public class ProjectApplicationService {
                 .orElseThrow(() -> UserNotFoundException.byFirebaseUid(uid));
     }
 
-    private Project saveAndPublish(Project project) {
-        Project saved = projects.save(project);
-        eventPublisher.publishAll(saved.pullDomainEvents());
-        return saved;
+    private void saveAndPublish(Project project) {
+        projects.save(project);
+        eventPublisher.publishAll(project.pullDomainEvents());
     }
 
     /**

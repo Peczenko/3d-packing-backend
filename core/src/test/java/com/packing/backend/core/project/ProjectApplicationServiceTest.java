@@ -213,7 +213,6 @@ class ProjectApplicationServiceTest {
     @Test
     void anUnknownProjectIsNotFound() {
         UUID unknown = UUID.randomUUID();
-        when(projects.findById(new ProjectId(unknown))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getProject(new ProjectQuery(UID, unknown)))
                 .isInstanceOf(ProjectNotFoundException.class);
@@ -222,7 +221,6 @@ class ProjectApplicationServiceTest {
     @Test
     void aNonMemberSeesTheSameNotFoundRatherThanAForbidden() {
         Project project = Project.create(NAME, MEMBER, NOW);
-        when(projects.findById(project.id())).thenReturn(Optional.of(project));
         stored.put(project.id(), project);
 
         assertThatThrownBy(() -> service.getProject(
@@ -242,16 +240,6 @@ class ProjectApplicationServiceTest {
 
         assertThat(page.content()).containsExactly(summary);
         assertThat(page.totalPages()).isEqualTo(3);
-    }
-
-    @Test
-    void getProjectIsNotFoundWhenTheFinderRefusesTheCaller() {
-        Project project = Project.create(NAME, MEMBER, NOW);
-        stored.put(project.id(), project);
-
-        assertThatThrownBy(() -> service.getProject(
-                new ProjectQuery(UID, project.id().value())))
-                .isInstanceOf(ProjectNotFoundException.class);
     }
 
     @Test

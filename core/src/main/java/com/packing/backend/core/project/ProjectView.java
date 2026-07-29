@@ -19,4 +19,8 @@ public record ProjectView(UUID id,
                           List<ProjectMemberView> members,
                           Instant createdAt,
                           Instant updatedAt) {
+
+    public ProjectView {
+        members = List.copyOf(members);
+    }
 }
