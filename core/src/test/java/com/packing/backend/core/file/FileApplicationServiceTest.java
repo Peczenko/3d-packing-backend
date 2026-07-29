@@ -6,6 +6,7 @@ import com.packing.backend.core.file.FileApplicationService.PrepareDownloadComma
 import com.packing.backend.core.file.FileApplicationService.RenameFileCommand;
 import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
 import com.packing.backend.core.file.port.out.BinaryStorage;
+import com.packing.backend.core.file.port.out.FileFinder;
 import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
@@ -77,6 +78,8 @@ class FileApplicationServiceTest {
     @Mock
     private FileRepository files;
     @Mock
+    private FileFinder fileFinder;
+    @Mock
     private BinaryStorage storage;
     @Mock
     private ProjectAccessLookup projectAccess;
@@ -87,8 +90,8 @@ class FileApplicationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new FileApplicationService(files, storage, projectAccess, eventPublisher,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new FileApplicationService(files, fileFinder, storage, projectAccess,
+                eventPublisher, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private void access(ProjectPermission permission) {
@@ -331,21 +334,29 @@ class FileApplicationServiceTest {
     }
 
     @Test
-    void listFilesPagesWithTheOffsetDerivedFromThePageIndex() {
+    void listFilesPassesThroughThePageFromTheFinder() {
         access(ProjectPermission.READ);
         FileId id = FileId.generate();
-        when(files.findAvailableByProject(PROJECT, 40, 20))
-                .thenReturn(List.of(storedFile(id, PROJECT)));
-        when(files.countAvailableByProject(PROJECT)).thenReturn(45L);
+        Page<FileView> finderPage = new Page<>(
+                List.of(FileView.from(storedFile(id, PROJECT))), 2, 20, 45L);
+        when(fileFinder.listAvailableInProject(PROJECT, new PageRequest(2, 20)))
+                .thenReturn(finderPage);
 
         Page<FileView> page = service.listFiles(
                 new ListFilesCommand(UID, PROJECT.value(), new PageRequest(2, 20)));
 
-        assertThat(page.content()).singleElement()
-                .satisfies(view -> assertThat(view.id()).isEqualTo(id.value()));
-        assertThat(page.page()).isEqualTo(2);
-        assertThat(page.totalElements()).isEqualTo(45L);
-        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(page).isSameAs(finderPage);
+    }
+
+    @Test
+    void listFilesRejectsACallerWithNoAccessToTheProjectBeforeConsultingTheFinder() {
+        noAccess();
+
+        assertThatThrownBy(() -> service.listFiles(
+                new ListFilesCommand(UID, PROJECT.value(), new PageRequest(0, 20))))
+                .isInstanceOf(ProjectNotFoundException.class);
+
+        verify(fileFinder, never()).listAvailableInProject(any(), any());
     }
 
     @Test

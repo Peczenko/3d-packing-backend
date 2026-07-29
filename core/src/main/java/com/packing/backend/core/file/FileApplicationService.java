@@ -1,6 +1,7 @@
 package com.packing.backend.core.file;
 
 import com.packing.backend.core.file.port.out.BinaryStorage;
+import com.packing.backend.core.file.port.out.FileFinder;
 import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
@@ -30,7 +31,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -46,6 +46,7 @@ public class FileApplicationService {
     private static final int DIGEST_BUFFER_BYTES = 8192;
 
     private final FileRepository files;
+    private final FileFinder fileFinder;
     private final BinaryStorage storage;
     private final ProjectAccessLookup projectAccess;
     private final DomainEventPublisher eventPublisher;
@@ -100,16 +101,7 @@ public class FileApplicationService {
     public Page<FileView> listFiles(ListFilesCommand command) {
         ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
                 ProjectPermission.READ);
-
-        List<FileView> content = files
-                .findAvailableByProject(access.projectId(), (int) command.page().offset(),
-                        command.page().size())
-                .stream()
-                .map(FileView::from)
-                .toList();
-
-        return new Page<>(content, command.page().page(), command.page().size(),
-                files.countAvailableByProject(access.projectId()));
+        return fileFinder.listAvailableInProject(access.projectId(), command.page());
     }
 
     @Transactional

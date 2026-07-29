@@ -152,62 +152,6 @@ class JooqFileRepositoryIT {
     }
 
     @Test
-    void listingExcludesTombstonesAndReturnsNewestFirst() {
-        StoredFile older = newFile("older.stl");
-        repository().save(older);
-        StoredFile newer = newFile("newer.stl");
-        repository().save(newer);
-        StoredFile removed = newFile("removed.stl");
-        repository().save(removed);
-        removed.delete(Instant.now().truncatedTo(ChronoUnit.MICROS));
-        repository().save(removed);
-
-        List<StoredFile> found = repository().findAvailableByProject(project, 0, 10);
-
-        assertThat(found).extracting(file -> file.name().value())
-                .containsExactly("newer.stl", "older.stl");
-        assertThat(repository().countAvailableByProject(project)).isEqualTo(2L);
-    }
-
-    @Test
-    void listingPagesWithOffsetAndLimit() {
-        for (int i = 0; i < 5; i++) {
-            repository().save(newFile("part-" + i + ".stl"));
-        }
-
-        assertThat(repository().findAvailableByProject(project, 0, 2)).hasSize(2);
-        assertThat(repository().findAvailableByProject(project, 4, 2)).hasSize(1);
-        assertThat(repository().findAvailableByProject(project, 10, 2)).isEmpty();
-        assertThat(repository().countAvailableByProject(project)).isEqualTo(5L);
-    }
-
-    @Test
-    void listingIsScopedToTheProjectNotTheUploader() {
-        repository().save(newFile("mine.stl"));
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        Project otherProject = Project.create(new ProjectName("Other"), owner, now);
-        new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(otherProject);
-
-        assertThat(repository().findAvailableByProject(otherProject.id(), 0, 10)).isEmpty();
-        assertThat(repository().countAvailableByProject(otherProject.id())).isZero();
-    }
-
-    /** A WRITE member's upload is listed by the project, not by who happened to send it. */
-    @Test
-    void aFileUploadedByAnotherMemberIsStillListedByTheProject() {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        User other = User.register(new FirebaseUid("uid-other"), new Email("other@example.com"),
-                new Username("other"), "Other", now);
-        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(other);
-        repository().save(StoredFile.upload(FileId.generate(), other.id(), project,
-                new FileName("theirs.stl"), 2_048L, CHECKSUM, now));
-
-        assertThat(repository().findAvailableByProject(project, 0, 10))
-                .extracting(file -> file.name().value())
-                .containsExactly("theirs.stl");
-    }
-
-    @Test
     void findAllAvailableByProjectReturnsEveryLiveFileForTheDeletionCascade() {
         repository().save(newFile("a.stl"));
         repository().save(newFile("b.stl"));

@@ -2,14 +2,12 @@ package com.packing.backend.infra.persistence.file;
 
 import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.domain.file.FileId;
-import com.packing.backend.domain.file.FileStatus;
 import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
 import lombok.RequiredArgsConstructor;
-import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -59,39 +57,13 @@ public class JooqFileRepository implements FileRepository {
                 .map(FileRecordMapper::toDomain);
     }
 
-    /**
-     * Ordered newest first with the id as a tiebreak, so paging stays stable when two
-     * uploads share a timestamp. Backed by {@code ix_files_project_created}, scanned
-     * backwards.
-     */
-    @Override
-    public List<StoredFile> findAvailableByProject(ProjectId projectId, int offset, int limit) {
-        return dsl.selectFrom(FILES)
-                .where(availableIn(projectId))
-                .orderBy(FILES.CREATED_AT.desc(), FILES.ID.desc())
-                .offset(offset)
-                .limit(limit)
-                .fetch()
-                .map(FileRecordMapper::toDomain);
-    }
-
-    @Override
-    public long countAvailableByProject(ProjectId projectId) {
-        return dsl.fetchCount(dsl.selectFrom(FILES).where(availableIn(projectId)));
-    }
-
     @Override
     public List<StoredFile> findAllAvailableByProject(ProjectId projectId) {
         return dsl.selectFrom(FILES)
-                .where(availableIn(projectId))
+                .where(FileQueries.availableIn(projectId))
                 .orderBy(FILES.CREATED_AT.desc(), FILES.ID.desc())
                 .fetch()
                 .map(FileRecordMapper::toDomain);
-    }
-
-    private Condition availableIn(ProjectId projectId) {
-        return FILES.PROJECT_ID.eq(projectId.value())
-                .and(FILES.STATUS.eq(FileStatus.AVAILABLE.name()));
     }
 
     /**

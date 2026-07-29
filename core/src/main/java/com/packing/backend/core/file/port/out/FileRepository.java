@@ -26,11 +26,6 @@ public interface FileRepository {
     /** Returns deleted files too — the caller decides what a tombstone means to it. */
     Optional<StoredFile> findById(FileId id);
 
-    /** Newest first, tombstones excluded. */
-    List<StoredFile> findAvailableByProject(ProjectId projectId, int offset, int limit);
-
-    long countAvailableByProject(ProjectId projectId);
-
     /** Unpaged, for the deletion cascade, which has to see every file exactly once. */
     List<StoredFile> findAllAvailableByProject(ProjectId projectId);
 }
