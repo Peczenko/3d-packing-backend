@@ -86,9 +86,8 @@ class AggregateWriterIT {
                 .execute();
         Instant tampered = repository().findById(user.id()).orElseThrow().createdAt();
 
-        User loaded = repository().findById(user.id()).orElseThrow();
-        loaded.changeProfile(new Username("writer"), "Renamed", now());
-        repository().save(loaded);
+        user.changeProfile(new Username("writer"), "Renamed", now());
+        repository().save(user);
 
         assertThat(repository().findById(user.id()).orElseThrow().createdAt())
                 .isEqualTo(tampered)
