@@ -76,7 +76,12 @@ class JooqFileFinderIT {
     }
 
     private StoredFile persistFile(ProjectId projectId, String filename, Instant createdAt) {
-        StoredFile file = StoredFile.upload(FileId.generate(), owner, projectId,
+        return persistFile(projectId, owner, filename, createdAt);
+    }
+
+    private StoredFile persistFile(ProjectId projectId, UserId uploader, String filename,
+                                    Instant createdAt) {
+        StoredFile file = StoredFile.upload(FileId.generate(), uploader, projectId,
                 new FileName(filename), 2_048L, CHECKSUM, createdAt);
         repository().save(file);
         return file;
@@ -123,6 +128,26 @@ class JooqFileFinderIT {
 
         assertThat(page.content()).isEmpty();
         assertThat(page.totalElements()).isZero();
+    }
+
+    /**
+     * {@code files.owner_user_id} grants nothing — a project listing must include a file
+     * uploaded by any member, not just the one who happens to own the project.
+     */
+    @Test
+    void listingIncludesFilesUploadedByAnyMemberNotJustTheOwner() {
+        User other = User.register(new FirebaseUid("uid-other"), new Email("other@example.com"),
+                new Username("other"), "Other", now());
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(other);
+
+        Instant base = now();
+        persistFile(project, owner, "mine.stl", base);
+        persistFile(project, other.id(), "theirs.stl", base.plusSeconds(1));
+
+        Page<FileView> page = finder().listAvailableInProject(project, new PageRequest(0, 10));
+
+        assertThat(page.content()).extracting(FileView::filename)
+                .containsExactly("theirs.stl", "mine.stl");
     }
 
     /** FileView omits storageKey on purpose: exposing it would leak the object layout. */
