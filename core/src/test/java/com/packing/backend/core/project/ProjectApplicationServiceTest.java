@@ -9,6 +9,7 @@ import com.packing.backend.core.project.ProjectApplicationService.ProjectCommand
 import com.packing.backend.core.project.ProjectApplicationService.ProjectQuery;
 import com.packing.backend.core.project.ProjectApplicationService.RenameProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.RevokeAccessCommand;
+import com.packing.backend.core.project.port.out.ProjectFinder;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
@@ -49,14 +50,16 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -74,6 +77,8 @@ class ProjectApplicationServiceTest {
     @Mock
     private ProjectRepository projects;
     @Mock
+    private ProjectFinder projectFinder;
+    @Mock
     private UserRepository users;
     @Mock
     private ActiveUserLookup activeUsers;
@@ -84,16 +89,44 @@ class ProjectApplicationServiceTest {
 
     private ProjectApplicationService service;
 
+    private final Map<ProjectId, Project> stored = new HashMap<>();
+
     @BeforeEach
     void setUp() {
-        service = new ProjectApplicationService(projects, users, activeUsers, files,
-                eventPublisher, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new ProjectApplicationService(projects, projectFinder, users, activeUsers,
+                files, eventPublisher, Clock.fixed(NOW, ZoneOffset.UTC));
         when(activeUsers.findActiveUser(new FirebaseUid(UID))).thenReturn(Optional.of(CALLER));
-        when(projects.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(users.findAllByIds(anyCollection())).thenAnswer(invocation -> {
-            Collection<UserId> ids = invocation.getArgument(0);
-            return ids.stream().map(ProjectApplicationServiceTest::userWithId).toList();
+        when(projects.save(any())).thenAnswer(invocation -> {
+            Project project = invocation.getArgument(0);
+            stored.put(project.id(), project);
+            return project;
         });
+        when(projectFinder.detailFor(any(), any())).thenAnswer(invocation -> {
+            UserId caller = invocation.getArgument(0);
+            ProjectId id = invocation.getArgument(1);
+            Project project = stored.get(id);
+            if (project == null || project.isDeleted()
+                    || project.permissionOf(caller).isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(viewOf(project, caller));
+        });
+    }
+
+    /**
+     * Mirrors what JooqProjectFinder assembles in SQL. JooqProjectFinderIT is what proves the
+     * two agree; this only has to be shaped the same.
+     */
+    private static ProjectView viewOf(Project project, UserId caller) {
+        List<ProjectMemberView> members = project.members().stream()
+                .map(member -> new ProjectMemberView(member.userId().value(),
+                        "user" + Math.abs(member.userId().value().hashCode()), "Display Name",
+                        member.permission(), member.addedAt()))
+                .sorted(Comparator.comparing(ProjectMemberView::addedAt))
+                .toList();
+        return new ProjectView(project.id().value(), project.name().value(), project.status(),
+                project.createdBy().value(), project.permissionOf(caller).orElseThrow(),
+                members, project.createdAt(), project.updatedAt());
     }
 
     private static User userWithId(UserId id) {
@@ -110,6 +143,7 @@ class ProjectApplicationServiceTest {
         Project project = Project.create(NAME, CALLER, NOW);
         project.pullDomainEvents();
         when(projects.findById(project.id())).thenReturn(Optional.of(project));
+        stored.put(project.id(), project);
         return project;
     }
 
@@ -118,6 +152,7 @@ class ProjectApplicationServiceTest {
         project.grantAccess(CALLER, permission, MEMBER, NOW);
         project.pullDomainEvents();
         when(projects.findById(project.id())).thenReturn(Optional.of(project));
+        stored.put(project.id(), project);
         return project;
     }
 
@@ -188,6 +223,7 @@ class ProjectApplicationServiceTest {
     void aNonMemberSeesTheSameNotFoundRatherThanAForbidden() {
         Project project = Project.create(NAME, MEMBER, NOW);
         when(projects.findById(project.id())).thenReturn(Optional.of(project));
+        stored.put(project.id(), project);
 
         assertThatThrownBy(() -> service.getProject(
                 new ProjectQuery(UID, project.id().value())))
@@ -195,20 +231,27 @@ class ProjectApplicationServiceTest {
     }
 
     @Test
-    void listProjectsPagesWithTheOffsetDerivedFromThePageIndex() {
-        Project project = Project.create(NAME, CALLER, NOW);
-        when(projects.findByMember(CALLER, 40, 20)).thenReturn(List.of(project));
-        when(projects.countByMember(CALLER)).thenReturn(45L);
+    void listProjectsDelegatesToTheFinderWithTheCallersId() {
+        ProjectSummaryView summary = new ProjectSummaryView(UUID.randomUUID(), "Chassis packing",
+                ProjectStatus.ACTIVE, ProjectPermission.OWNER, 1, NOW, NOW);
+        when(projectFinder.listForMember(CALLER, new PageRequest(2, 20)))
+                .thenReturn(new Page<>(List.of(summary), 2, 20, 45L));
 
         Page<ProjectSummaryView> page = service.listProjects(
                 new ListProjectsCommand(UID, new PageRequest(2, 20)));
 
-        assertThat(page.content()).singleElement().satisfies(summary -> {
-            assertThat(summary.id()).isEqualTo(project.id().value());
-            assertThat(summary.myPermission()).isEqualTo(ProjectPermission.OWNER);
-            assertThat(summary.memberCount()).isEqualTo(1);
-        });
+        assertThat(page.content()).containsExactly(summary);
         assertThat(page.totalPages()).isEqualTo(3);
+    }
+
+    @Test
+    void getProjectIsNotFoundWhenTheFinderRefusesTheCaller() {
+        Project project = Project.create(NAME, MEMBER, NOW);
+        stored.put(project.id(), project);
+
+        assertThatThrownBy(() -> service.getProject(
+                new ProjectQuery(UID, project.id().value())))
+                .isInstanceOf(ProjectNotFoundException.class);
     }
 
     @Test

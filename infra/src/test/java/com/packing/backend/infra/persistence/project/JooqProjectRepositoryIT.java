@@ -27,7 +27,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -208,95 +207,6 @@ class JooqProjectRepositoryIT {
             assertThat(found.status()).isEqualTo(ProjectStatus.DELETED);
             assertThat(found.deletedAt()).isEqualTo(deletedAt);
         });
-    }
-
-    @Test
-    void listingReturnsOnlyProjectsTheUserBelongsTo() {
-        Project mine = persistedProject();
-        Project theirs = Project.create(new ProjectName("Theirs"), member, now());
-        repository().save(theirs);
-
-        assertThat(repository().findByMember(creator, 0, 10))
-                .extracting(project -> project.id())
-                .containsExactly(mine.id());
-        assertThat(repository().countByMember(creator)).isEqualTo(1L);
-    }
-
-    @Test
-    void listingExcludesTombstonesAndReturnsNewestFirst() {
-        Project older = persistedProject();
-        Project newer = Project.create(new ProjectName("Newer"), creator, now().plusSeconds(1));
-        repository().save(newer);
-        Project removed = Project.create(new ProjectName("Removed"), creator, now());
-        repository().save(removed);
-        removed.delete(now());
-        repository().save(removed);
-
-        assertThat(repository().findByMember(creator, 0, 10))
-                .extracting(project -> project.name().value())
-                .containsExactly("Newer", "Chassis packing");
-        assertThat(repository().countByMember(creator)).isEqualTo(2L);
-    }
-
-    @Test
-    void listingPagesWithOffsetAndLimit() {
-        for (int i = 0; i < 5; i++) {
-            repository().save(Project.create(new ProjectName("P" + i), creator,
-                    now().plusSeconds(i)));
-        }
-
-        assertThat(repository().findByMember(creator, 0, 2)).hasSize(2);
-        assertThat(repository().findByMember(creator, 4, 2)).hasSize(1);
-        assertThat(repository().findByMember(creator, 10, 2)).isEmpty();
-        assertThat(repository().countByMember(creator)).isEqualTo(5L);
-    }
-
-    @Test
-    void listingLoadsEveryProjectsMembersWithoutMixingThemUp() {
-        Project first = persistedProject();
-        first.grantAccess(member, ProjectPermission.READ, creator, now());
-        repository().save(first);
-        Project second = Project.create(new ProjectName("Second"), creator, now().plusSeconds(1));
-        repository().save(second);
-
-        List<Project> found = repository().findByMember(creator, 0, 10);
-
-        assertThat(found).filteredOn(p -> p.id().equals(first.id()))
-                .singleElement()
-                .satisfies(p -> assertThat(p.members()).hasSize(2));
-        assertThat(found).filteredOn(p -> p.id().equals(second.id()))
-                .singleElement()
-                .satisfies(p -> assertThat(p.members()).hasSize(1));
-    }
-
-    /**
-     * The roster arrives through a correlated MULTISET rather than a follow-up query. Worth
-     * pinning: the obvious refactor back to "fetch projects, then fetch their members" is
-     * silently wrong under {@code READ COMMITTED}, because the two statements see two
-     * snapshots and the roster can then contradict the version the optimistic lock writes on.
-     */
-    @Test
-    void aPageOfProjectsAndEveryRosterIsOneStatement() {
-        Project project = persistedProject();
-        project.grantAccess(member, ProjectPermission.WRITE, creator, now());
-        repository().save(project);
-
-        AtomicInteger statements = new AtomicInteger();
-        DSLContext counting = dsl.configuration()
-                .derive((ExecuteListenerProvider) () -> new DefaultExecuteListener() {
-                    @Override
-                    public void executeStart(ExecuteContext ctx) {
-                        statements.incrementAndGet();
-                    }
-                })
-                .dsl();
-
-        List<Project> found = new JooqProjectRepository(counting, new AggregateWriter(counting))
-                .findByMember(creator, 0, 10);
-
-        assertThat(found).singleElement()
-                .satisfies(p -> assertThat(p.members()).hasSize(2));
-        assertThat(statements).hasValue(1);
     }
 
     @Test

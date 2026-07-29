@@ -1,6 +1,5 @@
 package com.packing.backend.core.project;
 
-import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.project.ProjectStatus;
 
@@ -18,15 +17,4 @@ public record ProjectSummaryView(UUID id,
                                  int memberCount,
                                  Instant createdAt,
                                  Instant updatedAt) {
-
-    public static ProjectSummaryView of(Project project, ProjectPermission myPermission) {
-        return new ProjectSummaryView(
-                project.id().value(),
-                project.name().value(),
-                project.status(),
-                myPermission,
-                project.members().size(),
-                project.createdAt(),
-                project.updatedAt());
-    }
 }

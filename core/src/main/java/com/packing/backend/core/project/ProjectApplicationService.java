@@ -1,6 +1,7 @@
 package com.packing.backend.core.project;
 
 import com.packing.backend.core.file.port.out.FileRepository;
+import com.packing.backend.core.project.port.out.ProjectFinder;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
@@ -10,7 +11,6 @@ import com.packing.backend.core.user.port.out.UserRepository;
 import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
-import com.packing.backend.domain.project.ProjectMember;
 import com.packing.backend.domain.project.ProjectName;
 import com.packing.backend.domain.project.ProjectNotFoundException;
 import com.packing.backend.domain.project.ProjectPermission;
@@ -30,14 +30,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -45,6 +40,7 @@ import java.util.stream.Collectors;
 public class ProjectApplicationService {
 
     private final ProjectRepository projects;
+    private final ProjectFinder projectFinder;
     private final UserRepository users;
     private final ActiveUserLookup activeUsers;
     private final FileRepository files;
@@ -56,28 +52,20 @@ public class ProjectApplicationService {
         UserId caller = requireActiveCaller(command.firebaseUid());
 
         Project project = Project.create(new ProjectName(command.name()), caller, now);
-        return viewOf(saveAndPublish(project), caller);
+        saveAndPublish(project);
+        return viewOf(caller, project.id());
     }
 
     @Transactional(readOnly = true)
     public Page<ProjectSummaryView> listProjects(ListProjectsCommand command) {
         UserId caller = requireActiveCaller(command.firebaseUid());
-
-        List<ProjectSummaryView> content = projects
-                .findByMember(caller, (int) command.page().offset(), command.page().size())
-                .stream()
-                .map(project -> ProjectSummaryView.of(
-                        project, project.requireAccess(caller, ProjectPermission.READ)))
-                .toList();
-
-        return new Page<>(content, command.page().page(), command.page().size(),
-                projects.countByMember(caller));
+        return projectFinder.listForMember(caller, command.page());
     }
 
     @Transactional(readOnly = true)
     public ProjectView getProject(ProjectQuery query) {
-        Access access = requireAccess(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
-        return viewOf(access.project(), access.caller());
+        UserId caller = requireActiveCaller(query.firebaseUid());
+        return viewOf(caller, new ProjectId(query.projectId()));
     }
 
     public ProjectView renameProject(RenameProjectCommand command) {
@@ -86,7 +74,8 @@ public class ProjectApplicationService {
                 ProjectPermission.OWNER);
 
         access.project().rename(new ProjectName(command.name()), now);
-        return viewOf(saveAndPublish(access.project()), access.caller());
+        saveAndPublish(access.project());
+        return viewOf(access.caller(), access.project().id());
     }
 
     public void disableProject(ProjectCommand command) {
@@ -145,7 +134,8 @@ public class ProjectApplicationService {
 
         User member = resolveMember(command.identifier());
         access.project().grantAccess(member.id(), command.permission(), access.caller(), now);
-        return viewOf(saveAndPublish(access.project()), access.caller());
+        saveAndPublish(access.project());
+        return viewOf(access.caller(), access.project().id());
     }
 
     /**
@@ -166,7 +156,8 @@ public class ProjectApplicationService {
         }
 
         access.project().grantAccess(target, command.permission(), access.caller(), now);
-        return viewOf(saveAndPublish(access.project()), access.caller());
+        saveAndPublish(access.project());
+        return viewOf(access.caller(), access.project().id());
     }
 
     /**
@@ -241,21 +232,13 @@ public class ProjectApplicationService {
         return saved;
     }
 
-    /** One query for every member's identity, rather than one per member. */
-    private ProjectView viewOf(Project project, UserId caller) {
-        List<ProjectMember> members = project.members();
-        Set<UserId> ids = members.stream().map(ProjectMember::userId).collect(Collectors.toSet());
-        Map<UserId, User> identities = users.findAllByIds(ids).stream()
-                .collect(Collectors.toMap(User::id, Function.identity()));
-
-        List<ProjectMemberView> memberViews = members.stream()
-                .filter(member -> identities.containsKey(member.userId()))
-                .map(member -> ProjectMemberView.of(member, identities.get(member.userId())))
-                .sorted(Comparator.comparing(ProjectMemberView::addedAt))
-                .toList();
-
-        return ProjectView.of(project, project.requireAccess(caller, ProjectPermission.READ),
-                memberViews);
+    /**
+     * Re-read after a write rather than assembling a second view from the aggregate: one
+     * shape, one source of truth. Reads its own writes inside the same transaction.
+     */
+    private ProjectView viewOf(UserId caller, ProjectId projectId) {
+        return projectFinder.detailFor(caller, projectId)
+                .orElseThrow(() -> ProjectNotFoundException.byId(projectId));
     }
 
     private record Access(Project project, UserId caller, ProjectPermission permission) {

@@ -4,7 +4,6 @@ import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectMember;
-import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -19,8 +18,6 @@ import java.util.Optional;
 import static com.packing.backend.infra.persistence.jooq.tables.ProjectMembers.PROJECT_MEMBERS;
 import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECTS;
 import static com.packing.backend.infra.persistence.project.ProjectQueries.MEMBERS;
-import static com.packing.backend.infra.persistence.project.ProjectQueries.memberIs;
-import static com.packing.backend.infra.persistence.project.ProjectQueries.notDeleted;
 
 /**
  * No {@code @Transactional} here: transaction boundaries belong to the application services
@@ -51,35 +48,6 @@ public class JooqProjectRepository implements ProjectRepository {
                 .where(PROJECTS.ID.eq(id.value()))
                 .fetchOptional()
                 .map(JooqProjectRepository::toProject);
-    }
-
-    /**
-     * Ordered newest first with the id as a tiebreak, so paging stays stable when two
-     * projects share a timestamp.
-     *
-     * <p>The join to {@code PROJECT_MEMBERS} filters and nothing more — the roster itself
-     * arrives through {@link ProjectQueries#MEMBERS}. It cannot multiply rows, because
-     * {@code (project_id, user_id)} is the primary key, so one user matches at most once per
-     * project.
-     */
-    @Override
-    public List<Project> findByMember(UserId userId, int offset, int limit) {
-        return dsl.select(PROJECTS.asterisk(), MEMBERS)
-                .from(PROJECTS)
-                .join(PROJECT_MEMBERS).on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                .where(memberIs(userId).and(notDeleted()))
-                .orderBy(PROJECTS.CREATED_AT.desc(), PROJECTS.ID.desc())
-                .offset(offset)
-                .limit(limit)
-                .fetch(JooqProjectRepository::toProject);
-    }
-
-    @Override
-    public long countByMember(UserId userId) {
-        return dsl.fetchCount(dsl.select(PROJECTS.ID)
-                .from(PROJECTS)
-                .join(PROJECT_MEMBERS).on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                .where(memberIs(userId).and(notDeleted())));
     }
 
     private static Project toProject(Record row) {

@@ -17,8 +17,6 @@ import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
-import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -91,17 +89,6 @@ public class JooqUserRepository implements UserRepository {
         return dsl.selectFrom(USERS)
                 .where(USERS.USERNAME.eq(username.value()))
                 .fetchOptional()
-                .map(UserRecordMapper::toDomain);
-    }
-
-    @Override
-    public List<User> findAllByIds(Collection<UserId> ids) {
-        if (ids.isEmpty()) {
-            return List.of();
-        }
-        return dsl.selectFrom(USERS)
-                .where(USERS.ID.in(ids.stream().map(UserId::value).toList()))
-                .fetch()
                 .map(UserRecordMapper::toDomain);
     }
 
