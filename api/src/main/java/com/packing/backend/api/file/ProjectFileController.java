@@ -9,6 +9,7 @@ import com.packing.backend.core.file.FileApplicationService.PrepareDownloadComma
 import com.packing.backend.core.file.FileApplicationService.RenameFileCommand;
 import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
 import com.packing.backend.core.file.port.out.BinaryStorage;
+import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -57,9 +58,9 @@ public class ProjectFileController {
             @CurrentUser AuthenticatedUser caller,
             @PathVariable UUID projectId,
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(ListFilesCommand.MAX_SIZE) int size) {
+            @RequestParam(defaultValue = "20") @Min(1) @Max(PageRequest.MAX_SIZE) int size) {
         return FilePageResponse.from(files.listFiles(
-                new ListFilesCommand(caller.firebaseUid(), projectId, page, size)));
+                new ListFilesCommand(caller.firebaseUid(), projectId, new PageRequest(page, size))));
     }
 
     /**

@@ -7,6 +7,7 @@ import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAcce
 import com.packing.backend.core.shared.ContentSource;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.core.shared.Page;
+import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
@@ -100,14 +101,14 @@ public class FileApplicationService {
         ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
                 ProjectPermission.READ);
 
-        int offset = command.page() * command.size();
         List<FileView> content = files
-                .findAvailableByProject(access.projectId(), offset, command.size())
+                .findAvailableByProject(access.projectId(), (int) command.page().offset(),
+                        command.page().size())
                 .stream()
                 .map(FileView::from)
                 .toList();
 
-        return new Page<>(content, command.page(), command.size(),
+        return new Page<>(content, command.page().page(), command.page().size(),
                 files.countAvailableByProject(access.projectId()));
     }
 
@@ -215,20 +216,7 @@ public class FileApplicationService {
     public record RenameFileCommand(String firebaseUid, UUID projectId, UUID fileId, String name) {
     }
 
-    public record ListFilesCommand(String firebaseUid, UUID projectId, int page, int size) {
-
-        public static final int DEFAULT_SIZE = 20;
-        public static final int MAX_SIZE = 100;
-
-        public ListFilesCommand {
-            if (page < 0) {
-                throw new DomainRuleViolationException("Page must not be negative");
-            }
-            if (size < 1 || size > MAX_SIZE) {
-                throw new DomainRuleViolationException(
-                        "Page size must be between 1 and " + MAX_SIZE);
-            }
-        }
+    public record ListFilesCommand(String firebaseUid, UUID projectId, PageRequest page) {
     }
 
     public record DeleteFileCommand(String firebaseUid, UUID projectId, UUID fileId) {

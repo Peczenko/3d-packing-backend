@@ -11,6 +11,7 @@ import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.ContentSource;
 import com.packing.backend.core.shared.Page;
+import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
@@ -338,7 +339,7 @@ class FileApplicationServiceTest {
         when(files.countAvailableByProject(PROJECT)).thenReturn(45L);
 
         Page<FileView> page = service.listFiles(
-                new ListFilesCommand(UID, PROJECT.value(), 2, 20));
+                new ListFilesCommand(UID, PROJECT.value(), new PageRequest(2, 20)));
 
         assertThat(page.content()).singleElement()
                 .satisfies(view -> assertThat(view.id()).isEqualTo(id.value()));
@@ -351,12 +352,12 @@ class FileApplicationServiceTest {
     void listFilesCommandRejectsAPageSizeOutsideTheAllowedRange() {
         UUID project = PROJECT.value();
 
-        assertThatThrownBy(() -> new ListFilesCommand(UID, project, 0, 0))
+        assertThatThrownBy(() -> new ListFilesCommand(UID, project, new PageRequest(0, 0)))
                 .isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() ->
-                new ListFilesCommand(UID, project, 0, ListFilesCommand.MAX_SIZE + 1))
+        assertThatThrownBy(() -> new ListFilesCommand(UID, project,
+                new PageRequest(0, PageRequest.MAX_SIZE + 1)))
                 .isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() -> new ListFilesCommand(UID, project, -1, 20))
+        assertThatThrownBy(() -> new ListFilesCommand(UID, project, new PageRequest(-1, 20)))
                 .isInstanceOf(DomainRuleViolationException.class);
     }
 

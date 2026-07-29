@@ -3,6 +3,7 @@ package com.packing.backend.core.project;
 import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
+import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.port.out.ActiveUserLookup;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.out.UserRepository;
@@ -62,15 +63,15 @@ public class ProjectApplicationService {
     public Page<ProjectSummaryView> listProjects(ListProjectsCommand command) {
         UserId caller = requireActiveCaller(command.firebaseUid());
 
-        int offset = command.page() * command.size();
-        List<ProjectSummaryView> content =
-                projects.findByMember(caller, offset, command.size())
-                        .stream()
-                        .map(project -> ProjectSummaryView.of(
-                                project, project.requireAccess(caller, ProjectPermission.READ)))
-                        .toList();
+        List<ProjectSummaryView> content = projects
+                .findByMember(caller, (int) command.page().offset(), command.page().size())
+                .stream()
+                .map(project -> ProjectSummaryView.of(
+                        project, project.requireAccess(caller, ProjectPermission.READ)))
+                .toList();
 
-        return new Page<>(content, command.page(), command.size(), projects.countByMember(caller));
+        return new Page<>(content, command.page().page(), command.page().size(),
+                projects.countByMember(caller));
     }
 
     @Transactional(readOnly = true)
@@ -287,19 +288,6 @@ public class ProjectApplicationService {
     public record RevokeAccessCommand(String firebaseUid, UUID projectId, UUID userId) {
     }
 
-    public record ListProjectsCommand(String firebaseUid, int page, int size) {
-
-        public static final int DEFAULT_SIZE = 20;
-        public static final int MAX_SIZE = 100;
-
-        public ListProjectsCommand {
-            if (page < 0) {
-                throw new DomainRuleViolationException("Page must not be negative");
-            }
-            if (size < 1 || size > MAX_SIZE) {
-                throw new DomainRuleViolationException(
-                        "Page size must be between 1 and " + MAX_SIZE);
-            }
-        }
+    public record ListProjectsCommand(String firebaseUid, PageRequest page) {
     }
 }

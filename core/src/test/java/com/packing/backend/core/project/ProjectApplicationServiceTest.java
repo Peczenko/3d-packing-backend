@@ -11,6 +11,7 @@ import com.packing.backend.core.project.ProjectApplicationService.RenameProjectC
 import com.packing.backend.core.project.ProjectApplicationService.RevokeAccessCommand;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
+import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.port.out.ActiveUserLookup;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.out.UserRepository;
@@ -200,7 +201,7 @@ class ProjectApplicationServiceTest {
         when(projects.countByMember(CALLER)).thenReturn(45L);
 
         Page<ProjectSummaryView> page = service.listProjects(
-                new ListProjectsCommand(UID, 2, 20));
+                new ListProjectsCommand(UID, new PageRequest(2, 20)));
 
         assertThat(page.content()).singleElement().satisfies(summary -> {
             assertThat(summary.id()).isEqualTo(project.id().value());

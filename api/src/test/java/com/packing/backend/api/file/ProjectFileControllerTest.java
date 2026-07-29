@@ -263,8 +263,8 @@ class ProjectFileControllerTest {
         mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT)).andExpect(status().isOk());
 
         verify(files).listFiles(command.capture());
-        assertThat(command.getValue().page()).isZero();
-        assertThat(command.getValue().size()).isEqualTo(20);
+        assertThat(command.getValue().page().page()).isZero();
+        assertThat(command.getValue().page().size()).isEqualTo(20);
     }
 
     @Test

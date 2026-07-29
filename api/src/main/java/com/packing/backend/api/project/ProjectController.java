@@ -11,6 +11,7 @@ import com.packing.backend.core.project.ProjectApplicationService.ProjectCommand
 import com.packing.backend.core.project.ProjectApplicationService.ProjectQuery;
 import com.packing.backend.core.project.ProjectApplicationService.RenameProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.RevokeAccessCommand;
+import com.packing.backend.core.shared.PageRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -41,9 +42,9 @@ public class ProjectController {
     public ProjectPageResponse list(
             @CurrentUser AuthenticatedUser caller,
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(ListProjectsCommand.MAX_SIZE) int size) {
+            @RequestParam(defaultValue = "20") @Min(1) @Max(PageRequest.MAX_SIZE) int size) {
         return ProjectPageResponse.from(projects.listProjects(
-                new ListProjectsCommand(caller.firebaseUid(), page, size)));
+                new ListProjectsCommand(caller.firebaseUid(), new PageRequest(page, size))));
     }
 
     @GetMapping("/{projectId}")
