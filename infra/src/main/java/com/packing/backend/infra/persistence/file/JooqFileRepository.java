@@ -8,6 +8,7 @@ import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
+import com.packing.backend.infra.persistence.shared.Timestamps;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -56,9 +57,9 @@ public class JooqFileRepository implements FileRepository {
                         // Both branches store expectedVersion + 1 so a write always advances
                         // the version by exactly one, whether it inserted or updated.
                         .set(FILES.VERSION, expectedVersion + 1)
-                        .set(FILES.CREATED_AT, FileRecordMapper.toOffsetDateTime(file.createdAt()))
-                        .set(FILES.UPDATED_AT, FileRecordMapper.toOffsetDateTime(file.updatedAt()))
-                        .set(FILES.DELETED_AT, FileRecordMapper.toOffsetDateTime(file.deletedAt()))
+                        .set(FILES.CREATED_AT, Timestamps.toOffsetDateTime(file.createdAt()))
+                        .set(FILES.UPDATED_AT, Timestamps.toOffsetDateTime(file.updatedAt()))
+                        .set(FILES.DELETED_AT, Timestamps.toOffsetDateTime(file.deletedAt()))
                         .onConflict(FILES.ID)
                         .doUpdate()
                         // id, owner_user_id, project_id, storage_key, format, content_type,
@@ -69,8 +70,8 @@ public class JooqFileRepository implements FileRepository {
                         .set(FILES.ORIGINAL_FILENAME, file.name().value())
                         .set(FILES.STATUS, file.status().name())
                         .set(FILES.VERSION, expectedVersion + 1)
-                        .set(FILES.UPDATED_AT, FileRecordMapper.toOffsetDateTime(file.updatedAt()))
-                        .set(FILES.DELETED_AT, FileRecordMapper.toOffsetDateTime(file.deletedAt()))
+                        .set(FILES.UPDATED_AT, Timestamps.toOffsetDateTime(file.updatedAt()))
+                        .set(FILES.DELETED_AT, Timestamps.toOffsetDateTime(file.deletedAt()))
                         .where(FILES.VERSION.eq(expectedVersion))
                         .execute());
 

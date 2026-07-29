@@ -6,6 +6,7 @@ import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectMember;
 import com.packing.backend.domain.user.UserId;
+import com.packing.backend.infra.persistence.shared.Timestamps;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Query;
@@ -53,9 +54,9 @@ public class JooqProjectRepository implements ProjectRepository {
                 // Both branches store expectedVersion + 1 so a write always advances the
                 // version by exactly one, whether it inserted or updated.
                 .set(PROJECTS.VERSION, expectedVersion + 1)
-                .set(PROJECTS.CREATED_AT, ProjectRecordMapper.toOffsetDateTime(project.createdAt()))
-                .set(PROJECTS.UPDATED_AT, ProjectRecordMapper.toOffsetDateTime(project.updatedAt()))
-                .set(PROJECTS.DELETED_AT, ProjectRecordMapper.toOffsetDateTime(project.deletedAt()))
+                .set(PROJECTS.CREATED_AT, Timestamps.toOffsetDateTime(project.createdAt()))
+                .set(PROJECTS.UPDATED_AT, Timestamps.toOffsetDateTime(project.updatedAt()))
+                .set(PROJECTS.DELETED_AT, Timestamps.toOffsetDateTime(project.deletedAt()))
                 .onConflict(PROJECTS.ID)
                 .doUpdate()
                 // id, created_by and created_at are immutable in the domain, so they are
@@ -63,8 +64,8 @@ public class JooqProjectRepository implements ProjectRepository {
                 .set(PROJECTS.NAME, project.name().value())
                 .set(PROJECTS.STATUS, project.status().name())
                 .set(PROJECTS.VERSION, expectedVersion + 1)
-                .set(PROJECTS.UPDATED_AT, ProjectRecordMapper.toOffsetDateTime(project.updatedAt()))
-                .set(PROJECTS.DELETED_AT, ProjectRecordMapper.toOffsetDateTime(project.deletedAt()))
+                .set(PROJECTS.UPDATED_AT, Timestamps.toOffsetDateTime(project.updatedAt()))
+                .set(PROJECTS.DELETED_AT, Timestamps.toOffsetDateTime(project.deletedAt()))
                 .where(PROJECTS.VERSION.eq(expectedVersion))
                 .execute();
 
@@ -139,7 +140,7 @@ public class JooqProjectRepository implements ProjectRepository {
                     .set(PROJECT_MEMBERS.PERMISSION, member.permission().name())
                     .set(PROJECT_MEMBERS.ADDED_BY, member.addedBy().value())
                     .set(PROJECT_MEMBERS.ADDED_AT,
-                            ProjectRecordMapper.toOffsetDateTime(member.addedAt())));
+                            Timestamps.toOffsetDateTime(member.addedAt())));
         }
         dsl.batch(inserts).execute();
     }

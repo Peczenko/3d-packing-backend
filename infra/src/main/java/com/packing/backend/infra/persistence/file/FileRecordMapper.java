@@ -10,10 +10,10 @@ import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.jooq.tables.records.FilesRecord;
+import com.packing.backend.infra.persistence.shared.Timestamps;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 
 /**
  * jOOQ surfaces {@code timestamp with time zone} as {@link OffsetDateTime}, while the
@@ -36,16 +36,27 @@ final class FileRecordMapper {
                 Checksum.ofHex(record.getChecksumSha256()),
                 FileStatus.valueOf(record.getStatus()),
                 record.getVersion(),
-                toInstant(record.getCreatedAt()),
-                toInstant(record.getUpdatedAt()),
-                toInstant(record.getDeletedAt()));
+                Timestamps.toInstant(record.getCreatedAt()),
+                Timestamps.toInstant(record.getUpdatedAt()),
+                Timestamps.toInstant(record.getDeletedAt()));
     }
 
-    static OffsetDateTime toOffsetDateTime(Instant instant) {
-        return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
-    }
-
-    private static Instant toInstant(OffsetDateTime value) {
-        return value == null ? null : value.toInstant();
+    static FilesRecord toRecord(StoredFile file) {
+        FilesRecord record = new FilesRecord();
+        record.setId(file.id().value());
+        record.setOwnerUserId(file.ownerId().value());
+        record.setProjectId(file.projectId().value());
+        record.setOriginalFilename(file.name().value());
+        record.setStorageKey(file.storageKey().value());
+        record.setFormat(file.format().name());
+        record.setContentType(file.contentType());
+        record.setSizeBytes(file.sizeBytes());
+        record.setChecksumSha256(file.checksum().value());
+        record.setStatus(file.status().name());
+        record.setVersion(file.version());
+        record.setCreatedAt(Timestamps.toOffsetDateTime(file.createdAt()));
+        record.setUpdatedAt(Timestamps.toOffsetDateTime(file.updatedAt()));
+        record.setDeletedAt(Timestamps.toOffsetDateTime(file.deletedAt()));
+        return record;
     }
 }

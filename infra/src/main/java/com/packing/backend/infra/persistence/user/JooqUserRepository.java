@@ -11,6 +11,7 @@ import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.domain.user.UsernameAlreadyTakenException;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
+import com.packing.backend.infra.persistence.shared.Timestamps;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -60,9 +61,9 @@ public class JooqUserRepository implements UserRepository {
                 // un-incremented value on insert would leave the aggregate one ahead of the
                 // row and make the very next save fail its own optimistic check.
                 .set(USERS.VERSION, expectedVersion + 1)
-                .set(USERS.CREATED_AT, UserRecordMapper.toOffsetDateTime(user.createdAt()))
-                .set(USERS.UPDATED_AT, UserRecordMapper.toOffsetDateTime(user.updatedAt()))
-                .set(USERS.LAST_LOGIN_AT, UserRecordMapper.toOffsetDateTime(user.lastLoginAt()))
+                .set(USERS.CREATED_AT, Timestamps.toOffsetDateTime(user.createdAt()))
+                .set(USERS.UPDATED_AT, Timestamps.toOffsetDateTime(user.updatedAt()))
+                .set(USERS.LAST_LOGIN_AT, Timestamps.toOffsetDateTime(user.lastLoginAt()))
                 .onConflict(USERS.ID)
                 .doUpdate()
                 // id, firebase_uid and created_at are immutable in the domain, so they are
@@ -73,8 +74,8 @@ public class JooqUserRepository implements UserRepository {
                 .set(USERS.ROLE, user.role().name())
                 .set(USERS.STATUS, user.status().name())
                 .set(USERS.VERSION, expectedVersion + 1)
-                .set(USERS.UPDATED_AT, UserRecordMapper.toOffsetDateTime(user.updatedAt()))
-                .set(USERS.LAST_LOGIN_AT, UserRecordMapper.toOffsetDateTime(user.lastLoginAt()))
+                .set(USERS.UPDATED_AT, Timestamps.toOffsetDateTime(user.updatedAt()))
+                .set(USERS.LAST_LOGIN_AT, Timestamps.toOffsetDateTime(user.lastLoginAt()))
                 .where(USERS.VERSION.eq(expectedVersion))
                 .execute());
 
@@ -95,8 +96,8 @@ public class JooqUserRepository implements UserRepository {
     public void recordSignIn(UserId id, Email email, Instant updatedAt, Instant lastLoginAt) {
         constraintTranslatorFor(email).translating(() -> dsl.update(USERS)
                 .set(USERS.EMAIL, email.value())
-                .set(USERS.UPDATED_AT, UserRecordMapper.toOffsetDateTime(updatedAt))
-                .set(USERS.LAST_LOGIN_AT, UserRecordMapper.toOffsetDateTime(lastLoginAt))
+                .set(USERS.UPDATED_AT, Timestamps.toOffsetDateTime(updatedAt))
+                .set(USERS.LAST_LOGIN_AT, Timestamps.toOffsetDateTime(lastLoginAt))
                 .where(USERS.ID.eq(id.value()))
                 .execute());
     }

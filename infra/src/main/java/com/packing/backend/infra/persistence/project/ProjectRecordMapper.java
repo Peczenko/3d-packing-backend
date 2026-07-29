@@ -9,10 +9,10 @@ import com.packing.backend.domain.project.ProjectStatus;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.jooq.tables.records.ProjectMembersRecord;
 import com.packing.backend.infra.persistence.jooq.tables.records.ProjectsRecord;
+import com.packing.backend.infra.persistence.shared.Timestamps;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.Collection;
 
 /**
@@ -31,9 +31,9 @@ final class ProjectRecordMapper {
                 new UserId(record.getCreatedBy()),
                 ProjectStatus.valueOf(record.getStatus()),
                 record.getVersion(),
-                toInstant(record.getCreatedAt()),
-                toInstant(record.getUpdatedAt()),
-                toInstant(record.getDeletedAt()),
+                Timestamps.toInstant(record.getCreatedAt()),
+                Timestamps.toInstant(record.getUpdatedAt()),
+                Timestamps.toInstant(record.getDeletedAt()),
                 members);
     }
 
@@ -42,14 +42,29 @@ final class ProjectRecordMapper {
                 new UserId(record.getUserId()),
                 ProjectPermission.valueOf(record.getPermission()),
                 new UserId(record.getAddedBy()),
-                toInstant(record.getAddedAt()));
+                Timestamps.toInstant(record.getAddedAt()));
     }
 
-    static OffsetDateTime toOffsetDateTime(Instant instant) {
-        return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
+    static ProjectsRecord toRecord(Project project) {
+        ProjectsRecord record = new ProjectsRecord();
+        record.setId(project.id().value());
+        record.setName(project.name().value());
+        record.setCreatedBy(project.createdBy().value());
+        record.setStatus(project.status().name());
+        record.setVersion(project.version());
+        record.setCreatedAt(Timestamps.toOffsetDateTime(project.createdAt()));
+        record.setUpdatedAt(Timestamps.toOffsetDateTime(project.updatedAt()));
+        record.setDeletedAt(Timestamps.toOffsetDateTime(project.deletedAt()));
+        return record;
     }
 
-    private static Instant toInstant(OffsetDateTime value) {
-        return value == null ? null : value.toInstant();
+    static ProjectMembersRecord toRecord(ProjectId projectId, ProjectMember member) {
+        ProjectMembersRecord record = new ProjectMembersRecord();
+        record.setProjectId(projectId.value());
+        record.setUserId(member.userId().value());
+        record.setPermission(member.permission().name());
+        record.setAddedBy(member.addedBy().value());
+        record.setAddedAt(Timestamps.toOffsetDateTime(member.addedAt()));
+        return record;
     }
 }
