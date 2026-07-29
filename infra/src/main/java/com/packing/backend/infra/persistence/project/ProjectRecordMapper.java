@@ -9,17 +9,25 @@ import com.packing.backend.domain.project.ProjectStatus;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.jooq.tables.records.ProjectMembersRecord;
 import com.packing.backend.infra.persistence.jooq.tables.records.ProjectsRecord;
+import com.packing.backend.infra.persistence.shared.AggregateTable;
 import com.packing.backend.infra.persistence.shared.Timestamps;
+import org.jooq.Field;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.Set;
+
+import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECTS;
 
 /**
  * jOOQ surfaces {@code timestamp with time zone} as {@link OffsetDateTime}, while the
  * domain speaks {@link Instant}; everything is normalised to UTC on the way out.
  */
 final class ProjectRecordMapper {
+
+    static final AggregateTable<ProjectsRecord> TABLE = new AggregateTable<>(
+            "Project", PROJECTS.VERSION, Set.<Field<?>>of(PROJECTS.CREATED_BY, PROJECTS.CREATED_AT));
 
     private ProjectRecordMapper() {
     }

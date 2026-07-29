@@ -5,6 +5,7 @@ import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.TestcontainersConfiguration;
+import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +32,7 @@ class JooqActiveUserLookupIT {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         User user = User.register(new FirebaseUid(uid), new Email(uid + "@example.com"),
                 new Username(uid), "Display", now);
-        new JooqUserRepository(dsl).save(user);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         return user;
     }
 
@@ -52,7 +53,7 @@ class JooqActiveUserLookupIT {
     void isEmptyForADisabledUser() {
         User user = persistedUser("uid-disabled");
         user.disable(Instant.now().truncatedTo(ChronoUnit.MICROS));
-        new JooqUserRepository(dsl).save(user);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
 
         assertThat(lookup().findActiveUser(new FirebaseUid("uid-disabled"))).isEmpty();
     }
@@ -61,7 +62,7 @@ class JooqActiveUserLookupIT {
     void isEmptyForADeletedUser() {
         User user = persistedUser("uid-deleted");
         user.delete(Instant.now().truncatedTo(ChronoUnit.MICROS));
-        new JooqUserRepository(dsl).save(user);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
 
         assertThat(lookup().findActiveUser(new FirebaseUid("uid-deleted"))).isEmpty();
     }

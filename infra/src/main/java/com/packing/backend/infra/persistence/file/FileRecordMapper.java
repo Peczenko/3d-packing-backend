@@ -10,16 +10,27 @@ import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.jooq.tables.records.FilesRecord;
+import com.packing.backend.infra.persistence.shared.AggregateTable;
 import com.packing.backend.infra.persistence.shared.Timestamps;
+import org.jooq.Field;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Set;
+
+import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
 
 /**
  * jOOQ surfaces {@code timestamp with time zone} as {@link OffsetDateTime}, while the
  * domain speaks {@link Instant}; everything is normalised to UTC on the way out.
  */
 final class FileRecordMapper {
+
+    static final AggregateTable<FilesRecord> TABLE = new AggregateTable<>(
+            "File", FILES.VERSION, Set.<Field<?>>of(
+                    FILES.OWNER_USER_ID, FILES.PROJECT_ID, FILES.STORAGE_KEY, FILES.FORMAT,
+                    FILES.CONTENT_TYPE, FILES.SIZE_BYTES, FILES.CHECKSUM_SHA256,
+                    FILES.CREATED_AT));
 
     private FileRecordMapper() {
     }

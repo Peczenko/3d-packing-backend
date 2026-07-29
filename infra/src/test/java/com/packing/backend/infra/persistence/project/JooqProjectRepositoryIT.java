@@ -12,6 +12,7 @@ import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.TestcontainersConfiguration;
+import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import com.packing.backend.infra.persistence.user.JooqUserRepository;
 import org.jooq.DSLContext;
 import org.jooq.ExecuteContext;
@@ -51,7 +52,7 @@ class JooqProjectRepositoryIT {
     private UserId member;
 
     private JooqProjectRepository repository() {
-        return new JooqProjectRepository(dsl);
+        return new JooqProjectRepository(dsl, new AggregateWriter(dsl));
     }
 
     private static Instant now() {
@@ -67,7 +68,7 @@ class JooqProjectRepositoryIT {
     private UserId persistUser(String uid, String username) {
         User user = User.register(new FirebaseUid(uid), new Email(username + "@example.com"),
                 new Username(username), username, now());
-        new JooqUserRepository(dsl).save(user);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         return user.id();
     }
 
@@ -290,7 +291,8 @@ class JooqProjectRepositoryIT {
                 })
                 .dsl();
 
-        List<Project> found = new JooqProjectRepository(counting).findByMember(creator, 0, 10);
+        List<Project> found = new JooqProjectRepository(counting, new AggregateWriter(counting))
+                .findByMember(creator, 0, 10);
 
         assertThat(found).singleElement()
                 .satisfies(p -> assertThat(p.members()).hasSize(2));
@@ -311,7 +313,8 @@ class JooqProjectRepositoryIT {
                 })
                 .dsl();
 
-        assertThat(new JooqProjectRepository(counting).findById(project.id()))
+        assertThat(new JooqProjectRepository(counting, new AggregateWriter(counting))
+                .findById(project.id()))
                 .hasValueSatisfying(p -> assertThat(p.members()).hasSize(1));
         assertThat(statements).hasValue(1);
     }

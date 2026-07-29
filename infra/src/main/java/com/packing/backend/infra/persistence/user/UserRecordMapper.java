@@ -8,9 +8,18 @@ import com.packing.backend.domain.user.UserRole;
 import com.packing.backend.domain.user.UserStatus;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.persistence.jooq.tables.records.UsersRecord;
+import com.packing.backend.infra.persistence.shared.AggregateTable;
 import com.packing.backend.infra.persistence.shared.Timestamps;
+import org.jooq.Field;
+
+import java.util.Set;
+
+import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
 
 final class UserRecordMapper {
+
+    static final AggregateTable<UsersRecord> TABLE = new AggregateTable<>(
+            "User", USERS.VERSION, Set.<Field<?>>of(USERS.FIREBASE_UID, USERS.CREATED_AT));
 
     private UserRecordMapper() {
     }

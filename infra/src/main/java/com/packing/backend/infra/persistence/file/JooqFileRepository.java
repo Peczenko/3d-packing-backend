@@ -1,14 +1,13 @@
 package com.packing.backend.infra.persistence.file;
 
 import com.packing.backend.core.file.port.out.FileRepository;
-import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileStatus;
 import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.ResourceConflictException;
+import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
-import com.packing.backend.infra.persistence.shared.Timestamps;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -30,56 +29,14 @@ import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
 public class JooqFileRepository implements FileRepository {
 
     private final DSLContext dsl;
+    private final AggregateWriter writer;
 
 
-    /**
-     * Upsert on the primary key, guarded by the aggregate's version.
-     *
-     * <p>The {@code WHERE} on the conflict branch matches the <em>stored</em> version, so
-     * an update built from a stale read affects zero rows and raises instead of silently
-     * overwriting a concurrent change.
-     */
     @Override
     public StoredFile save(StoredFile file) {
-        long expectedVersion = file.version();
-        int affected = constraintTranslatorFor(file).translating(
-                () -> dsl.insertInto(FILES)
-                        .set(FILES.ID, file.id().value())
-                        .set(FILES.OWNER_USER_ID, file.ownerId().value())
-                        .set(FILES.PROJECT_ID, file.projectId().value())
-                        .set(FILES.ORIGINAL_FILENAME, file.name().value())
-                        .set(FILES.STORAGE_KEY, file.storageKey().value())
-                        .set(FILES.FORMAT, file.format().name())
-                        .set(FILES.CONTENT_TYPE, file.contentType())
-                        .set(FILES.SIZE_BYTES, file.sizeBytes())
-                        .set(FILES.CHECKSUM_SHA256, file.checksum().value())
-                        .set(FILES.STATUS, file.status().name())
-                        // Both branches store expectedVersion + 1 so a write always advances
-                        // the version by exactly one, whether it inserted or updated.
-                        .set(FILES.VERSION, expectedVersion + 1)
-                        .set(FILES.CREATED_AT, Timestamps.toOffsetDateTime(file.createdAt()))
-                        .set(FILES.UPDATED_AT, Timestamps.toOffsetDateTime(file.updatedAt()))
-                        .set(FILES.DELETED_AT, Timestamps.toOffsetDateTime(file.deletedAt()))
-                        .onConflict(FILES.ID)
-                        .doUpdate()
-                        // id, owner_user_id, project_id, storage_key, format, content_type,
-                        // size_bytes, checksum and created_at are immutable in the domain, so
-                        // they are deliberately absent from the update set. The filename is
-                        // not: renaming is the one mutation a file's content-bearing state
-                        // allows.
-                        .set(FILES.ORIGINAL_FILENAME, file.name().value())
-                        .set(FILES.STATUS, file.status().name())
-                        .set(FILES.VERSION, expectedVersion + 1)
-                        .set(FILES.UPDATED_AT, Timestamps.toOffsetDateTime(file.updatedAt()))
-                        .set(FILES.DELETED_AT, Timestamps.toOffsetDateTime(file.deletedAt()))
-                        .where(FILES.VERSION.eq(expectedVersion))
-                        .execute());
-
-        if (affected == 0) {
-            throw new ConcurrentUpdateException(
-                    "File " + file.id() + " was modified by another transaction "
-                            + "(expected version " + expectedVersion + "). Re-read and retry.");
-        }
+        constraintTranslatorFor(file).translating(() ->
+                writer.upsert(FileRecordMapper.TABLE, FileRecordMapper.toRecord(file),
+                        file.version()));
         file.markPersisted();
         return file;
     }

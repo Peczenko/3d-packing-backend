@@ -1,6 +1,5 @@
 package com.packing.backend.infra.persistence.user;
 
-import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.core.user.port.out.UserRepository;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.user.Email;
@@ -10,6 +9,7 @@ import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.domain.user.UsernameAlreadyTakenException;
+import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
 import com.packing.backend.infra.persistence.shared.Timestamps;
 import lombok.RequiredArgsConstructor;
@@ -36,54 +36,14 @@ import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
 public class JooqUserRepository implements UserRepository {
 
     private final DSLContext dsl;
+    private final AggregateWriter writer;
 
 
-    /**
-     * Upsert on the primary key, guarded by the aggregate's version.
-     *
-     * <p>The {@code WHERE} on the conflict branch is what makes this safe: it matches the
-     * <em>stored</em> version, so an update built from a stale read affects zero rows and
-     * raises instead of silently overwriting whatever changed in the meantime.
-     */
     @Override
     public User save(User user) {
-        long expectedVersion = user.version();
-        int affected = constraintTranslatorFor(user).translating(() -> dsl.insertInto(USERS)
-                .set(USERS.ID, user.id().value())
-                .set(USERS.FIREBASE_UID, user.firebaseUid().value())
-                .set(USERS.EMAIL, user.email().value())
-                .set(USERS.USERNAME, user.username().value())
-                .set(USERS.DISPLAY_NAME, user.displayName())
-                .set(USERS.ROLE, user.role().name())
-                .set(USERS.STATUS, user.status().name())
-                // Both branches store expectedVersion + 1 so that a write always advances
-                // the version by exactly one, whether it inserted or updated. Storing the
-                // un-incremented value on insert would leave the aggregate one ahead of the
-                // row and make the very next save fail its own optimistic check.
-                .set(USERS.VERSION, expectedVersion + 1)
-                .set(USERS.CREATED_AT, Timestamps.toOffsetDateTime(user.createdAt()))
-                .set(USERS.UPDATED_AT, Timestamps.toOffsetDateTime(user.updatedAt()))
-                .set(USERS.LAST_LOGIN_AT, Timestamps.toOffsetDateTime(user.lastLoginAt()))
-                .onConflict(USERS.ID)
-                .doUpdate()
-                // id, firebase_uid and created_at are immutable in the domain, so they are
-                // deliberately absent from the update set.
-                .set(USERS.EMAIL, user.email().value())
-                .set(USERS.USERNAME, user.username().value())
-                .set(USERS.DISPLAY_NAME, user.displayName())
-                .set(USERS.ROLE, user.role().name())
-                .set(USERS.STATUS, user.status().name())
-                .set(USERS.VERSION, expectedVersion + 1)
-                .set(USERS.UPDATED_AT, Timestamps.toOffsetDateTime(user.updatedAt()))
-                .set(USERS.LAST_LOGIN_AT, Timestamps.toOffsetDateTime(user.lastLoginAt()))
-                .where(USERS.VERSION.eq(expectedVersion))
-                .execute());
-
-        if (affected == 0) {
-            throw new ConcurrentUpdateException(
-                    "User " + user.id() + " was modified by another transaction "
-                            + "(expected version " + expectedVersion + "). Re-read and retry.");
-        }
+        constraintTranslatorFor(user).translating(() ->
+                writer.upsert(UserRecordMapper.TABLE, UserRecordMapper.toRecord(user),
+                        user.version()));
         user.markPersisted();
         return user;
     }

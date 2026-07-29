@@ -11,6 +11,7 @@ import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.TestcontainersConfiguration;
+import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import com.packing.backend.infra.persistence.user.JooqUserRepository;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,13 +58,13 @@ class JooqProjectAccessLookupIT {
         owner = persistUser(OWNER_UID, "owner");
         outsider = persistUser(OUTSIDER_UID, "outsider");
         project = Project.create(new ProjectName("Chassis"), owner.id(), now());
-        new JooqProjectRepository(dsl).save(project);
+        new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(project);
     }
 
     private User persistUser(FirebaseUid uid, String username) {
         User user = User.register(uid, new Email(username + "@example.com"),
                 new Username(username), username, now());
-        new JooqUserRepository(dsl).save(user);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         return user;
     }
 
@@ -82,7 +83,7 @@ class JooqProjectAccessLookupIT {
     @Test
     void reportsTheStoredPermissionForAPlainMember() {
         project.grantAccess(outsider.id(), ProjectPermission.READ, owner.id(), now());
-        new JooqProjectRepository(dsl).save(project);
+        new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(project);
 
         assertThat(lookup().findAccess(OUTSIDER_UID, project.id()))
                 .hasValueSatisfying(found ->
@@ -93,7 +94,7 @@ class JooqProjectAccessLookupIT {
     @Test
     void resolvesADisabledProjectSoThatReadsKeepWorking() {
         project.disable(now());
-        new JooqProjectRepository(dsl).save(project);
+        new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(project);
 
         assertThat(lookup().findAccess(OWNER_UID, project.id()))
                 .hasValueSatisfying(found ->
@@ -108,7 +109,7 @@ class JooqProjectAccessLookupIT {
     @Test
     void isEmptyForADeletedProject() {
         project.delete(now());
-        new JooqProjectRepository(dsl).save(project);
+        new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(project);
 
         assertThat(lookup().findAccess(OWNER_UID, project.id())).isEmpty();
     }
@@ -126,7 +127,7 @@ class JooqProjectAccessLookupIT {
     @Test
     void isEmptyForADisabledAccountEvenThoughTheMembershipRemains() {
         owner.disable(now());
-        new JooqUserRepository(dsl).save(owner);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(owner);
 
         assertThat(lookup().findAccess(OWNER_UID, project.id())).isEmpty();
     }
@@ -134,7 +135,7 @@ class JooqProjectAccessLookupIT {
     @Test
     void isEmptyForADeletedAccountEvenThoughTheMembershipRemains() {
         owner.delete(now());
-        new JooqUserRepository(dsl).save(owner);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(owner);
 
         assertThat(lookup().findAccess(OWNER_UID, project.id())).isEmpty();
     }

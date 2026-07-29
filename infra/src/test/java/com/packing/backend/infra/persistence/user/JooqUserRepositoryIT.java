@@ -11,6 +11,7 @@ import com.packing.backend.domain.user.UserStatus;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.domain.user.UsernameAlreadyTakenException;
 import com.packing.backend.infra.TestcontainersConfiguration;
+import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jooq.JooqTest;
@@ -47,7 +48,7 @@ class JooqUserRepositoryIT {
     private DSLContext dsl;
 
     private JooqUserRepository repository() {
-        return new JooqUserRepository(dsl);
+        return new JooqUserRepository(dsl, new AggregateWriter(dsl));
     }
 
     private User newUser(String uid, String email, String username) {

@@ -1,12 +1,11 @@
 package com.packing.backend.infra.persistence.project;
 
 import com.packing.backend.core.project.port.out.ProjectRepository;
-import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectMember;
 import com.packing.backend.domain.user.UserId;
-import com.packing.backend.infra.persistence.shared.Timestamps;
+import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Query;
@@ -33,48 +32,13 @@ import static com.packing.backend.infra.persistence.project.ProjectQueries.notDe
 public class JooqProjectRepository implements ProjectRepository {
 
     private final DSLContext dsl;
+    private final AggregateWriter writer;
 
 
-    /**
-     * Upsert on the primary key, guarded by the aggregate's version, followed by a full
-     * replacement of the member rows.
-     *
-     * <p>Delete-then-insert rather than a diff: membership is small, and the optimistic lock
-     * on {@code projects.version} is what actually serialises two concurrent edits. Because
-     * the version guard runs first, a stale caller never reaches the member rewrite.
-     */
     @Override
     public Project save(Project project) {
-        long expectedVersion = project.version();
-        int affected = dsl.insertInto(PROJECTS)
-                .set(PROJECTS.ID, project.id().value())
-                .set(PROJECTS.NAME, project.name().value())
-                .set(PROJECTS.CREATED_BY, project.createdBy().value())
-                .set(PROJECTS.STATUS, project.status().name())
-                // Both branches store expectedVersion + 1 so a write always advances the
-                // version by exactly one, whether it inserted or updated.
-                .set(PROJECTS.VERSION, expectedVersion + 1)
-                .set(PROJECTS.CREATED_AT, Timestamps.toOffsetDateTime(project.createdAt()))
-                .set(PROJECTS.UPDATED_AT, Timestamps.toOffsetDateTime(project.updatedAt()))
-                .set(PROJECTS.DELETED_AT, Timestamps.toOffsetDateTime(project.deletedAt()))
-                .onConflict(PROJECTS.ID)
-                .doUpdate()
-                // id, created_by and created_at are immutable in the domain, so they are
-                // deliberately absent from the update set.
-                .set(PROJECTS.NAME, project.name().value())
-                .set(PROJECTS.STATUS, project.status().name())
-                .set(PROJECTS.VERSION, expectedVersion + 1)
-                .set(PROJECTS.UPDATED_AT, Timestamps.toOffsetDateTime(project.updatedAt()))
-                .set(PROJECTS.DELETED_AT, Timestamps.toOffsetDateTime(project.deletedAt()))
-                .where(PROJECTS.VERSION.eq(expectedVersion))
-                .execute();
-
-        if (affected == 0) {
-            throw new ConcurrentUpdateException(
-                    "Project " + project.id() + " was modified by another transaction "
-                            + "(expected version " + expectedVersion + "). Re-read and retry.");
-        }
-
+        writer.upsert(ProjectRecordMapper.TABLE, ProjectRecordMapper.toRecord(project),
+                project.version());
         replaceMembers(project);
         project.markPersisted();
         return project;
@@ -135,12 +99,7 @@ public class JooqProjectRepository implements ProjectRepository {
         List<Query> inserts = new ArrayList<>(members.size());
         for (ProjectMember member : members) {
             inserts.add(dsl.insertInto(PROJECT_MEMBERS)
-                    .set(PROJECT_MEMBERS.PROJECT_ID, project.id().value())
-                    .set(PROJECT_MEMBERS.USER_ID, member.userId().value())
-                    .set(PROJECT_MEMBERS.PERMISSION, member.permission().name())
-                    .set(PROJECT_MEMBERS.ADDED_BY, member.addedBy().value())
-                    .set(PROJECT_MEMBERS.ADDED_AT,
-                            Timestamps.toOffsetDateTime(member.addedAt())));
+                    .set(ProjectRecordMapper.toRecord(project.id(), member)));
         }
         dsl.batch(inserts).execute();
     }

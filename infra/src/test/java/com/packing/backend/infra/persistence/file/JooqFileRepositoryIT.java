@@ -18,6 +18,7 @@ import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.TestcontainersConfiguration;
 import com.packing.backend.infra.persistence.project.JooqProjectRepository;
+import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import com.packing.backend.infra.persistence.user.JooqUserRepository;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +56,7 @@ class JooqFileRepositoryIT {
     private ProjectId project;
 
     private JooqFileRepository repository() {
-        return new JooqFileRepository(dsl);
+        return new JooqFileRepository(dsl, new AggregateWriter(dsl));
     }
 
     @BeforeEach
@@ -63,11 +64,11 @@ class JooqFileRepositoryIT {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         User user = User.register(new FirebaseUid("uid-owner"), new Email("owner@example.com"),
                 new Username("owner"), "Owner", now);
-        new JooqUserRepository(dsl).save(user);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         owner = user.id();
 
         Project owned = Project.create(new ProjectName("Chassis"), owner, now);
-        new JooqProjectRepository(dsl).save(owned);
+        new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(owned);
         project = owned.id();
     }
 
@@ -185,7 +186,7 @@ class JooqFileRepositoryIT {
         repository().save(newFile("mine.stl"));
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         Project otherProject = Project.create(new ProjectName("Other"), owner, now);
-        new JooqProjectRepository(dsl).save(otherProject);
+        new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(otherProject);
 
         assertThat(repository().findAvailableByProject(otherProject.id(), 0, 10)).isEmpty();
         assertThat(repository().countAvailableByProject(otherProject.id())).isZero();
@@ -197,7 +198,7 @@ class JooqFileRepositoryIT {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         User other = User.register(new FirebaseUid("uid-other"), new Email("other@example.com"),
                 new Username("other"), "Other", now);
-        new JooqUserRepository(dsl).save(other);
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(other);
         repository().save(StoredFile.upload(FileId.generate(), other.id(), project,
                 new FileName("theirs.stl"), 2_048L, CHECKSUM, now));
 
