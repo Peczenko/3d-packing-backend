@@ -7,9 +7,9 @@ import com.packing.backend.domain.file.StoredFile;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Excludes {@code storageKey}: exposing it would leak the object layout to clients. */
 public record FileView(
         UUID id,
+        UUID projectId,
         String filename,
         ModelFormat format,
         String contentType,
@@ -21,6 +21,7 @@ public record FileView(
     public static FileView from(StoredFile file) {
         return new FileView(
                 file.id().value(),
+                file.projectId().value(),
                 file.name().value(),
                 file.format(),
                 file.contentType(),

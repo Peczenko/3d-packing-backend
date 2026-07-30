@@ -96,7 +96,9 @@ class ErrorEmailRenderer {
                 "handler", orAbsent(report.uriTemplate()),
                 "request", orAbsent(report.httpMethod()) + " " + orAbsent(report.path()),
                 "fields", fields,
-                "stackTrace", stackTrace));
+                "stackTrace", stackTrace,
+                "footerNote", "You are receiving this because your address is listed in "
+                        + "app.alerts.recipients."));
     }
 
     private String text(Map<String, String> fields, String stackTrace) {

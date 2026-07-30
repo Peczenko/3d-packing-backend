@@ -8,19 +8,18 @@ import com.packing.backend.domain.user.UserRole;
 import com.packing.backend.domain.user.UserStatus;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.persistence.jooq.tables.records.UsersRecord;
+import com.packing.backend.infra.persistence.shared.AggregateTable;
+import com.packing.backend.infra.persistence.shared.Timestamps;
+import org.jooq.Field;
 
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.util.Set;
 
-/**
- * Translates between the generated jOOQ record and the {@link User} aggregate.
- *
- * <p>The column is {@code timestamp with time zone}, which jOOQ surfaces as
- * {@link OffsetDateTime}, while the domain speaks {@link Instant} — an instant has no
- * offset to get wrong. Everything is normalised to UTC on the way out.
- */
+import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
+
 final class UserRecordMapper {
+
+    static final AggregateTable<UsersRecord> TABLE = new AggregateTable<>(
+            "User", USERS.VERSION, Set.<Field<?>>of(USERS.FIREBASE_UID, USERS.CREATED_AT));
 
     private UserRecordMapper() {
     }
@@ -35,16 +34,24 @@ final class UserRecordMapper {
                 UserRole.valueOf(record.getRole()),
                 UserStatus.valueOf(record.getStatus()),
                 record.getVersion(),
-                toInstant(record.getCreatedAt()),
-                toInstant(record.getUpdatedAt()),
-                toInstant(record.getLastLoginAt()));
+                Timestamps.toInstant(record.getCreatedAt()),
+                Timestamps.toInstant(record.getUpdatedAt()),
+                Timestamps.toInstant(record.getLastLoginAt()));
     }
 
-    static OffsetDateTime toOffsetDateTime(Instant instant) {
-        return instant == null ? null : instant.atOffset(ZoneOffset.UTC);
-    }
-
-    private static Instant toInstant(OffsetDateTime value) {
-        return value == null ? null : value.toInstant();
+    static UsersRecord toRecord(User user) {
+        UsersRecord record = new UsersRecord();
+        record.setId(user.id().value());
+        record.setFirebaseUid(user.firebaseUid().value());
+        record.setEmail(user.email().value());
+        record.setUsername(user.username().value());
+        record.setDisplayName(user.displayName());
+        record.setRole(user.role().name());
+        record.setStatus(user.status().name());
+        record.setVersion(user.version());
+        record.setCreatedAt(Timestamps.toOffsetDateTime(user.createdAt()));
+        record.setUpdatedAt(Timestamps.toOffsetDateTime(user.updatedAt()));
+        record.setLastLoginAt(Timestamps.toOffsetDateTime(user.lastLoginAt()));
+        return record;
     }
 }

@@ -6,6 +6,7 @@ import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import com.packing.backend.domain.shared.PermissionDeniedException;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.shared.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -48,6 +49,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ResourceConflictException.class)
     public ProblemDetail handleConflict(ResourceConflictException e, HttpServletRequest request) {
         return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage(), request);
+    }
+
+    @ExceptionHandler(PermissionDeniedException.class)
+    public ProblemDetail handlePermissionDenied(PermissionDeniedException e,
+                                                HttpServletRequest request) {
+        return problem(HttpStatus.FORBIDDEN, "Forbidden", e.getMessage(), request);
     }
 
     @ExceptionHandler(DomainRuleViolationException.class)

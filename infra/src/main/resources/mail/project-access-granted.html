@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en"
+      th:replace="~{layout :: page(~{::#content})}">
+<body>
+<!--/* Every interpolation here is th:text, never th:utext: the project name and both
+       display names are values a user typed, and this is outbound mail. */-->
+<div id="content">
+    <h1>You have been added to a project</h1>
+    <p class="subheading" th:text="${projectName}">Chassis packing</p>
+
+    <table class="fields">
+        <tr>
+            <td class="label">Project</td>
+            <td class="value" th:text="${projectName}">Chassis packing</td>
+        </tr>
+        <tr>
+            <td class="label">Your access</td>
+            <td class="value" th:text="${permission}">Can edit</td>
+        </tr>
+        <tr>
+            <td class="label">Added by</td>
+            <td class="value" th:text="${grantedBy}">alice</td>
+        </tr>
+    </table>
+
+    <p th:text="${summary}">You can now view this project and download its files.</p>
+</div>
+</body>
+</html>
