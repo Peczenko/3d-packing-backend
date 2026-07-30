@@ -33,11 +33,6 @@ import java.time.Clock;
 import java.util.HexFormat;
 import java.util.UUID;
 
-/**
- * Every operation authorises against the caller's permission on the owning project. A file's
- * {@code ownerId} records who uploaded it and grants nothing — a WRITE member may delete or
- * rename anything in the project, including files they did not upload.
- */
 @Service
 @RequiredArgsConstructor
 public class FileApplicationService {
@@ -52,25 +47,13 @@ public class FileApplicationService {
     private final DomainEventPublisher eventPublisher;
     private final Clock clock;
 
-    /**
-     * Not transactional: the blob write can move a hundred megabytes over the network, and
-     * holding a pooled JDBC connection open for that long would make connection-pool
-     * exhaustion a function of upload bandwidth.
-     *
-     * <p>Blob is written before the row, deliberately: if the insert then fails, the blob
-     * is orphaned but invisible and costs only storage, whereas the reverse order would
-     * leave a row that 404s on download. This is a known, accepted limitation (P1 in
-     * {@code docs/repo-scalability-audit.md}); the {@code files/{uuid}} key layout keeps a
-     * future reconciliation sweep to a set difference against {@code storage_key}.
-     */
+
     public FileView upload(UploadFileCommand command) {
         ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
                 ProjectPermission.WRITE).requireWritable();
         FileName name = new FileName(command.originalFilename());
         FileId id = FileId.generate();
 
-        // The client's declared size is never trusted: it is caller-controlled, and the
-        // domain limit must hold against what was really received.
         Content content = digestAndCount(command.content());
 
         StoredFile file = StoredFile.upload(id, access.userId(), access.projectId(), name,
@@ -86,7 +69,6 @@ public class FileApplicationService {
         return FileView.from(file);
     }
 
-    /** The returned URL embeds a credential. It must not be logged, cached or stored. */
     @Transactional(readOnly = true)
     public BinaryStorage.TemporaryUrl prepareDownload(PrepareDownloadCommand command) {
         ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
@@ -114,12 +96,6 @@ public class FileApplicationService {
         return FileView.from(files.save(file));
     }
 
-    /**
-     * The blob is not touched here: PostgreSQL and the object store cannot share a
-     * transaction, so deletion is handled after commit in the infrastructure layer.
-     * {@code @Transactional} is required even for this single write, because an
-     * after-commit listener only fires if there is a transaction to commit.
-     */
     @Transactional
     public void deleteFile(DeleteFileCommand command) {
         ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
@@ -131,10 +107,6 @@ public class FileApplicationService {
         eventPublisher.publishAll(saved.pullDomainEvents());
     }
 
-    /**
-     * An inactive caller, a deleted project and a project the caller is not a member of all
-     * collapse into the same 404 — anything else would confirm that a project id exists.
-     */
     private ProjectAccess requireAccess(String firebaseUid, UUID projectId,
                                         ProjectPermission required) {
         ProjectId id = new ProjectId(projectId);
@@ -143,11 +115,6 @@ public class FileApplicationService {
                 .requireAtLeast(required);
     }
 
-    /**
-     * Absent, deleted and belonging to another project all collapse into the same 404.
-     * Distinguishing them would confirm that an id exists, which turns the endpoint into an
-     * enumeration oracle.
-     */
     private StoredFile requireReachable(UUID fileId, ProjectId projectId) {
         FileId id = new FileId(fileId);
         return files.findById(id)
@@ -156,10 +123,6 @@ public class FileApplicationService {
                 .orElseThrow(() -> StoredFileNotFoundException.byId(id));
     }
 
-    /**
-     * Size is re-checked here as well as in the aggregate, so an oversized stream is
-     * rejected before any bytes reach the blob write.
-     */
     private Content digestAndCount(ContentSource source) {
         MessageDigest digest = newDigest();
         long size = 0;
@@ -186,8 +149,6 @@ public class FileApplicationService {
         try {
             return MessageDigest.getInstance(DIGEST_ALGORITHM);
         } catch (NoSuchAlgorithmException e) {
-            // SHA-256 is required of every JRE, so this is a broken runtime, not a
-            // condition a caller can do anything about.
             throw new ExternalServiceException("jre", DIGEST_ALGORITHM + " is unavailable", e);
         }
     }

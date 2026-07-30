@@ -96,16 +96,6 @@ public class ProjectApplicationService {
         saveAndPublish(access.project());
     }
 
-    /**
-     * Tombstones the project and every file in it. The blobs are reclaimed after commit by
-     * the {@code FileDeleted} handler in the infrastructure layer, which is why each file is
-     * deleted through the aggregate rather than by a bulk {@code UPDATE}: the events are the
-     * only record of which blobs to remove.
-     *
-     * <p>This loads every file row of the project. Acceptable at the sizes involved, and the
-     * batched write keeps it to one round trip; a project large enough for that to hurt
-     * would need a paged sweep instead.
-     */
     public void deleteProject(ProjectCommand command) {
         Instant now = clock.instant();
         Access access = requireAccess(command.firebaseUid(), command.projectId(),
@@ -123,10 +113,6 @@ public class ProjectApplicationService {
         eventPublisher.publishAll(events);
     }
 
-    /**
-     * Adds a member, or changes an existing member's level — the aggregate treats both as one
-     * operation, so both routes land here.
-     */
     public ProjectView grantAccess(GrantAccessCommand command) {
         Instant now = clock.instant();
         Access access = requireAccess(command.firebaseUid(), command.projectId(),
@@ -138,13 +124,6 @@ public class ProjectApplicationService {
         return viewOf(access.caller(), access.project().id());
     }
 
-    /**
-     * Re-levels someone who is already a member, addressed by user id.
-     *
-     * <p>Separate from {@link #grantAccess} because it must not be able to add anybody: that
-     * path resolves a person by email or username and announces itself by email, and letting
-     * a bare id slip in here would be a way to join someone to a project silently.
-     */
     public ProjectView changeAccess(ChangeAccessCommand command) {
         Instant now = clock.instant();
         Access access = requireAccess(command.firebaseUid(), command.projectId(),
@@ -160,10 +139,6 @@ public class ProjectApplicationService {
         return viewOf(access.caller(), access.project().id());
     }
 
-    /**
-     * Removing yourself is leaving, and needs no permission beyond membership. Removing
-     * anyone else is an owner's prerogative. The last-owner rule blocks both.
-     */
     public void revokeAccess(RevokeAccessCommand command) {
         Instant now = clock.instant();
         Access access = requireAccess(command.firebaseUid(), command.projectId(),
@@ -180,11 +155,6 @@ public class ProjectApplicationService {
         saveAndPublish(access.project());
     }
 
-    /**
-     * The failure message is identical whether the identifier looked like an email, a
-     * username, or neither. Naming which half matched would make this endpoint a way to test
-     * whether a given address is registered.
-     */
     private User resolveMember(String identifier) {
         return tryFindByEmail(identifier)
                 .or(() -> tryFindByUsername(identifier))
@@ -231,10 +201,6 @@ public class ProjectApplicationService {
         eventPublisher.publishAll(project.pullDomainEvents());
     }
 
-    /**
-     * Re-read after a write rather than assembling a second view from the aggregate: one
-     * shape, one source of truth. Reads its own writes inside the same transaction.
-     */
     private ProjectView viewOf(UserId caller, ProjectId projectId) {
         return projectFinder.detailFor(caller, projectId)
                 .orElseThrow(() -> ProjectNotFoundException.byId(projectId));

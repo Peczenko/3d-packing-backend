@@ -26,11 +26,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * The three filters in this lookup are the port's contract rather than optimisations, so
- * each of them gets a test: an inactive account, a deleted project and a non-member must all
- * be indistinguishable from a project that never existed.
- */
 @JooqTest
 @Import(TestcontainersConfiguration.class)
 class JooqProjectAccessLookupIT {
@@ -90,7 +85,7 @@ class JooqProjectAccessLookupIT {
                         assertThat(found.permission()).isEqualTo(ProjectPermission.READ));
     }
 
-    /** DISABLED still resolves: it is a read-only archive, not a hidden project. */
+    //DISABLED is a read-only archive, not a hidden project
     @Test
     void resolvesADisabledProjectSoThatReadsKeepWorking() {
         project.disable(now());

@@ -11,25 +11,10 @@ import lombok.Getter;
 import java.time.Instant;
 import java.util.Objects;
 
-/**
- * {@link #storageKey()} is derived from the id before either system is written, so a
- * retried upload overwrites its own blob instead of leaving an orphan.
- *
- * <p>Content is immutable once uploaded — only {@link #rename} exists, and it cannot change
- * the format. That is what lets a future packing job record its inputs by file id and still
- * mean the same bytes when the job is read back months later.
- *
- * <p>{@code ownerId} records who uploaded the file. It carries no authorisation weight:
- * access is decided by the caller's permission on {@link #projectId()}.
- */
 @Getter
 @EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
 public final class StoredFile extends AggregateRoot {
 
-    /**
-     * Also mirrored in {@code spring.servlet.multipart.max-file-size} — a properties file
-     * can't reference a Java constant, so keep the two in sync by hand.
-     */
     public static final long MAX_SIZE_BYTES = 100L * 1024 * 1024;
 
     public static final long INITIAL_VERSION = 0L;
@@ -79,9 +64,6 @@ public final class StoredFile extends AggregateRoot {
         this.deletedAt = deletedAt;
     }
 
-    /**
-     * @param sizeBytes the number of bytes actually received, never a client-declared value
-     */
     public static StoredFile upload(FileId id,
                                     UserId ownerId,
                                     ProjectId projectId,
@@ -106,7 +88,6 @@ public final class StoredFile extends AggregateRoot {
                 null);
     }
 
-    /** Only the persistence adapter should call this. */
     public static StoredFile rehydrate(FileId id,
                                        UserId ownerId,
                                        ProjectId projectId,
@@ -124,12 +105,6 @@ public final class StoredFile extends AggregateRoot {
                 checksum, status, version, createdAt, updatedAt, deletedAt);
     }
 
-    /**
-     * Changes the display name only. The new name must resolve to the same
-     * {@link ModelFormat}, because the format is derived from the extension: allowing
-     * {@code model.stl -> model.obj} would leave the record describing bytes that were never
-     * uploaded, and a download would then advertise the wrong content type.
-     */
     public void rename(FileName newName, Instant now) {
         Objects.requireNonNull(newName, "name");
         if (isDeleted()) {
@@ -147,7 +122,6 @@ public final class StoredFile extends AggregateRoot {
         this.updatedAt = now;
     }
 
-    /** Idempotent: deleting twice is a no-op that records only one event. */
     public void delete(Instant now) {
         if (isDeleted()) {
             return;
@@ -174,10 +148,6 @@ public final class StoredFile extends AggregateRoot {
         return format.contentType();
     }
 
-    /**
-     * Bumps the version after a successful save, so a second save in the same unit of work
-     * is not rejected as stale.
-     */
     public void markPersisted() {
         this.version++;
     }

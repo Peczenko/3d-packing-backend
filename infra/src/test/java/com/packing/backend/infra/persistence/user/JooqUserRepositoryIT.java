@@ -26,20 +26,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Runs the generated jOOQ code against a real PostgreSQL container.
- *
- * <p>This is the compensating control for generating offline: {@code DDLDatabase} reverse
- * engineers the migrations through an in-memory <em>H2</em> database, so the generated
- * column types are H2's interpretation of the DDL, not PostgreSQL's. Only executing the
- * queries against real PostgreSQL proves the two agree.
- *
- * <p>{@code @JooqTest} imports {@code FlywayAutoConfiguration} and
- * {@code ServiceConnectionAutoConfiguration} and does not import
- * {@code TestDatabaseAutoConfiguration}, so the migrations are applied to the container
- * rather than to an embedded database. Each test runs in a transaction that is rolled
- * back afterwards.
- */
 @JooqTest
 @Import(TestcontainersConfiguration.class)
 class JooqUserRepositoryIT {
@@ -52,8 +38,6 @@ class JooqUserRepositoryIT {
     }
 
     private User newUser(String uid, String email, String username) {
-        // Truncated to microseconds: PostgreSQL timestamps have microsecond resolution,
-        // so nanosecond input would not survive the round trip.
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         return User.register(new FirebaseUid(uid), new Email(email), new Username(username),
                 "Display Name", now);
@@ -74,8 +58,6 @@ class JooqUserRepositoryIT {
             assertThat(user.displayName()).isEqualTo("Display Name");
             assertThat(user.role()).isEqualTo(UserRole.USER);
             assertThat(user.status()).isEqualTo(UserStatus.ACTIVE);
-            // The real assertion of this suite: timestamptz survives the
-            // Instant -> OffsetDateTime -> PostgreSQL -> OffsetDateTime -> Instant trip.
             assertThat(user.createdAt()).isEqualTo(saved.createdAt());
             assertThat(user.lastLoginAt()).isEqualTo(saved.createdAt());
         });
@@ -145,14 +127,12 @@ class JooqUserRepositoryIT {
         assertThat(repository().findByFirebaseUid(new FirebaseUid("nobody"))).isEmpty();
     }
 
-    // --- optimistic locking --------------------------------------------------------
-
     @Test
     void savingAdvancesTheStoredVersionAndKeepsTheAggregateInStep() {
         User user = newUser("uid-10", "version@example.com", "versioned");
         repository().save(user);
         long afterInsert = repository().findById(user.id()).orElseThrow().version();
-        // If these drift apart, the next save fails its own optimistic check.
+
         assertThat(user.version()).isEqualTo(afterInsert);
 
         user.changeProfile(new Username("versioned2"), null, user.createdAt().plusSeconds(1));
@@ -177,10 +157,6 @@ class JooqUserRepositoryIT {
                 .isEqualTo(new Username("repeatsave2"));
     }
 
-    /**
-     * The scenario the lock exists for: two readers, one writes, the other's full-aggregate
-     * write must fail rather than silently reverting the first change.
-     */
     @Test
     void aWriteBuiltOnAStaleReadIsRejected() {
         User user = newUser("uid-11", "stale@example.com", "stale");
@@ -197,16 +173,9 @@ class JooqUserRepositoryIT {
         assertThatThrownBy(() -> repository().save(readerTwo))
                 .isInstanceOf(ConcurrentUpdateException.class);
 
-        // The promotion survived.
         assertThat(repository().findById(user.id()).orElseThrow().role()).isEqualTo(UserRole.ADMIN);
     }
 
-    // --- sign-in path --------------------------------------------------------------
-
-    /**
-     * The narrow sign-in write must not touch role, status, username or version — that is
-     * what stops a concurrent promotion being reverted by a routine /me call.
-     */
     @Test
     void recordingASignInTouchesOnlyEmailAndTimestamps() {
         User user = newUser("uid-12", "signin@example.com", "signin");
@@ -237,12 +206,9 @@ class JooqUserRepositoryIT {
             repository().recordSignIn(user.id(), user.email(), at, at);
         }
 
-        // Unchanged: concurrent /me calls must never contend on the optimistic lock.
         assertThat(repository().findById(user.id()).orElseThrow().version())
                 .isEqualTo(versionAfterSave);
     }
-
-    // --- soft deletion -------------------------------------------------------------
 
     @Test
     void deletionLeavesAnAnonymisedTombstoneThatStillResolvesByFirebaseUid() {
@@ -260,7 +226,6 @@ class JooqUserRepositoryIT {
                 });
     }
 
-    /** Anonymisation releases the real email and username for someone else to use. */
     @Test
     void theOriginalEmailAndUsernameAreFreedAfterDeletion() {
         User user = newUser("uid-15", "reusable@example.com", "reusable");

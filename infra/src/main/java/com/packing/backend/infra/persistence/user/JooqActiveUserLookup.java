@@ -12,10 +12,6 @@ import java.util.Optional;
 
 import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
 
-/**
- * The status filter is the port's contract, not an optimisation: a disabled or deleted
- * account must not reach anything.
- */
 @Repository
 @RequiredArgsConstructor
 public class JooqActiveUserLookup implements ActiveUserLookup {

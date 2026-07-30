@@ -62,7 +62,6 @@ public class ProjectController {
                 new RenameProjectCommand(caller.firebaseUid(), projectId, request.name())));
     }
 
-    /** Makes the project a read-only archive: reads keep working, every write is refused. */
     @PostMapping("/{projectId}/disable")
     public ResponseEntity<Void> disable(@CurrentUser AuthenticatedUser caller,
                                         @PathVariable UUID projectId) {
@@ -103,7 +102,6 @@ public class ProjectController {
                 caller.firebaseUid(), projectId, request.identifier(), request.permission())));
     }
 
-    /** Re-levels an existing member only; adding someone goes through the POST above. */
     @PatchMapping("/{projectId}/members/{userId}")
     public ProjectResponse changeMemberPermission(
             @CurrentUser AuthenticatedUser caller,
@@ -114,7 +112,6 @@ public class ProjectController {
                 caller.firebaseUid(), projectId, userId, request.permission())));
     }
 
-    /** Also the "leave project" route: a member may always remove themselves. */
     @DeleteMapping("/{projectId}/members/{userId}")
     public ResponseEntity<Void> removeMember(@CurrentUser AuthenticatedUser caller,
                                              @PathVariable UUID projectId,

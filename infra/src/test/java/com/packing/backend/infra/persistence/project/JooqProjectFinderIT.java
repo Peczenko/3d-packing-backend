@@ -89,7 +89,6 @@ class JooqProjectFinderIT {
         assertThat(page.totalElements()).isEqualTo(1L);
     }
 
-    /** DISABLED is a read-only archive, not a hidden project — it must still appear in a listing. */
     @Test
     void listExcludesDeletedButKeepsDisabledProjectsNewestFirst() {
         Instant base = now();
@@ -142,10 +141,6 @@ class JooqProjectFinderIT {
                 });
     }
 
-    /**
-     * Two projects with different rosters, so an uncorrelated {@code count(*)} over
-     * {@code project_members} — which would return 3 for both rows — cannot pass.
-     */
     @Test
     void theMemberCountIsCorrelatedToItsOwnProject() {
         Project shared = persistedProject();
@@ -160,7 +155,6 @@ class JooqProjectFinderIT {
                 .containsExactly(tuple("Solo", 1), tuple("Chassis packing", 2));
     }
 
-    /** The listing must not pay for a roster per row — that is why this port exists. */
     @Test
     void aPageOfSummariesIsTwoStatementsRegardlessOfRosterSize() {
         Project project = persistedProject();
@@ -216,10 +210,6 @@ class JooqProjectFinderIT {
         assertThat(statements).hasValue(1);
     }
 
-    /**
-     * A non-member must be indistinguishable from a project that does not exist. Returning
-     * anything here would turn the route into an id-enumeration oracle.
-     */
     @Test
     void detailIsEmptyForANonMember() {
         Project project = persistedProject();
@@ -237,7 +227,6 @@ class JooqProjectFinderIT {
         assertThat(finder().detailFor(creator, ProjectId.generate())).isEmpty();
     }
 
-    /** DISABLED is a read-only archive, not a hidden project. */
     @Test
     void detailStillResolvesADisabledProject() {
         Project project = persistedProject();

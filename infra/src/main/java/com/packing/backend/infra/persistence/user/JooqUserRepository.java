@@ -23,12 +23,6 @@ import java.util.function.Supplier;
 
 import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
 
-/**
- * jOOQ adapter for {@link UserRepository}.
- *
- * <p>No {@code @Transactional} here: transaction boundaries belong to the application
- * services in {@code :core}, and this adapter always runs inside one of theirs.
- */
 @Repository
 @RequiredArgsConstructor
 public class JooqUserRepository implements UserRepository {
@@ -46,10 +40,6 @@ public class JooqUserRepository implements UserRepository {
         return user;
     }
 
-    /**
-     * Touches only the columns a sign-in owns, and does not bump the version — see
-     * {@link UserRepository#recordSignIn}.
-     */
     @Override
     public void recordSignIn(UserId id, Email email, Instant updatedAt, Instant lastLoginAt) {
         constraintTranslatorFor(email).translating(() -> dsl.update(USERS)
@@ -97,10 +87,6 @@ public class JooqUserRepository implements UserRepository {
         return dsl.fetchExists(dsl.selectFrom(USERS).where(USERS.USERNAME.eq(username.value())));
     }
 
-    /**
-     * Built per call so the resulting exception can name the value that actually collided.
-     * Constraint names come from V1__create_users_table.sql.
-     */
     private SqlConstraintViolationTranslator constraintTranslatorFor(User user) {
         return new SqlConstraintViolationTranslator(Map.of(
                 "uq_users_username", () -> new UsernameAlreadyTakenException(user.username()),
@@ -109,7 +95,6 @@ public class JooqUserRepository implements UserRepository {
                         "A profile already exists for Firebase uid " + user.firebaseUid())));
     }
 
-    /** The sign-in path can only ever collide on the email it is refreshing. */
     private SqlConstraintViolationTranslator constraintTranslatorFor(Email email) {
         Supplier<RuntimeException> conflict = () -> new EmailAlreadyRegisteredException(email);
         return new SqlConstraintViolationTranslator(Map.of("uq_users_email", conflict));

@@ -6,7 +6,6 @@ import org.jooq.Condition;
 
 import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
 
-/** Deletion is a tombstone, so every read has to exclude it explicitly. */
 final class FileQueries {
 
     private FileQueries() {

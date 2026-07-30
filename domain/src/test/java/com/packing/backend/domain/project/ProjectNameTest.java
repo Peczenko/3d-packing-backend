@@ -50,11 +50,6 @@ class ProjectNameTest {
                 .hasMessageContaining("at most");
     }
 
-    /**
-     * The name is interpolated into notification email, so control characters cannot pass.
-     * Built by concatenation rather than with a unicode escape: Java resolves those before
-     * lexing, so writing one would put a raw control character in the source file itself.
-     */
     @ParameterizedTest
     @ValueSource(chars = {0x00, 0x07, 0x1F, 0x7F})
     void rejectsControlCharacters(char control) {
@@ -65,10 +60,6 @@ class ProjectNameTest {
                 .hasMessageContaining("control characters");
     }
 
-    /**
-     * A decomposed name would otherwise round-trip as a different string than the one the
-     * user sees, and the length check would count combining marks.
-     */
     @Test
     void normalisesToComposedForm() {
         String composed = "Ch" + (char) 0x00E1 + "ssis";

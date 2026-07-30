@@ -16,7 +16,6 @@ public record PageRequest(int page, int size) {
         }
     }
 
-    /** Widened deliberately: page * size overflows int at a large page index. */
     public long offset() {
         return (long) page * size;
     }

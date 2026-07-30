@@ -7,10 +7,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * @param myPermission the requesting caller's level, so a client can hide actions it would
- *                     only be refused for
- */
 public record ProjectView(UUID id,
                           String name,
                           ProjectStatus status,

@@ -17,12 +17,6 @@ import static com.packing.backend.infra.persistence.jooq.tables.ProjectMembers.P
 import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECTS;
 import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
 
-/**
- * Resolves the caller and their permission in one join, on the path taken by every file
- * request. The three filters are the port's contract, not optimisations: an inactive
- * account, a deleted project and a non-member must all be indistinguishable from a project
- * that never existed.
- */
 @Repository
 @RequiredArgsConstructor
 public class JooqProjectAccessLookup implements ProjectAccessLookup {

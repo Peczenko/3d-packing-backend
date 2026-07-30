@@ -113,10 +113,6 @@ class ProjectApplicationServiceTest {
         });
     }
 
-    /**
-     * Mirrors what JooqProjectFinder assembles in SQL. JooqProjectFinderIT is what proves the
-     * two agree; this only has to be shaped the same.
-     */
     private static ProjectView viewOf(Project project, UserId caller) {
         List<ProjectMemberView> members = project.members().stream()
                 .map(member -> new ProjectMemberView(member.userId().value(),
@@ -138,7 +134,6 @@ class ProjectApplicationServiceTest {
         return user;
     }
 
-    /** A project the caller owns, already persisted and with its creation events drained. */
     private Project ownedProject() {
         Project project = Project.create(NAME, CALLER, NOW);
         project.pullDomainEvents();
@@ -285,7 +280,6 @@ class ProjectApplicationServiceTest {
                 });
     }
 
-    /** The message must not reveal whether the identifier matched an account. */
     @Test
     void grantAccessReportsAnUnknownIdentifierWithoutConfirmingIt() {
         Project project = ownedProject();

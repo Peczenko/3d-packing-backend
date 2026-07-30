@@ -14,10 +14,6 @@ class PageRequestTest {
         assertThat(new PageRequest(2, 20).offset()).isEqualTo(40L);
     }
 
-    /**
-     * page * size is an int multiply at every call site today, so a large page index wraps
-     * negative and jOOQ receives a nonsensical offset.
-     */
     @Test
     void doesNotOverflowOnALargePageIndex() {
         assertThat(new PageRequest(Integer.MAX_VALUE, 100).offset())

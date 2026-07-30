@@ -8,13 +8,6 @@ import com.packing.backend.domain.user.UserId;
 
 import java.time.Instant;
 
-/**
- * Raised when a user becomes a member of a project, not when an existing member's permission
- * changes — it exists to drive the welcome email, and being re-levelled is not a welcome.
- *
- * <p>Carries no email address: the aggregate does not know one, and the after-commit handler
- * that sends the notification can look it up.
- */
 public record ProjectAccessGranted(ProjectId projectId,
                                    ProjectName projectName,
                                    UserId userId,

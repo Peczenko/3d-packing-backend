@@ -17,11 +17,6 @@ import java.util.Optional;
 
 import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
 
-/**
- * No {@code @Transactional} here: transaction boundaries belong to the application services
- * in {@code :core}, and {@code FileApplicationService#upload} is deliberately not
- * transactional, so a save on the upload path commits on its own — that is intended.
- */
 @Repository
 @RequiredArgsConstructor
 public class JooqFileRepository implements FileRepository {
@@ -39,11 +34,6 @@ public class JooqFileRepository implements FileRepository {
         return file;
     }
 
-    /**
-     * Deliberately a loop over {@link #save}, not a bulk {@code UPDATE}: each file carries
-     * its own version, and collapsing them into one statement would drop the optimistic lock
-     * exactly where the cascade is most likely to race a concurrent upload.
-     */
     @Override
     public List<StoredFile> saveAll(List<StoredFile> files) {
         return files.stream().map(this::save).toList();
@@ -66,12 +56,6 @@ public class JooqFileRepository implements FileRepository {
                 .map(FileRecordMapper::toDomain);
     }
 
-    /**
-     * The storage key is derived from the file id, so a collision means the same id was
-     * inserted twice — which the primary key would also catch. Kept because the unique
-     * constraint is what guards the key's uniqueness if the naming scheme ever changes.
-     * Constraint names come from V2__create_files_table.sql.
-     */
     private SqlConstraintViolationTranslator constraintTranslatorFor(StoredFile file) {
         return new SqlConstraintViolationTranslator(Map.of(
                 "uq_files_storage_key", () -> new ResourceConflictException(

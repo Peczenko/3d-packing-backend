@@ -51,12 +51,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.CONFLICT, "Conflict", e.getMessage(), request);
     }
 
-    /**
-     * Unrelated to Spring Security's {@link AccessDeniedException} below, which reports a
-     * failure of the filter chain. This one carries a domain decision — the caller can see
-     * the resource but lacks the level this operation needs — so its message is safe to
-     * pass through, and the two must not be merged.
-     */
     @ExceptionHandler(PermissionDeniedException.class)
     public ProblemDetail handlePermissionDenied(PermissionDeniedException e,
                                                 HttpServletRequest request) {

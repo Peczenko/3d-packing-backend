@@ -6,10 +6,6 @@ import com.packing.backend.domain.project.ProjectStatus;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Listing entry. Omits the member roster, which is the expensive part and is only wanted on
- * a single project's detail view.
- */
 public record ProjectSummaryView(UUID id,
                                  String name,
                                  ProjectStatus status,

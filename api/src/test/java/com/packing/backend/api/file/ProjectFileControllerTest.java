@@ -47,10 +47,6 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * Filters are disabled: the real filter chain lives in {@code :app}, so the
- * {@code SecurityContextHolder} is populated directly instead.
- */
 @WebMvcTest(controllers = ProjectFileController.class)
 @AutoConfigureMockMvc(addFilters = false)
 class ProjectFileControllerTest {

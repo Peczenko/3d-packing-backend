@@ -27,11 +27,6 @@ import static com.packing.backend.infra.persistence.project.ProjectQueries.MEMBE
 import static com.packing.backend.infra.persistence.project.ProjectQueries.memberIs;
 import static com.packing.backend.infra.persistence.project.ProjectQueries.notDeleted;
 
-/**
- * Project reads that never rehydrate the aggregate. The join to {@code PROJECT_MEMBERS} is
- * the authorisation rule, not an optimisation: it is what makes a non-member's request
- * indistinguishable from a project that does not exist.
- */
 @Repository
 @RequiredArgsConstructor
 public class JooqProjectFinder implements ProjectFinder {

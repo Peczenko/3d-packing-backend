@@ -17,7 +17,6 @@ class UserRecordMapperTest {
 
     private static final Instant NOW = Instant.parse("2026-07-28T10:15:30Z");
 
-    /** The two directions must agree column for column, or a save silently loses a field. */
     @Test
     void roundTripsEveryColumn() {
         User user = User.rehydrate(UserId.generate(), new FirebaseUid("uid-1"),

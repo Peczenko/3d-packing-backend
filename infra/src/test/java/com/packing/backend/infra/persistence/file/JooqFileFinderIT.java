@@ -130,10 +130,6 @@ class JooqFileFinderIT {
         assertThat(page.totalElements()).isZero();
     }
 
-    /**
-     * {@code files.owner_user_id} grants nothing — a project listing must include a file
-     * uploaded by any member, not just the one who happens to own the project.
-     */
     @Test
     void listingIncludesFilesUploadedByAnyMemberNotJustTheOwner() {
         User other = User.register(new FirebaseUid("uid-other"), new Email("other@example.com"),
@@ -150,7 +146,6 @@ class JooqFileFinderIT {
                 .containsExactly("theirs.stl", "mine.stl");
     }
 
-    /** FileView omits storageKey on purpose: exposing it would leak the object layout. */
     @Test
     void viewCarriesTheFieldsAClientRenders() {
         StoredFile file = persistFile(project, "bracket.stl", now());

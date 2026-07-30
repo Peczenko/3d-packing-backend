@@ -35,11 +35,6 @@ import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECT
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * The compensating control for generating offline: the generator reverse engineers the
- * migrations through an in-memory H2 database, so only executing against real PostgreSQL
- * proves the two agree.
- */
 @JooqTest
 @Import(TestcontainersConfiguration.class)
 class JooqProjectRepositoryIT {
@@ -166,7 +161,6 @@ class JooqProjectRepositoryIT {
                 .hasMessageContaining(project.id().toString());
     }
 
-    /** The version guard runs before the member rewrite, so a stale save must not touch it. */
     @Test
     void aStaleWriteLeavesTheMemberRowsAlone() {
         Project project = persistedProject();

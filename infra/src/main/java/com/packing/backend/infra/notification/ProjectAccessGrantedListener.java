@@ -17,18 +17,6 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * Tells a new member they have been added to a project.
- *
- * <p>Runs {@link TransactionPhase#AFTER_COMMIT} for the same reason the Firebase mirroring
- * does: a sent email cannot be rolled back, so it must not be sent for a grant that never
- * committed. The recipient's address is resolved here rather than carried on the event —
- * the aggregate has no business holding an address it never validated.
- *
- * <p>Failures are logged, never rethrown. The membership is already committed and effective;
- * a courtesy email that did not arrive is not a reason to surface an error to a request that
- * has already succeeded.
- */
 @Component
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 @Slf4j
@@ -43,15 +31,13 @@ class ProjectAccessGrantedListener {
         try {
             Optional<User> member = users.findById(event.userId());
             if (member.isEmpty() || member.get().isDeleted()) {
-                log.warn("Access to project {} was granted to user {}, who has no active "
-                                + "profile to notify.",
+                log.warn("Access to project {} was granted to user {}, who has no active profile to notify.",
                         event.projectId(), event.userId());
                 return;
             }
             emailSender.send(compose(event, member.get()));
         } catch (RuntimeException e) {
-            log.error("Access to project {} was granted to user {} but the notification "
-                            + "email could not be sent. The membership is unaffected.",
+            log.error("Access to project {} was granted to user {} but the notification email could not be sent. The membership is unaffected.",
                     event.projectId(), event.userId(), e);
         }
     }
@@ -76,7 +62,6 @@ class ProjectAccessGrantedListener {
                 .build();
     }
 
-    /** Falls back to the id rather than failing: the email matters more than the name. */
     private String displayNameOf(UserId userId) {
         return users.findById(userId)
                 .map(user -> user.displayName() == null

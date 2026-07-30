@@ -4,13 +4,6 @@ import com.packing.backend.domain.shared.DomainRuleViolationException;
 
 import java.text.Normalizer;
 
-/**
- * Free-form label chosen by the creator. Not unique: two people, or the same person twice,
- * may name a project "Chassis".
- *
- * <p>Control characters are rejected because this value is interpolated into notification
- * emails, and NFC normalisation keeps the stored string identical to the one the user sees.
- */
 public record ProjectName(String value) {
 
     public static final int MAX_LENGTH = 128;

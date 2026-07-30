@@ -37,11 +37,6 @@ import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * The compensating control for generating offline: the generator reverse engineers the
- * migrations through an in-memory H2 database, so only executing against real PostgreSQL
- * proves the two agree.
- */
 @JooqTest
 @Import(TestcontainersConfiguration.class)
 class JooqFileRepositoryIT {
@@ -178,7 +173,6 @@ class JooqFileRepositoryIT {
         assertThat(repository().findAllAvailableByProject(project)).isEmpty();
     }
 
-    /** Renaming is the one content-bearing field that may change after upload. */
     @Test
     void aRenameIsPersisted() {
         StoredFile file = newFile("bracket.stl");

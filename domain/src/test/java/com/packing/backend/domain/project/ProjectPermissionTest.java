@@ -25,10 +25,6 @@ class ProjectPermissionTest {
         assertThat(held.allows(required)).isEqualTo(expected);
     }
 
-    /**
-     * {@code allows} is implemented on the ordinal, so a reordering of the constants would
-     * silently invert the model rather than fail to compile.
-     */
     @Test
     void theDeclarationOrderIsTheAuthorityModel() {
         assertThat(ProjectPermission.values())

@@ -21,11 +21,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
-/**
- * Files are reached only through their project. There is no flat {@code /api/v1/files}: one
- * route to a file means one authorisation rule, decided by the caller's permission on the
- * project rather than by who uploaded it.
- */
 @RestController
 @RequestMapping("/api/v1/projects/{projectId}/files")
 @RequiredArgsConstructor
@@ -33,10 +28,6 @@ public class ProjectFileController {
 
     private final FileApplicationService files;
 
-    /**
-     * {@code MultipartFile::getInputStream} is handed over as the content source because it
-     * returns a fresh stream on each call — the use case reads twice.
-     */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public FileResponse upload(@CurrentUser AuthenticatedUser caller,
@@ -63,10 +54,6 @@ public class ProjectFileController {
                 new ListFilesCommand(caller.firebaseUid(), projectId, new PageRequest(page, size))));
     }
 
-    /**
-     * The {@code Location} header carries a bearer credential that outlives the response,
-     * so the response must not be cached by a browser, proxy or CDN.
-     */
     @GetMapping("/{fileId}/content")
     public ResponseEntity<Void> download(@CurrentUser AuthenticatedUser caller,
                                          @PathVariable UUID projectId,
@@ -80,7 +67,6 @@ public class ProjectFileController {
                 .build();
     }
 
-    /** Renames only. Content is immutable, so there is no endpoint to replace the bytes. */
     @PatchMapping("/{fileId}")
     public FileResponse rename(@CurrentUser AuthenticatedUser caller,
                                @PathVariable UUID projectId,

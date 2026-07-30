@@ -12,11 +12,6 @@ import org.jooq.DSLContext;
 
 import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
 
-/**
- * Unlike the project finder this rehydrates the aggregate: files are a flat single-table
- * select, so projecting the columns by hand would buy nothing and would give FileView a
- * second builder to drift from.
- */
 @Repository
 @RequiredArgsConstructor
 public class JooqFileFinder implements FileFinder {

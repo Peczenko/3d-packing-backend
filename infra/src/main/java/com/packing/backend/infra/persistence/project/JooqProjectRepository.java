@@ -19,11 +19,6 @@ import static com.packing.backend.infra.persistence.jooq.tables.ProjectMembers.P
 import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECTS;
 import static com.packing.backend.infra.persistence.project.ProjectQueries.MEMBERS;
 
-/**
- * No {@code @Transactional} here: transaction boundaries belong to the application services
- * in {@code :core}, and this adapter always runs inside one of theirs. That matters more than
- * usual for {@link #save}, which writes two tables and must not be observed half-applied.
- */
 @Repository
 @RequiredArgsConstructor
 public class JooqProjectRepository implements ProjectRepository {
@@ -32,11 +27,6 @@ public class JooqProjectRepository implements ProjectRepository {
     private final AggregateWriter writer;
 
 
-    /**
-     * Delete-then-insert rather than a diff: membership is small, and the optimistic lock on
-     * {@code projects.version} is what actually serialises two concurrent edits. Because the
-     * version guard runs first, a stale caller never reaches the member rewrite.
-     */
     @Override
     public Project save(Project project) {
         writer.upsert(ProjectRecordMapper.TABLE, ProjectRecordMapper.toRecord(project),

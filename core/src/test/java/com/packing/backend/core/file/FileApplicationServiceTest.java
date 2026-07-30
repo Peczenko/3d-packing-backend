@@ -71,7 +71,7 @@ class FileApplicationServiceTest {
     private static final UserId CALLER = UserId.generate();
     private static final ProjectId PROJECT = ProjectId.generate();
     private static final byte[] BYTES = "solid cube".getBytes(StandardCharsets.UTF_8);
-    /** SHA-256 of "solid cube". */
+    //SHA-256 of "solid cube"
     private static final String BYTES_SHA256 =
             "d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971";
 
@@ -375,7 +375,6 @@ class FileApplicationServiceTest {
         verify(storage, never()).delete(any());
     }
 
-    /** A WRITE member may rename anything in the project, including someone else's upload. */
     @Test
     void renameDoesNotCareWhoUploadedTheFile() {
         access(ProjectPermission.WRITE);
