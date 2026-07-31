@@ -10,7 +10,7 @@ import java.util.function.Supplier;
 
 public final class SqlConstraintViolationTranslator {
 
-    /** PostgreSQL SQLSTATE for unique_violation. */
+    //PostgreSQL SQLSTATE for unique_violation
     private static final String UNIQUE_VIOLATION = "23505";
 
     private final Map<String, Supplier<? extends RuntimeException>> byConstraintName;

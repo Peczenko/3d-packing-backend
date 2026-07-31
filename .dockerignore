@@ -1,7 +1,9 @@
 .git
 .github
 .gradle
+**/.gradle
 build
+**/build
 .idea
 *.iml
 docs
@@ -9,3 +11,6 @@ thesis.txt
 HELP.md
 *.log
 .env
+.env.example
+docker-compose.yml
+*.stackdump
