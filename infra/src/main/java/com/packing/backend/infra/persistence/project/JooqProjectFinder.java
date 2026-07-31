@@ -38,8 +38,8 @@ public class JooqProjectFinder implements ProjectFinder {
                                 PROJECTS.CREATED_AT, PROJECTS.UPDATED_AT)
                         .from(PROJECTS)
                         .join(PROJECT_MEMBERS).on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                        .where(memberIs(caller).and(notDeleted()))
-                        .orderBy(PROJECTS.CREATED_AT.desc(), PROJECTS.ID.desc()),
+                        .where(memberIs(caller).and(notDeleted())),
+                List.of(PROJECTS.CREATED_AT.desc(), PROJECTS.ID.desc()),
                 page,
                 JooqProjectFinder::toSummary);
     }
