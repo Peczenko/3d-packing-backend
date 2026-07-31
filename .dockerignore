@@ -4,6 +4,7 @@
 **/.gradle
 build
 **/build
+!app/build/libs
 .idea
 *.iml
 docs
