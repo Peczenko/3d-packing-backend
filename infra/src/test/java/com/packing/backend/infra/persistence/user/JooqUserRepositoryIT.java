@@ -140,8 +140,6 @@ class JooqUserRepositoryIT {
         dsl.update(USERS).set(untyped(USERS.ROLE), "SUPERUSER")
                 .where(USERS.ID.eq(user.id())).execute();
 
-        // jOOQ wraps a converter failure in DataAccessException, so the loud failure this test
-        // exists to pin is the root cause, not the thrown type.
         assertThatThrownBy(() -> repository().findById(user.id()))
                 .rootCause()
                 .isInstanceOf(IllegalArgumentException.class)

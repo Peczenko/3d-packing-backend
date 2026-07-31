@@ -71,10 +71,6 @@ class AggregateWriterIT {
                 .hasMessageContaining("User");
     }
 
-    /**
-     * The immutable set is the whole point of AggregateTable: the update branch must not
-     * carry these columns even when the in-memory aggregate disagrees with the stored row.
-     */
     @Test
     void immutableColumnsAreNotOverwrittenOnTheConflictBranch() {
         User user = persistedUser();
