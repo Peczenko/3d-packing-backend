@@ -161,3 +161,16 @@ tasks.named('compileJava') {
 // Belt and braces for IDE sync. srcDirs is a Set, so declaring the same directory twice
 // is a no-op.
 sourceSets.main.java.srcDir(layout.buildDirectory.dir('generated-src/jooq'))
+
+// CodegenTask is already @CacheableTask with declared outputs, but it gates up-to-date checks
+// on the presence of an explicit non-jar input. Declaring the scripts is the documented opt-in.
+// Derived from jooqMigrationScripts so the tracked set cannot drift from the generator's own
+// `scripts` property — under-declaring here means "UP-TO-DATE while stale", worse than today.
+// normalizeLineEndings: V2 is checked out CRLF on Windows and LF in the index, which changes
+// the fingerprint but not the generated output.
+tasks.named('jooqCodegen') {
+    inputs.files(fileTree(dir: '.', include: jooqMigrationScripts))
+          .withPathSensitivity(PathSensitivity.RELATIVE)
+          .withPropertyName('migrations')
+          .normalizeLineEndings()
+}
