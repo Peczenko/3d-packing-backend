@@ -127,6 +127,102 @@ jooq {
                         value = 'none'
                     }
                 }
+
+                forcedTypes {
+                    forcedType {
+                        userType = 'com.packing.backend.domain.user.UserRole'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.user.UserRole::valueOf'
+                            to = 'com.packing.backend.domain.user.UserRole::name'
+                        }
+                        includeExpression = 'users\\.role'
+                    }
+                    forcedType {
+                        userType = 'com.packing.backend.domain.user.UserStatus'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.user.UserStatus::valueOf'
+                            to = 'com.packing.backend.domain.user.UserStatus::name'
+                        }
+                        includeExpression = 'users\\.status'
+                    }
+                    forcedType {
+                        userType = 'com.packing.backend.domain.project.ProjectStatus'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.project.ProjectStatus::valueOf'
+                            to = 'com.packing.backend.domain.project.ProjectStatus::name'
+                        }
+                        includeExpression = 'projects\\.status'
+                    }
+                    forcedType {
+                        userType = 'com.packing.backend.domain.project.ProjectPermission'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.project.ProjectPermission::valueOf'
+                            to = 'com.packing.backend.domain.project.ProjectPermission::name'
+                        }
+                        includeExpression = 'project_members\\.permission'
+                    }
+                    forcedType {
+                        userType = 'com.packing.backend.domain.file.FileStatus'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.file.FileStatus::valueOf'
+                            to = 'com.packing.backend.domain.file.FileStatus::name'
+                        }
+                        includeExpression = 'files\\.status'
+                    }
+                    forcedType {
+                        userType = 'com.packing.backend.domain.file.ModelFormat'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.file.ModelFormat::valueOf'
+                            to = 'com.packing.backend.domain.file.ModelFormat::name'
+                        }
+                        includeExpression = 'files\\.format'
+                    }
+
+                    // Columns are enumerated rather than pattern-matched: `.*\.project_id` would
+                    // silently claim any future column of that name. This way a new table shows up
+                    // as a visible diff here.
+                    forcedType {
+                        userType = 'com.packing.backend.domain.user.UserId'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.user.UserId::new'
+                            to = 'com.packing.backend.domain.user.UserId::value'
+                        }
+                        includeExpression = 'users\\.id' +
+                                '|project_members\\.user_id' +
+                                '|project_members\\.added_by' +
+                                '|projects\\.created_by' +
+                                '|files\\.owner_user_id'
+                    }
+                    forcedType {
+                        userType = 'com.packing.backend.domain.project.ProjectId'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.project.ProjectId::new'
+                            to = 'com.packing.backend.domain.project.ProjectId::value'
+                        }
+                        includeExpression = 'projects\\.id' +
+                                '|project_members\\.project_id' +
+                                '|files\\.project_id'
+                    }
+                    forcedType {
+                        userType = 'com.packing.backend.domain.file.FileId'
+                        lambdaConverter {
+                            from = 'com.packing.backend.domain.file.FileId::new'
+                            to = 'com.packing.backend.domain.file.FileId::value'
+                        }
+                        includeExpression = 'files\\.id'
+                    }
+
+                    // The escaped spaces are load-bearing: the default regexFlags include COMMENTS,
+                    // which strips unescaped whitespace. Unescaped this matches zero columns.
+                    forcedType {
+                        userType = 'java.time.Instant'
+                        lambdaConverter {
+                            from = 'java.time.OffsetDateTime::toInstant'
+                            to = 'i -> i.atOffset(java.time.ZoneOffset.UTC)'
+                        }
+                        includeTypes = 'TIMESTAMP\\ WITH\\ TIME\\ ZONE'
+                    }
+                }
             }
 
             generate {

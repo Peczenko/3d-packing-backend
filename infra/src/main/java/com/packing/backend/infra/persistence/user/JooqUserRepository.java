@@ -11,7 +11,6 @@ import com.packing.backend.domain.user.Username;
 import com.packing.backend.domain.user.UsernameAlreadyTakenException;
 import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import com.packing.backend.infra.persistence.shared.SqlConstraintViolationTranslator;
-import com.packing.backend.infra.persistence.shared.Timestamps;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -44,16 +43,16 @@ public class JooqUserRepository implements UserRepository {
     public void recordSignIn(UserId id, Email email, Instant updatedAt, Instant lastLoginAt) {
         constraintTranslatorFor(email).translating(() -> dsl.update(USERS)
                 .set(USERS.EMAIL, email.value())
-                .set(USERS.UPDATED_AT, Timestamps.toOffsetDateTime(updatedAt))
-                .set(USERS.LAST_LOGIN_AT, Timestamps.toOffsetDateTime(lastLoginAt))
-                .where(USERS.ID.eq(id.value()))
+                .set(USERS.UPDATED_AT, updatedAt)
+                .set(USERS.LAST_LOGIN_AT, lastLoginAt)
+                .where(USERS.ID.eq(id))
                 .execute());
     }
 
     @Override
     public Optional<User> findById(UserId id) {
         return dsl.selectFrom(USERS)
-                .where(USERS.ID.eq(id.value()))
+                .where(USERS.ID.eq(id))
                 .fetchOptional()
                 .map(UserRecordMapper::toDomain);
     }

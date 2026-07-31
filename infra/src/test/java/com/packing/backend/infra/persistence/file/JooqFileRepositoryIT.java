@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
+import static com.packing.backend.infra.persistence.shared.RawColumns.untyped;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -216,8 +217,8 @@ class JooqFileRepositoryIT {
         repository().save(file);
 
         assertThatThrownBy(() -> dsl.update(FILES)
-                .set(FILES.STATUS, "BOGUS")
-                .where(FILES.ID.eq(file.id().value()))
+                .set(untyped(FILES.STATUS), "BOGUS")
+                .where(FILES.ID.eq(file.id()))
                 .execute())
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_files_status");

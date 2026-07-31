@@ -2,10 +2,8 @@ package com.packing.backend.infra.persistence.project;
 
 import com.packing.backend.core.project.ProjectMemberView;
 import com.packing.backend.domain.project.ProjectMember;
-import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.project.ProjectStatus;
 import com.packing.backend.domain.user.UserId;
-import com.packing.backend.infra.persistence.shared.Timestamps;
 import org.jooq.Condition;
 import org.jooq.Field;
 
@@ -40,20 +38,20 @@ final class ProjectQueries {
                     .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
                     .orderBy(PROJECT_MEMBERS.ADDED_AT.asc(), PROJECT_MEMBERS.USER_ID.asc()))
             .convertFrom(rows -> rows.map(row -> new ProjectMemberView(
-                    row.get(PROJECT_MEMBERS.USER_ID),
+                    row.get(PROJECT_MEMBERS.USER_ID).value(),
                     row.get(USERS.USERNAME),
                     row.get(USERS.DISPLAY_NAME),
-                    ProjectPermission.valueOf(row.get(PROJECT_MEMBERS.PERMISSION)),
-                    Timestamps.toInstant(row.get(PROJECT_MEMBERS.ADDED_AT)))));
+                    row.get(PROJECT_MEMBERS.PERMISSION),
+                    row.get(PROJECT_MEMBERS.ADDED_AT))));
 
     private ProjectQueries() {
     }
 
     static Condition notDeleted() {
-        return PROJECTS.STATUS.ne(ProjectStatus.DELETED.name());
+        return PROJECTS.STATUS.ne(ProjectStatus.DELETED);
     }
 
     static Condition memberIs(UserId userId) {
-        return PROJECT_MEMBERS.USER_ID.eq(userId.value());
+        return PROJECT_MEMBERS.USER_ID.eq(userId);
     }
 }

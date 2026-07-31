@@ -7,11 +7,8 @@ import com.packing.backend.core.project.port.out.ProjectFinder;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.domain.project.ProjectId;
-import com.packing.backend.domain.project.ProjectPermission;
-import com.packing.backend.domain.project.ProjectStatus;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.shared.Paging;
-import com.packing.backend.infra.persistence.shared.Timestamps;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -54,7 +51,7 @@ public class JooqProjectFinder implements ProjectFinder {
                         PROJECTS.CREATED_AT, PROJECTS.UPDATED_AT)
                 .from(PROJECTS)
                 .join(PROJECT_MEMBERS).on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                .where(PROJECTS.ID.eq(projectId.value())
+                .where(PROJECTS.ID.eq(projectId)
                         .and(memberIs(caller))
                         .and(notDeleted()))
                 .fetchOptional()
@@ -63,25 +60,25 @@ public class JooqProjectFinder implements ProjectFinder {
 
     private static ProjectSummaryView toSummary(Record row) {
         return new ProjectSummaryView(
-                row.get(PROJECTS.ID),
+                row.get(PROJECTS.ID).value(),
                 row.get(PROJECTS.NAME),
-                ProjectStatus.valueOf(row.get(PROJECTS.STATUS)),
-                ProjectPermission.valueOf(row.get(PROJECT_MEMBERS.PERMISSION)),
+                row.get(PROJECTS.STATUS),
+                row.get(PROJECT_MEMBERS.PERMISSION),
                 row.get(MEMBER_COUNT),
-                Timestamps.toInstant(row.get(PROJECTS.CREATED_AT)),
-                Timestamps.toInstant(row.get(PROJECTS.UPDATED_AT)));
+                row.get(PROJECTS.CREATED_AT),
+                row.get(PROJECTS.UPDATED_AT));
     }
 
     private static ProjectView toDetail(Record row) {
         List<ProjectMemberView> members = row.get(MEMBER_VIEWS);
         return new ProjectView(
-                row.get(PROJECTS.ID),
+                row.get(PROJECTS.ID).value(),
                 row.get(PROJECTS.NAME),
-                ProjectStatus.valueOf(row.get(PROJECTS.STATUS)),
-                row.get(PROJECTS.CREATED_BY),
-                ProjectPermission.valueOf(row.get(PROJECT_MEMBERS.PERMISSION)),
+                row.get(PROJECTS.STATUS),
+                row.get(PROJECTS.CREATED_BY).value(),
+                row.get(PROJECT_MEMBERS.PERMISSION),
                 members,
-                Timestamps.toInstant(row.get(PROJECTS.CREATED_AT)),
-                Timestamps.toInstant(row.get(PROJECTS.UPDATED_AT)));
+                row.get(PROJECTS.CREATED_AT),
+                row.get(PROJECTS.UPDATED_AT));
     }
 }
