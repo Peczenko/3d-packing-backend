@@ -1,10 +1,10 @@
 package com.packing.backend.infra.persistence.shared;
 
 import com.packing.backend.infra.shared.Causes;
+import org.postgresql.util.PSQLException;
+import org.postgresql.util.ServerErrorMessage;
 import org.springframework.dao.DataIntegrityViolationException;
 
-import java.sql.SQLException;
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -37,20 +37,13 @@ public final class SqlConstraintViolationTranslator {
     }
 
     private RuntimeException translate(DataIntegrityViolationException e) {
-        SQLException sqlException = findSqlException(e);
-        if (sqlException == null || !UNIQUE_VIOLATION.equals(sqlException.getSQLState())) {
-            return null;
-        }
-
-        String message = String.valueOf(sqlException.getMessage()).toLowerCase(Locale.ROOT);
-        return byConstraintName.entrySet().stream()
-                .filter(entry -> message.contains(entry.getKey()))
-                .findFirst()
-                .map(entry -> (RuntimeException) entry.getValue().get())
+        return Causes.firstOfType(e, PSQLException.class)
+                .filter(sql -> UNIQUE_VIOLATION.equals(sql.getSQLState()))
+                .map(PSQLException::getServerErrorMessage)
+                .map(ServerErrorMessage::getConstraint)
+                .map(byConstraintName::get)
+                .map(Supplier::get)
+                .map(RuntimeException.class::cast)
                 .orElse(null);
-    }
-
-    private SQLException findSqlException(Throwable throwable) {
-        return Causes.firstOfType(throwable, SQLException.class).orElse(null);
     }
 }
