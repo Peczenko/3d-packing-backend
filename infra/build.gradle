@@ -54,6 +54,7 @@ dependencies {
     testImplementation 'org.testcontainers:postgresql'
 
     testImplementation 'org.testcontainers:azure'
+    testImplementation 'org.postgresql:postgresql'
     testRuntimeOnly 'org.postgresql:postgresql'
 }
 
