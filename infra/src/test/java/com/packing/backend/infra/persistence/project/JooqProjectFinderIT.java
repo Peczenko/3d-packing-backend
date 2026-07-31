@@ -66,7 +66,7 @@ class JooqProjectFinderIT {
 
     private UserId persistUser(String uid, String username) {
         User user = User.register(new FirebaseUid(uid), new Email(username + "@example.com"),
-                new Username(username), username, now());
+                new Username(username), "Display of " + username, now());
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         return user.id();
     }
@@ -187,8 +187,11 @@ class JooqProjectFinderIT {
             assertThat(view.createdBy()).isEqualTo(creator.value());
             assertThat(view.myPermission()).isEqualTo(ProjectPermission.OWNER);
             assertThat(view.members()).hasSize(2);
-            assertThat(view.members()).extracting(m -> m.username())
-                    .containsExactly("creator", "member");
+            assertThat(view.members())
+                    .extracting(m -> m.username(), m -> m.displayName())
+                    .containsExactly(
+                            tuple("creator", "Display of creator"),
+                            tuple("member", "Display of member"));
         });
     }
 
