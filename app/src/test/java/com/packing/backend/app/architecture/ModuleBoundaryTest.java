@@ -57,8 +57,7 @@ class ModuleBoundaryTest {
                                     .startsWith("org.springframework.transaction.annotation")
                                     && !javaClass.getPackageName()
                                     .startsWith("org.springframework.stereotype")))
-            .because("core may use @Transactional and @Service but nothing else from Spring "
-                    + "(documented exception in CLAUDE.md)");
+            .because("core may use @Transactional and @Service but nothing else from Spring");
 
     @ArchTest
     static final ArchRule coreIsPersistenceFree = noClasses()
