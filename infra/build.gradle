@@ -2,8 +2,6 @@ import org.jooq.meta.jaxb.ForcedType
 import org.jooq.meta.jaxb.LambdaConverter
 
 plugins {
-    // NO version on jooq-docker: it is already on the build classpath from the root
-    // `apply false` declaration, and re-declaring a version fails the build.
     id 'dev.monosoul.jooq-docker'
     id 'java-test-fixtures'
 }
@@ -14,13 +12,8 @@ dependencies {
     implementation project(':core')
     implementation project(':domain')
 
-    // Replaces spring-boot-starter-data-jpa. Brings org.jooq:jooq, spring-boot-starter-jdbc
-    // and spring-tx. No Spring Data JPA repositories for new persistence code.
     implementation 'org.springframework.boot:spring-boot-starter-jooq'
-
-    // For @Validated/@NotBlank on the @ConfigurationProperties records owned by this module.
     implementation 'org.springframework.boot:spring-boot-starter-validation'
-
     implementation 'org.springframework:spring-web'
     implementation 'org.apache.httpcomponents.client5:httpclient5'
 
@@ -29,9 +22,6 @@ dependencies {
     implementation 'org.flywaydb:flyway-core'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 
-    // Compile-scoped for ServerErrorMessage.getConstraint(): the constraint name is the only
-    // structured identifier PostgreSQL gives for a violation. Pinned to one package by
-    // ModuleBoundaryTest.postgresDriverStaysInTheConstraintTranslator.
     implementation 'org.postgresql:postgresql'
 
     implementation 'com.azure.spring:spring-cloud-azure-starter-keyvault'
@@ -41,16 +31,9 @@ dependencies {
 
     implementation libs.firebase.admin
 
-    // Code-generation classpath: build-time only, never on the application classpath.
-    // Deliberately not constrained by the Spring Boot BOM (see the root build). jOOQ is
-    // pinned to exactly what the Boot BOM ships for the runtime — the plugin's own
-    // RecommendedVersions is newer and must not win.
     jooqCodegen libs.jooq.codegen
     jooqCodegen libs.postgres.driver
 
-    // Shared Testcontainers setup, consumed by :app via testFixtures(project(':infra')).
-    // spring-boot-test (not the full starter) supplies @TestConfiguration; the fixtures
-    // artifact has no business carrying junit/mockito/assertj.
     testFixturesApi 'org.springframework.boot:spring-boot-test'
     testFixturesApi 'org.springframework.boot:spring-boot-testcontainers'
     testFixturesApi 'org.testcontainers:postgresql'
@@ -66,20 +49,6 @@ dependencies {
     testRuntimeOnly 'org.postgresql:postgresql'
 }
 
-// -----------------------------------------------------------------------------
-// jOOQ code generation — against a real PostgreSQL container.
-//
-// The plugin starts postgres:16-alpine, runs Flyway over src/main/resources/db/migration
-// and reverse engineers the result, so the generated types are PostgreSQL's own. That is
-// why the migrations carry no `-- [jooq ignore …]` comments any more, and why a jsonb
-// column will generate JSONB rather than H2's JSON.
-//
-// The cost is a Docker daemon at build time. `docker build .` therefore no longer compiles
-// the application: the jar is built in CI and COPYed into the image (see Dockerfile).
-//
-// The task is @CacheableTask with declared inputs and outputs, so it is up-to-date and
-// cacheable without help.
-// -----------------------------------------------------------------------------
 
 jooq {
     withContainer {
@@ -92,14 +61,9 @@ jooq {
 tasks.named('generateJooqClasses') {
     basePackageName = 'com.packing.backend.infra.persistence.jooq'
 
-    // Both are required. `schemas` alone renders `public.users` everywhere and nothing
-    // fails — not codegen, not the ITs — it just silently pins the app to a schema named
-    // `public` and defeats search_path.
     schemas = ['public']
     outputSchemaToDefault.add('public')
 
-    // Kotlin extension function on the TASK, not a method on the property. The README's
-    // `migrationLocations.setFromFilesystem(...)` does not compile under Groovy.
     setFromFilesystem(migrationLocations, 'src/main/resources/db/migration')
 
     outputDirectory = layout.buildDirectory.dir('generated-src/jooq')
@@ -147,10 +111,6 @@ tasks.named('generateJooqClasses') {
                                 .withFrom('com.packing.backend.domain.file.ModelFormat::valueOf')
                                 .withTo('com.packing.backend.domain.file.ModelFormat::name'))
                         .withIncludeExpression('files\\.format'),
-
-                // Columns are enumerated rather than pattern-matched: `.*\.project_id` would
-                // silently claim any future column of that name. This way a new table shows up
-                // as a visible diff here.
                 new ForcedType()
                         .withUserType('com.packing.backend.domain.user.UserId')
                         .withLambdaConverter(new LambdaConverter()
@@ -175,9 +135,6 @@ tasks.named('generateJooqClasses') {
                                 .withFrom('com.packing.backend.domain.file.FileId::new')
                                 .withTo('com.packing.backend.domain.file.FileId::value'))
                         .withIncludeExpression('files\\.id'),
-
-                // The escaped spaces are load-bearing: the default regexFlags include COMMENTS,
-                // which strips unescaped whitespace. Unescaped this matches zero columns.
                 new ForcedType()
                         .withUserType('java.time.Instant')
                         .withLambdaConverter(new LambdaConverter()

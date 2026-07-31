@@ -1,11 +1,6 @@
 plugins {
-    // `base` gives the root project clean/assemble/check so `./gradlew clean` is unambiguous.
     id 'base'
 
-    // Put these on the build classpath ONCE and apply them nowhere here. Consequence:
-    // :app and :infra must apply them with a bare `id '...'` and NO version, otherwise
-    // Gradle fails with "Plugin request for plugin already on the classpath must not
-    // include a version".
     alias(libs.plugins.spring.boot) apply false
     alias(libs.plugins.jooq.docker) apply false
 }
@@ -22,21 +17,11 @@ subprojects {
 
     java {
         toolchain {
-            // Gradle 8.14 cannot run on JDK 25. Gradle runs on JDK 21; the foojay
-            // resolver in settings.gradle provisions JDK 25 for compilation only.
             languageVersion = JavaLanguageVersion.of(25)
         }
     }
 
     dependencies {
-        // Gradle-native BOM import (no io.spring.dependency-management). Constraints are
-        // per-configuration, so the platforms must be added to every declarable
-        // configuration that resolves — including the annotation processor paths, or
-        // version-less Lombok fails to resolve.
-        //
-        // `jooqCodegen` is deliberately absent: the codegen classpath carries the jOOQ
-        // and Flyway versions the generator plugin runs with, and Boot's Flyway is not
-        // the one it was built against.
         ['api', 'implementation', 'compileOnly', 'annotationProcessor', 'runtimeOnly',
          'testImplementation', 'testCompileOnly', 'testAnnotationProcessor', 'testRuntimeOnly'
         ].each { conf ->
@@ -44,8 +29,6 @@ subprojects {
             add(conf, platform(libs.spring.cloud.azure.bom))
         }
 
-        // Lombok annotations are SOURCE-retention, so nothing survives into the bytecode.
-        // This does not violate ":domain depends on no third-party library".
         compileOnly 'org.projectlombok:lombok'
         annotationProcessor 'org.projectlombok:lombok'
         testCompileOnly 'org.projectlombok:lombok'
@@ -54,8 +37,6 @@ subprojects {
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
 
-    // The testFixtures configurations are created later by the java-test-fixtures plugin,
-    // so they are not covered by the list above.
     plugins.withId('java-test-fixtures') {
         dependencies {
             testFixturesApi platform(libs.spring.boot.bom)
@@ -68,10 +49,6 @@ subprojects {
 
     tasks.withType(JavaCompile).configureEach {
         options.encoding = 'UTF-8'
-        // Load-bearing. The Spring Boot Gradle plugin adds -parameters for free, but it
-        // is now applied only to :app. Without this, :api compiles without parameter
-        // names and every implicitly-named @RequestParam/@PathVariable fails at runtime
-        // with "Name for argument of type [...] not specified".
         options.compilerArgs << '-parameters'
     }
 

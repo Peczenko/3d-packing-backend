@@ -6,8 +6,6 @@ create table users (
     display_name  varchar(128),
     role          varchar(32)  not null,
     status        varchar(32)  not null,
-    -- Optimistic lock. Aggregate writes carry the version they read and bump it, so a
-    -- write based on a stale read fails rather than clobbering a concurrent change.
     version       bigint       not null,
     created_at    timestamp with time zone not null,
     updated_at    timestamp with time zone not null,
