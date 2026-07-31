@@ -10,6 +10,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 import org.jooq.DSLContext;
 
+import java.util.List;
+
 import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
 
 @Repository
@@ -21,9 +23,8 @@ public class JooqFileFinder implements FileFinder {
     @Override
     public Page<FileView> listAvailableInProject(ProjectId projectId, PageRequest page) {
         return Paging.fetch(dsl,
-                dsl.selectFrom(FILES)
-                        .where(FileQueries.availableIn(projectId))
-                        .orderBy(FILES.CREATED_AT.desc(), FILES.ID.desc()),
+                dsl.selectFrom(FILES).where(FileQueries.availableIn(projectId)),
+                List.of(FILES.CREATED_AT.desc(), FILES.ID.desc()),
                 page,
                 record -> FileView.from(FileRecordMapper.toDomain(record)));
     }
