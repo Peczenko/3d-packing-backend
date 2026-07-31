@@ -41,7 +41,5 @@ thesis.txt
 .env
 *.log
 
-/.claude
-
 # Local-only overrides; secrets live in .env
 app/src/main/resources/application-local.properties
