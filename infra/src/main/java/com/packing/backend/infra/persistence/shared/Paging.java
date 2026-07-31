@@ -15,11 +15,6 @@ public final class Paging {
     private Paging() {
     }
 
-    // Takes the query BEFORE it is ordered, and the sort separately. Two reasons, both
-    // measured: jOOQ's builder mutates in place, so an already-paged query handed here would
-    // be counted through its own LIMIT; and fetchCount re-emits the ORDER BY inside its derived
-    // table, which costs a backward index scan and the parallel plan. orderBy() returns a type
-    // that is not a SelectOrderByStep, so neither mistake compiles.
     public static <R extends Record, T> Page<T> fetch(DSLContext dsl,
                                                       SelectOrderByStep<R> query,
                                                       List<? extends OrderField<?>> orderBy,
