@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public record FileResponse(
         UUID id,
+        UUID projectId,
         String filename,
         String format,
         String contentType,
@@ -18,6 +19,7 @@ public record FileResponse(
     public static FileResponse from(FileView view) {
         return new FileResponse(
                 view.id(),
+                view.projectId(),
                 view.filename(),
                 view.format().name(),
                 view.contentType(),

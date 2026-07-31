@@ -62,6 +62,9 @@ services:
       AZURITE_HOST: azurite
       AZURITE_BLOB_PORT: 10000
       STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      ALERT_RECIPIENTS: ${ALERT_RECIPIENTS:-}
     ports:
       - "${APP_PORT:-8080}:8080"
 

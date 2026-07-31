@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en"
+      th:replace="~{layout :: page(~{::#content})}">
+<body>
+<div id="content">
+    <h1><span th:text="${status}">500</span> <span th:text="${handler}">/api/v1/files/{fileId}</span></h1>
+    <p class="subheading" th:text="${request}">POST /api/v1/files/8c1f</p>
+
+    <table class="fields">
+        <tr th:each="field : ${fields}">
+            <td class="label" th:text="${field.key}">Trace id</td>
+            <td class="value" th:text="${field.value}">7f3a9c21</td>
+        </tr>
+    </table>
+
+    <h2>Stack trace</h2>
+    <pre th:text="${stackTrace}">java.lang.IllegalStateException: boom</pre>
+</div>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en" th:fragment="page(content)">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            margin: 0;
+            padding: 24px 12px;
+            background: #f4f4f5;
+            font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            color: #18181b;
+        }
+
+        .card {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 24px;
+            background: #ffffff;
+            border: 1px solid #e4e4e7;
+            border-radius: 8px;
+        }
+
+        h1 {
+            margin: 0 0 4px;
+            font-size: 18px;
+        }
+
+        .subheading {
+            margin: 0 0 20px;
+            color: #71717a;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 13px;
+            word-break: break-all;
+        }
+
+        h2 {
+            margin: 24px 0 8px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            color: #71717a;
+        }
+
+        table.fields {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid #e4e4e7;
+        }
+
+        table.fields td {
+            padding: 7px 12px;
+            vertical-align: top;
+            border-bottom: 1px solid #f4f4f5;
+        }
+
+        table.fields tr:last-child td {
+            border-bottom: 0;
+        }
+
+        table.fields td.label {
+            width: 1%;
+            white-space: nowrap;
+            color: #71717a;
+            background: #fafafa;
+        }
+
+        table.fields td.value {
+            word-break: break-word;
+        }
+
+        pre {
+            margin: 0;
+            padding: 12px;
+            background: #18181b;
+            color: #e4e4e7;
+            border-radius: 6px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .footer {
+            margin: 20px 0 0;
+            color: #a1a1aa;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div th:replace="${content}">The body of the email goes here.</div>
+    <!--/* Every template supplies its own "why you got this" line: the reason differs per
+           email, and an operational alert and a member notification have nothing in common
+           beyond the frame. */-->
+    <p class="footer">Sent by 3D Packing.
+        <span th:text="${footerNote}">Why you are receiving this.</span></p>
+</div>
+</body>
+</html>
