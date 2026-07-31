@@ -40,7 +40,7 @@ public class JooqProjectRepository implements ProjectRepository {
     public Optional<Project> findById(ProjectId id) {
         return dsl.select(PROJECTS.asterisk(), MEMBERS)
                 .from(PROJECTS)
-                .where(PROJECTS.ID.eq(id.value()))
+                .where(PROJECTS.ID.eq(id))
                 .fetchOptional()
                 .map(JooqProjectRepository::toProject);
     }
@@ -51,7 +51,7 @@ public class JooqProjectRepository implements ProjectRepository {
 
     private void replaceMembers(Project project) {
         dsl.deleteFrom(PROJECT_MEMBERS)
-                .where(PROJECT_MEMBERS.PROJECT_ID.eq(project.id().value()))
+                .where(PROJECT_MEMBERS.PROJECT_ID.eq(project.id()))
                 .execute();
 
         List<ProjectMember> members = project.members();

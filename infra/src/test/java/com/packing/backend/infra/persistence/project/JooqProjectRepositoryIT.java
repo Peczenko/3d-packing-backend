@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.packing.backend.infra.persistence.jooq.tables.ProjectMembers.PROJECT_MEMBERS;
 import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECTS;
+import static com.packing.backend.infra.persistence.shared.RawColumns.untyped;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -126,7 +127,7 @@ class JooqProjectRepositoryIT {
                 .extracting(m -> m.userId())
                 .containsExactly(creator);
         assertThat(dsl.fetchCount(dsl.selectFrom(PROJECT_MEMBERS)
-                .where(PROJECT_MEMBERS.PROJECT_ID.eq(project.id().value())))).isEqualTo(1);
+                .where(PROJECT_MEMBERS.PROJECT_ID.eq(project.id())))).isEqualTo(1);
     }
 
     @Test
@@ -247,8 +248,8 @@ class JooqProjectRepositoryIT {
         Project project = persistedProject();
 
         assertThatThrownBy(() -> dsl.update(PROJECTS)
-                .set(PROJECTS.STATUS, "BOGUS")
-                .where(PROJECTS.ID.eq(project.id().value()))
+                .set(untyped(PROJECTS.STATUS), "BOGUS")
+                .where(PROJECTS.ID.eq(project.id()))
                 .execute())
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_projects_status");
@@ -259,8 +260,8 @@ class JooqProjectRepositoryIT {
         Project project = persistedProject();
 
         assertThatThrownBy(() -> dsl.update(PROJECT_MEMBERS)
-                .set(PROJECT_MEMBERS.PERMISSION, "SUPERUSER")
-                .where(PROJECT_MEMBERS.PROJECT_ID.eq(project.id().value()))
+                .set(untyped(PROJECT_MEMBERS.PERMISSION), "SUPERUSER")
+                .where(PROJECT_MEMBERS.PROJECT_ID.eq(project.id()))
                 .execute())
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("ck_project_members_permission");

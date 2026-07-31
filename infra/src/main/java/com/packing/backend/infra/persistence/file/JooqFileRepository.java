@@ -42,7 +42,7 @@ public class JooqFileRepository implements FileRepository {
     @Override
     public Optional<StoredFile> findById(FileId id) {
         return dsl.selectFrom(FILES)
-                .where(FILES.ID.eq(id.value()))
+                .where(FILES.ID.eq(id))
                 .fetchOptional()
                 .map(FileRecordMapper::toDomain);
     }

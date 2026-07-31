@@ -81,8 +81,8 @@ class AggregateWriterIT {
         Instant originalCreatedAt = repository().findById(user.id()).orElseThrow().createdAt();
 
         dsl.update(USERS)
-                .set(USERS.CREATED_AT, Timestamps.toOffsetDateTime(now().plusSeconds(3_600)))
-                .where(USERS.ID.eq(user.id().value()))
+                .set(USERS.CREATED_AT, now().plusSeconds(3_600))
+                .where(USERS.ID.eq(user.id()))
                 .execute();
         Instant tampered = repository().findById(user.id()).orElseThrow().createdAt();
 

@@ -2,10 +2,7 @@ package com.packing.backend.infra.persistence.project;
 
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.domain.project.ProjectId;
-import com.packing.backend.domain.project.ProjectPermission;
-import com.packing.backend.domain.project.ProjectStatus;
 import com.packing.backend.domain.user.FirebaseUid;
-import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.UserStatus;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -31,14 +28,14 @@ public class JooqProjectAccessLookup implements ProjectAccessLookup {
                 .join(USERS).on(USERS.ID.eq(PROJECT_MEMBERS.USER_ID))
                 .join(PROJECTS).on(PROJECTS.ID.eq(PROJECT_MEMBERS.PROJECT_ID))
                 .where(USERS.FIREBASE_UID.eq(firebaseUid.value())
-                        .and(USERS.STATUS.eq(UserStatus.ACTIVE.name()))
-                        .and(PROJECT_MEMBERS.PROJECT_ID.eq(projectId.value()))
+                        .and(USERS.STATUS.eq(UserStatus.ACTIVE))
+                        .and(PROJECT_MEMBERS.PROJECT_ID.eq(projectId))
                         .and(ProjectQueries.notDeleted()))
                 .fetchOptional()
                 .map(record -> new ProjectAccess(
-                        new UserId(record.get(USERS.ID)),
+                        record.get(USERS.ID),
                         projectId,
-                        ProjectStatus.valueOf(record.get(PROJECTS.STATUS)),
-                        ProjectPermission.valueOf(record.get(PROJECT_MEMBERS.PERMISSION))));
+                        record.get(PROJECTS.STATUS),
+                        record.get(PROJECT_MEMBERS.PERMISSION)));
     }
 }
