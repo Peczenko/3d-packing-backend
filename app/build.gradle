@@ -19,9 +19,6 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
-    // Settings only, for the DefaultConfigurationCustomizer bean. Runtime jOOQ and every
-    // generated class stay in :infra, which ModuleBoundaryTest.generatedJooqCodeStaysInInfra
-    // enforces; the bare artifact rather than the starter keeps DSLContext off this classpath.
     implementation 'org.jooq:jooq'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
