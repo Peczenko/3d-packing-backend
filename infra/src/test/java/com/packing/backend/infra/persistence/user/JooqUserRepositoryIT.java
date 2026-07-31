@@ -22,6 +22,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
+import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
+import static com.packing.backend.infra.persistence.shared.RawColumns.untyped;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -128,6 +130,20 @@ class JooqUserRepositoryIT {
 
         assertThatThrownBy(() -> repository().save(clashing))
                 .isInstanceOf(UsernameAlreadyTakenException.class);
+    }
+
+    @Test
+    void aRoleTheDomainDoesNotKnowFailsLoudlyInsteadOfReadingAsNull() {
+        User user = newUser("uid-rogue", "rogue@example.com", "rogue");
+        repository().save(user);
+
+        dsl.update(USERS).set(untyped(USERS.ROLE), "SUPERUSER")
+                .where(USERS.ID.eq(user.id())).execute();
+
+        assertThatThrownBy(() -> repository().findById(user.id()))
+                .rootCause()
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("SUPERUSER");
     }
 
     @Test

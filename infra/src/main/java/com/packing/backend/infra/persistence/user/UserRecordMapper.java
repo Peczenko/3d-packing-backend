@@ -3,13 +3,9 @@ package com.packing.backend.infra.persistence.user;
 import com.packing.backend.domain.user.Email;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.User;
-import com.packing.backend.domain.user.UserId;
-import com.packing.backend.domain.user.UserRole;
-import com.packing.backend.domain.user.UserStatus;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.persistence.jooq.tables.records.UsersRecord;
 import com.packing.backend.infra.persistence.shared.AggregateTable;
-import com.packing.backend.infra.persistence.shared.Timestamps;
 import org.jooq.Field;
 
 import java.util.Set;
@@ -26,32 +22,32 @@ final class UserRecordMapper {
 
     static User toDomain(UsersRecord record) {
         return User.rehydrate(
-                new UserId(record.getId()),
+                record.getId(),
                 new FirebaseUid(record.getFirebaseUid()),
                 new Email(record.getEmail()),
                 new Username(record.getUsername()),
                 record.getDisplayName(),
-                UserRole.valueOf(record.getRole()),
-                UserStatus.valueOf(record.getStatus()),
+                record.getRole(),
+                record.getStatus(),
                 record.getVersion(),
-                Timestamps.toInstant(record.getCreatedAt()),
-                Timestamps.toInstant(record.getUpdatedAt()),
-                Timestamps.toInstant(record.getLastLoginAt()));
+                record.getCreatedAt(),
+                record.getUpdatedAt(),
+                record.getLastLoginAt());
     }
 
     static UsersRecord toRecord(User user) {
         UsersRecord record = new UsersRecord();
-        record.setId(user.id().value());
+        record.setId(user.id());
         record.setFirebaseUid(user.firebaseUid().value());
         record.setEmail(user.email().value());
         record.setUsername(user.username().value());
         record.setDisplayName(user.displayName());
-        record.setRole(user.role().name());
-        record.setStatus(user.status().name());
+        record.setRole(user.role());
+        record.setStatus(user.status());
         record.setVersion(user.version());
-        record.setCreatedAt(Timestamps.toOffsetDateTime(user.createdAt()));
-        record.setUpdatedAt(Timestamps.toOffsetDateTime(user.updatedAt()));
-        record.setLastLoginAt(Timestamps.toOffsetDateTime(user.lastLoginAt()));
+        record.setCreatedAt(user.createdAt());
+        record.setUpdatedAt(user.updatedAt());
+        record.setLastLoginAt(user.lastLoginAt());
         return record;
     }
 }

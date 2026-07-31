@@ -1,7 +1,6 @@
 create table files (
     id                uuid         not null,
     owner_user_id     uuid         not null,
-    -- Reserved for the project aggregate, which does not exist yet.
     project_id        uuid,
     original_filename varchar(255) not null,
     storage_key       varchar(512) not null,

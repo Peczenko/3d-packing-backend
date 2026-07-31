@@ -71,18 +71,14 @@ class AggregateWriterIT {
                 .hasMessageContaining("User");
     }
 
-    /**
-     * The immutable set is the whole point of AggregateTable: the update branch must not
-     * carry these columns even when the in-memory aggregate disagrees with the stored row.
-     */
     @Test
     void immutableColumnsAreNotOverwrittenOnTheConflictBranch() {
         User user = persistedUser();
         Instant originalCreatedAt = repository().findById(user.id()).orElseThrow().createdAt();
 
         dsl.update(USERS)
-                .set(USERS.CREATED_AT, Timestamps.toOffsetDateTime(now().plusSeconds(3_600)))
-                .where(USERS.ID.eq(user.id().value()))
+                .set(USERS.CREATED_AT, now().plusSeconds(3_600))
+                .where(USERS.ID.eq(user.id()))
                 .execute();
         Instant tampered = repository().findById(user.id()).orElseThrow().createdAt();
 

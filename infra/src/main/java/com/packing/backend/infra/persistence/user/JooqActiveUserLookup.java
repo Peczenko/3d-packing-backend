@@ -24,8 +24,7 @@ public class JooqActiveUserLookup implements ActiveUserLookup {
         return dsl.select(USERS.ID)
                 .from(USERS)
                 .where(USERS.FIREBASE_UID.eq(firebaseUid.value())
-                        .and(USERS.STATUS.eq(UserStatus.ACTIVE.name())))
-                .fetchOptional(USERS.ID)
-                .map(UserId::new);
+                        .and(USERS.STATUS.eq(UserStatus.ACTIVE)))
+                .fetchOptional(USERS.ID);
     }
 }
