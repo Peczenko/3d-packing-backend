@@ -7,7 +7,7 @@ plugins {
     // Gradle fails with "Plugin request for plugin already on the classpath must not
     // include a version".
     alias(libs.plugins.spring.boot) apply false
-    alias(libs.plugins.jooq.codegen) apply false
+    alias(libs.plugins.jooq.docker) apply false
 }
 
 group = 'com.packing'
@@ -34,8 +34,9 @@ subprojects {
         // configuration that resolves — including the annotation processor paths, or
         // version-less Lombok fails to resolve.
         //
-        // `jooqCodegen` is deliberately absent: jooq-meta-extensions brings its own H2
-        // and forcing Boot's H2 version onto that classpath is an untested combination.
+        // `jooqCodegen` is deliberately absent: the codegen classpath carries the jOOQ
+        // and Flyway versions the generator plugin runs with, and Boot's Flyway is not
+        // the one it was built against.
         ['api', 'implementation', 'compileOnly', 'annotationProcessor', 'runtimeOnly',
          'testImplementation', 'testCompileOnly', 'testAnnotationProcessor', 'testRuntimeOnly'
         ].each { conf ->

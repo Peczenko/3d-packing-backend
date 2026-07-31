@@ -1,7 +1,10 @@
+import org.jooq.meta.jaxb.ForcedType
+import org.jooq.meta.jaxb.LambdaConverter
+
 plugins {
-    // NO version on jooq-codegen-gradle: it is already on the build classpath from the
-    // root `apply false` declaration, and re-declaring a version fails the build.
-    id 'org.jooq.jooq-codegen-gradle'
+    // NO version on jooq-docker: it is already on the build classpath from the root
+    // `apply false` declaration, and re-declaring a version fails the build.
+    id 'dev.monosoul.jooq-docker'
     id 'java-test-fixtures'
 }
 
@@ -39,10 +42,11 @@ dependencies {
     implementation libs.firebase.admin
 
     // Code-generation classpath: build-time only, never on the application classpath.
-    // Deliberately not constrained by the Spring Boot BOM (see the root build) —
-    // jooq-meta-extensions brings the H2 build it was tested against, and DDLDatabase
-    // depends on H2 directly.
-    jooqCodegen libs.jooq.meta.extensions
+    // Deliberately not constrained by the Spring Boot BOM (see the root build). jOOQ is
+    // pinned to exactly what the Boot BOM ships for the runtime — the plugin's own
+    // RecommendedVersions is newer and must not win.
+    jooqCodegen libs.jooq.codegen
+    jooqCodegen libs.postgres.driver
 
     // Shared Testcontainers setup, consumed by :app via testFixtures(project(':infra')).
     // spring-boot-test (not the full starter) supplies @TestConfiguration; the fixtures
@@ -63,210 +67,123 @@ dependencies {
 }
 
 // -----------------------------------------------------------------------------
-// jOOQ code generation — fully offline.
+// jOOQ code generation — against a real PostgreSQL container.
 //
-// DDLDatabase parses the Flyway migration scripts with jOOQ's parser, TRANSLATES THEM
-// TO THE H2 DIALECT, replays them onto a throwaway in-memory H2 database and reverse
-// engineers the result. No PostgreSQL, no Docker daemon — which is what keeps both
-// `./gradlew build` and the Dockerfile build stage hermetic.
+// The plugin starts postgres:16-alpine, runs Flyway over src/main/resources/db/migration
+// and reverse engineers the result, so the generated types are PostgreSQL's own. That is
+// why the migrations carry no `-- [jooq ignore …]` comments any more, and why a jsonb
+// column will generate JSONB rather than H2's JSON.
 //
-// The consequence is that generated types reflect H2's interpretation of the DDL, not
-// PostgreSQL's. The Testcontainers integration test in src/test is the compensating
-// control: it is the only thing that proves the H2 simulation did not lie.
+// The cost is a Docker daemon at build time. `docker build .` therefore no longer compiles
+// the application: the jar is built in CI and COPYed into the image (see Dockerfile).
 //
-// PostgreSQL-only DDL that jOOQ's parser or H2 cannot handle (CREATE EXTENSION, GIN and
-// GiST indexes, plpgsql functions, triggers, materialized views, RLS, partitioning) must
-// be wrapped in `-- [jooq ignore start]` / `-- [jooq ignore stop]` comments: Flyway still
-// executes them, the generator skips them. Never hide CREATE TABLE or ADD COLUMN that
-// way — the generated code would not know about them.
-//
-// The task runs IN-PROCESS in the Gradle daemon (this plugin does not fork), so codegen
-// executes on the Gradle JVM = JDK 21, not on the JDK 25 toolchain. jOOQ 3.19 is fine
-// with that. If it ever OOMs, raise org.gradle.jvmargs — there is no fork setting.
+// The task is @CacheableTask with declared inputs and outputs, so it is up-to-date and
+// cacheable without help.
 // -----------------------------------------------------------------------------
 
-// Captured as local variables on purpose: the plugin sets Closure.DELEGATE_FIRST on its
-// DSL closures, so bare property lookups inside them resolve against the JAXB delegate
-// first. Locals are captured lexically and are always safe.
-// Both paths are relative to `basedir`, which defaults to this subproject's directory.
-def jooqMigrationScripts = 'src/main/resources/db/migration/*.sql'
-def jooqTargetDirectory = 'build/generated-src/jooq'
-
 jooq {
-    configuration {
-        generator {
-            name = 'org.jooq.codegen.JavaGenerator'
-
-            database {
-                name = 'org.jooq.meta.extensions.ddl.DDLDatabase'
-
-                // No inputSchema on purpose: with unqualifiedSchema=none, H2's PUBLIC
-                // becomes the default (unnamed) schema, so generated code renders table
-                // names UNQUALIFIED and resolves them through the PostgreSQL search_path
-                // at runtime.
-                properties {
-                    property {
-                        key = 'scripts'
-                        value = jooqMigrationScripts
-                    }
-                    property {
-                        // Flyway version ordering (V1, V2, ... V10), not plain alphanumeric.
-                        key = 'sort'
-                        value = 'flyway'
-                    }
-                    property {
-                        // MANDATORY. H2 folds unquoted identifiers to UPPER, PostgreSQL
-                        // folds to lower. Without this, every generated name renders
-                        // quoted and upper case and fails at runtime with
-                        //   relation "USERS" does not exist
-                        key = 'defaultNameCase'
-                        value = 'lower'
-                    }
-                    property {
-                        key = 'unqualifiedSchema'
-                        value = 'none'
-                    }
-                }
-
-                forcedTypes {
-                    forcedType {
-                        userType = 'com.packing.backend.domain.user.UserRole'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.user.UserRole::valueOf'
-                            to = 'com.packing.backend.domain.user.UserRole::name'
-                        }
-                        includeExpression = 'users\\.role'
-                    }
-                    forcedType {
-                        userType = 'com.packing.backend.domain.user.UserStatus'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.user.UserStatus::valueOf'
-                            to = 'com.packing.backend.domain.user.UserStatus::name'
-                        }
-                        includeExpression = 'users\\.status'
-                    }
-                    forcedType {
-                        userType = 'com.packing.backend.domain.project.ProjectStatus'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.project.ProjectStatus::valueOf'
-                            to = 'com.packing.backend.domain.project.ProjectStatus::name'
-                        }
-                        includeExpression = 'projects\\.status'
-                    }
-                    forcedType {
-                        userType = 'com.packing.backend.domain.project.ProjectPermission'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.project.ProjectPermission::valueOf'
-                            to = 'com.packing.backend.domain.project.ProjectPermission::name'
-                        }
-                        includeExpression = 'project_members\\.permission'
-                    }
-                    forcedType {
-                        userType = 'com.packing.backend.domain.file.FileStatus'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.file.FileStatus::valueOf'
-                            to = 'com.packing.backend.domain.file.FileStatus::name'
-                        }
-                        includeExpression = 'files\\.status'
-                    }
-                    forcedType {
-                        userType = 'com.packing.backend.domain.file.ModelFormat'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.file.ModelFormat::valueOf'
-                            to = 'com.packing.backend.domain.file.ModelFormat::name'
-                        }
-                        includeExpression = 'files\\.format'
-                    }
-
-                    // Columns are enumerated rather than pattern-matched: `.*\.project_id` would
-                    // silently claim any future column of that name. This way a new table shows up
-                    // as a visible diff here.
-                    forcedType {
-                        userType = 'com.packing.backend.domain.user.UserId'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.user.UserId::new'
-                            to = 'com.packing.backend.domain.user.UserId::value'
-                        }
-                        includeExpression = 'users\\.id' +
-                                '|project_members\\.user_id' +
-                                '|project_members\\.added_by' +
-                                '|projects\\.created_by' +
-                                '|files\\.owner_user_id'
-                    }
-                    forcedType {
-                        userType = 'com.packing.backend.domain.project.ProjectId'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.project.ProjectId::new'
-                            to = 'com.packing.backend.domain.project.ProjectId::value'
-                        }
-                        includeExpression = 'projects\\.id' +
-                                '|project_members\\.project_id' +
-                                '|files\\.project_id'
-                    }
-                    forcedType {
-                        userType = 'com.packing.backend.domain.file.FileId'
-                        lambdaConverter {
-                            from = 'com.packing.backend.domain.file.FileId::new'
-                            to = 'com.packing.backend.domain.file.FileId::value'
-                        }
-                        includeExpression = 'files\\.id'
-                    }
-
-                    // The escaped spaces are load-bearing: the default regexFlags include COMMENTS,
-                    // which strips unescaped whitespace. Unescaped this matches zero columns.
-                    forcedType {
-                        userType = 'java.time.Instant'
-                        lambdaConverter {
-                            from = 'java.time.OffsetDateTime::toInstant'
-                            to = 'i -> i.atOffset(java.time.ZoneOffset.UTC)'
-                        }
-                        includeTypes = 'TIMESTAMP\\ WITH\\ TIME\\ ZONE'
-                    }
-                }
-            }
-
-            generate {
-                javaTimeTypes = true
-                // Domain records live in :domain and adapters are hand-written, so the
-                // generator only needs the table/record metadata.
-                pojos = false
-                daos = false
-                fluentSetters = false
-            }
-
-            target {
-                packageName = 'com.packing.backend.infra.persistence.jooq'
-                // Must be set: the plugin default is build/generated-sources/jooq.
-                directory = jooqTargetDirectory
-                encoding = 'UTF-8'
-                // Wipe stale classes when a table is dropped from the schema.
-                clean = true
-            }
+    withContainer {
+        image {
+            name = 'postgres:16-alpine'
         }
     }
 }
 
-// The plugin registers its output directory on sourceSets.main.java, but it does NOT
-// wire task ordering, and the DirectoryProperty it hands over carries no task provenance
-// so Gradle cannot infer the dependency either. Without this, a clean build can run
-// compileJava before jooqCodegen and fail with "package ... does not exist".
-tasks.named('compileJava') {
-    dependsOn tasks.named('jooqCodegen')
-}
+tasks.named('generateJooqClasses') {
+    basePackageName = 'com.packing.backend.infra.persistence.jooq'
 
-// Belt and braces for IDE sync. srcDirs is a Set, so declaring the same directory twice
-// is a no-op.
-sourceSets.main.java.srcDir(layout.buildDirectory.dir('generated-src/jooq'))
+    // Both are required. `schemas` alone renders `public.users` everywhere and nothing
+    // fails — not codegen, not the ITs — it just silently pins the app to a schema named
+    // `public` and defeats search_path.
+    schemas = ['public']
+    outputSchemaToDefault.add('public')
 
-// CodegenTask is already @CacheableTask with declared outputs, but it gates up-to-date checks
-// on the presence of an explicit non-jar input. Declaring the scripts is the documented opt-in.
-// Derived from jooqMigrationScripts so the tracked set cannot drift from the generator's own
-// `scripts` property — under-declaring here means "UP-TO-DATE while stale", worse than today.
-// normalizeLineEndings: V2 is checked out CRLF on Windows and LF in the index, which changes
-// the fingerprint but not the generated output.
-tasks.named('jooqCodegen') {
-    inputs.files(fileTree(dir: '.', include: jooqMigrationScripts))
-          .withPathSensitivity(PathSensitivity.RELATIVE)
-          .withPropertyName('migrations')
-          .normalizeLineEndings()
+    // Kotlin extension function on the TASK, not a method on the property. The README's
+    // `migrationLocations.setFromFilesystem(...)` does not compile under Groovy.
+    setFromFilesystem(migrationLocations, 'src/main/resources/db/migration')
+
+    outputDirectory = layout.buildDirectory.dir('generated-src/jooq')
+
+    usingJavaConfig {
+        generate.withJavaTimeTypes(true)
+                .withPojos(false)
+                .withDaos(false)
+                .withFluentSetters(false)
+
+        database.withForcedTypes(
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.user.UserRole')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.user.UserRole::valueOf')
+                                .withTo('com.packing.backend.domain.user.UserRole::name'))
+                        .withIncludeExpression('users\\.role'),
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.user.UserStatus')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.user.UserStatus::valueOf')
+                                .withTo('com.packing.backend.domain.user.UserStatus::name'))
+                        .withIncludeExpression('users\\.status'),
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.project.ProjectStatus')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.project.ProjectStatus::valueOf')
+                                .withTo('com.packing.backend.domain.project.ProjectStatus::name'))
+                        .withIncludeExpression('projects\\.status'),
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.project.ProjectPermission')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.project.ProjectPermission::valueOf')
+                                .withTo('com.packing.backend.domain.project.ProjectPermission::name'))
+                        .withIncludeExpression('project_members\\.permission'),
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.file.FileStatus')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.file.FileStatus::valueOf')
+                                .withTo('com.packing.backend.domain.file.FileStatus::name'))
+                        .withIncludeExpression('files\\.status'),
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.file.ModelFormat')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.file.ModelFormat::valueOf')
+                                .withTo('com.packing.backend.domain.file.ModelFormat::name'))
+                        .withIncludeExpression('files\\.format'),
+
+                // Columns are enumerated rather than pattern-matched: `.*\.project_id` would
+                // silently claim any future column of that name. This way a new table shows up
+                // as a visible diff here.
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.user.UserId')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.user.UserId::new')
+                                .withTo('com.packing.backend.domain.user.UserId::value'))
+                        .withIncludeExpression('users\\.id' +
+                                '|project_members\\.user_id' +
+                                '|project_members\\.added_by' +
+                                '|projects\\.created_by' +
+                                '|files\\.owner_user_id'),
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.project.ProjectId')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.project.ProjectId::new')
+                                .withTo('com.packing.backend.domain.project.ProjectId::value'))
+                        .withIncludeExpression('projects\\.id' +
+                                '|project_members\\.project_id' +
+                                '|files\\.project_id'),
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.file.FileId')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.file.FileId::new')
+                                .withTo('com.packing.backend.domain.file.FileId::value'))
+                        .withIncludeExpression('files\\.id'),
+
+                // The escaped spaces are load-bearing: the default regexFlags include COMMENTS,
+                // which strips unescaped whitespace. Unescaped this matches zero columns.
+                new ForcedType()
+                        .withUserType('java.time.Instant')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('java.time.OffsetDateTime::toInstant')
+                                .withTo('i -> i.atOffset(java.time.ZoneOffset.UTC)'))
+                        .withIncludeTypes('TIMESTAMP\\ WITH\\ TIME\\ ZONE')
+        )
+    }
 }
