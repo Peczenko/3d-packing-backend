@@ -25,7 +25,11 @@ dependencies {
 
     implementation 'org.flywaydb:flyway-core'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
-    runtimeOnly 'org.postgresql:postgresql'
+
+    // Compile-scoped for ServerErrorMessage.getConstraint(): the constraint name is the only
+    // structured identifier PostgreSQL gives for a violation. Pinned to one package by
+    // ModuleBoundaryTest.postgresDriverStaysInTheConstraintTranslator.
+    implementation 'org.postgresql:postgresql'
 
     implementation 'com.azure.spring:spring-cloud-azure-starter-keyvault'
     implementation 'com.azure.spring:spring-cloud-azure-starter-storage'

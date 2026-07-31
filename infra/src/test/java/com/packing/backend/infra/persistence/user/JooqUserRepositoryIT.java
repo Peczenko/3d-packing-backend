@@ -122,6 +122,15 @@ class JooqUserRepositoryIT {
     }
 
     @Test
+    void aUsernameThatLooksLikeAConstraintNameDoesNotMisclassifyTheConflict() {
+        repository().save(newUser("uid-squatter", "squatter@example.com", "uq_users_email"));
+        User clashing = newUser("uid-victim", "victim@example.com", "uq_users_email");
+
+        assertThatThrownBy(() -> repository().save(clashing))
+                .isInstanceOf(UsernameAlreadyTakenException.class);
+    }
+
+    @Test
     void lookingUpAnAbsentUserReturnsEmpty() {
         assertThat(repository().findById(UserId.generate())).isEmpty();
         assertThat(repository().findByFirebaseUid(new FirebaseUid("nobody"))).isEmpty();
