@@ -82,6 +82,12 @@ class ModuleBoundaryTest {
             .because("generated jOOQ records must never leak out of infra");
 
     @ArchTest
+    static final ArchRule postgresDriverStaysInTheConstraintTranslator = noClasses()
+            .that().resideOutsideOfPackage("com.packing.backend.infra.persistence.shared")
+            .should().dependOnClassesThat().resideInAPackage("org.postgresql..")
+            .because("only the constraint translator may know which driver is underneath");
+
+    @ArchTest
     static final ArchRule apiDoesNotDependOnInfra = noClasses()
             .that().resideInAPackage(API)
             .should().dependOnClassesThat().resideInAPackage(INFRA)
