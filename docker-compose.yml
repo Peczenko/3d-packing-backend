@@ -99,9 +99,6 @@ services:
         condition: service_healthy
       azurite:
         condition: service_healthy
-      servicebus:
-        condition: service_healthy
-        required: false
     environment:
       SPRING_PROFILES_ACTIVE: local
       DB_HOST: postgres

@@ -83,15 +83,20 @@ Write-Host "Configured packing messaging in $EnvFile" -ForegroundColor Green
 if (-not $ConfigureOnly) {
     Push-Location $repositoryRoot
     try {
+        & docker compose --profile messaging up -d --build --wait servicebus-sql servicebus
+        if ($LASTEXITCODE -ne 0) {
+            throw "Service Bus startup failed with exit code $LASTEXITCODE."
+        }
+
         $wrapperName = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { 'gradlew.bat' } else { 'gradlew' }
         & (Join-Path $repositoryRoot $wrapperName) :app:bootJar
         if ($LASTEXITCODE -ne 0) {
             throw "Gradle bootJar failed with exit code $LASTEXITCODE."
         }
 
-        & docker compose --profile messaging --profile app up -d --build
+        & docker compose --profile app up -d --build app
         if ($LASTEXITCODE -ne 0) {
-            throw "Docker Compose failed with exit code $LASTEXITCODE."
+            throw "Application startup failed with exit code $LASTEXITCODE."
         }
     }
     finally {
