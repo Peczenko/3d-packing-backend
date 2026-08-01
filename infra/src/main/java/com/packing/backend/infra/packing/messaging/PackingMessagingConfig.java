@@ -20,6 +20,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.util.StringUtils;
 
 import java.time.Clock;
+import java.time.Duration;
 
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
@@ -53,11 +54,18 @@ public class PackingMessagingConfig {
     @Bean
     ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder packingResultProcessorBuilder(
             PackingMessagingProperties properties) {
-        return clientBuilder(properties).sessionProcessor()
+        return configureResultProcessor(clientBuilder(properties).sessionProcessor(), properties);
+    }
+
+    static ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder configureResultProcessor(
+            ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder builder,
+            PackingMessagingProperties properties) {
+        return builder
                 .queueName(properties.resultQueue())
                 .receiveMode(ServiceBusReceiveMode.PEEK_LOCK)
                 .disableAutoComplete()
                 .maxConcurrentSessions(properties.resultConcurrentSessions())
+                .maxAutoLockRenewDuration(Duration.ofMinutes(5))
                 .maxConcurrentCalls(1);
     }
 

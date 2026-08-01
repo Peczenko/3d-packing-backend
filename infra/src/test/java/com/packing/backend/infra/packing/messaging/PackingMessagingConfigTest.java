@@ -1,7 +1,9 @@
 package com.packing.backend.infra.packing.messaging;
 
+import com.azure.messaging.servicebus.ServiceBusClientBuilder;
 import com.azure.messaging.servicebus.ServiceBusReceiverClient;
 import com.azure.messaging.servicebus.ServiceBusSenderClient;
+import com.azure.messaging.servicebus.models.ServiceBusReceiveMode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packing.backend.core.packing.PackingJobDispatchService;
 import com.packing.backend.core.packing.port.out.PackingDispatchSender;
@@ -25,8 +27,33 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.when;
 
 class PackingMessagingConfigTest {
+
+    @Test
+    void configuresManualPeekLockSettlementAndFiveMinuteRenewalForResultSessions() {
+        ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder builder = mock(
+                ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder.class);
+        PackingMessagingProperties properties = properties(true, connectionString(), Duration.ofSeconds(30));
+        when(builder.queueName(properties.resultQueue())).thenReturn(builder);
+        when(builder.receiveMode(ServiceBusReceiveMode.PEEK_LOCK)).thenReturn(builder);
+        when(builder.disableAutoComplete()).thenReturn(builder);
+        when(builder.maxConcurrentSessions(properties.resultConcurrentSessions())).thenReturn(builder);
+        when(builder.maxAutoLockRenewDuration(Duration.ofMinutes(5))).thenReturn(builder);
+        when(builder.maxConcurrentCalls(1)).thenReturn(builder);
+
+        PackingMessagingConfig.configureResultProcessor(builder, properties);
+
+        org.mockito.InOrder order = inOrder(builder);
+        order.verify(builder).queueName("packing-results");
+        order.verify(builder).receiveMode(ServiceBusReceiveMode.PEEK_LOCK);
+        order.verify(builder).disableAutoComplete();
+        order.verify(builder).maxConcurrentSessions(5);
+        order.verify(builder).maxAutoLockRenewDuration(Duration.ofMinutes(5));
+        order.verify(builder).maxConcurrentCalls(1);
+    }
 
     @Test
     void disabledMessagingCreatesNoBrokerClientsSchedulingOrDispatchComponents() {
