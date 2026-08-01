@@ -11,9 +11,11 @@ import com.packing.backend.core.packing.message.PackingRequestEnvelope;
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import org.springframework.stereotype.Component;
 
 import java.util.UUID;
 
+@Component
 public final class PackingContractCodec {
 
     private static final int VERSION_ONE = 1;

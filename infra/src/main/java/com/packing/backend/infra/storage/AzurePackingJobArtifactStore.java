@@ -26,6 +26,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @RequiredArgsConstructor
 public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
@@ -36,11 +37,12 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
     private final BlobContainerClient container;
     private final BlobSasIssuer sasIssuer;
     private final PackingContractCodec codec;
+    private final AtomicBoolean containerEnsured = new AtomicBoolean();
 
     @Override
     public void writeRequestIfAbsent(PackingJobId jobId, PackingRequestEnvelope envelope) {
         byte[] request = codec.encodeRequest(envelope).getBytes(StandardCharsets.UTF_8);
-        BlobClient blob = container.getBlobClient(requestKey(jobId));
+        BlobClient blob = ensureContainer(jobId).getBlobClient(requestKey(jobId));
         try {
             blob.uploadWithResponse(new BlobParallelUploadOptions(new ByteArrayInputStream(request))
                             .setHeaders(new BlobHttpHeaders().setContentType("application/json"))
@@ -60,13 +62,16 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
         try {
             BlobProperties properties = container.getBlobClient(resultKey(jobId)).getProperties();
             Map<String, String> metadata = properties.getMetadata();
+            if (properties.getBlobSize() <= 0) {
+                throw invalidResult(jobId, "a positive size");
+            }
             return Optional.of(new ResultArtifact(
-                    metadata(metadata, "fileName"),
-                    metadata(metadata, "contentType"),
+                    requiredMetadata(metadata, "fileName", jobId),
+                    requiredMetadata(metadata, "contentType", jobId),
                     properties.getBlobSize(),
-                    metadata(metadata, "checksumSha256"),
-                    metadata(metadata, "engineVersion"),
-                    metadata(metadata, "engineChecksumSha256")));
+                    requiredMetadata(metadata, "checksumSha256", jobId),
+                    requiredMetadata(metadata, "engineVersion", jobId),
+                    requiredMetadata(metadata, "engineChecksumSha256", jobId)));
         } catch (BlobStorageException e) {
             if (e.getStatusCode() == 404) {
                 return Optional.empty();
@@ -106,12 +111,37 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
         return exception.getStatusCode() == 409 || exception.getStatusCode() == 412;
     }
 
-    private static String metadata(Map<String, String> metadata, String name) {
-        return metadata.entrySet().stream()
+    private String requiredMetadata(Map<String, String> metadata, String name, PackingJobId jobId) {
+        if (metadata == null) {
+            throw invalidResult(jobId, "required metadata " + name);
+        }
+        String value = metadata.entrySet().stream()
                 .filter(entry -> entry.getKey().equalsIgnoreCase(name))
                 .map(Map.Entry::getValue)
                 .findFirst()
                 .orElse(null);
+        if (value == null || value.isBlank()) {
+            throw invalidResult(jobId, "required metadata " + name);
+        }
+        return value;
+    }
+
+    private ExternalServiceException invalidResult(PackingJobId jobId, String problem) {
+        return new ExternalServiceException(SERVICE,
+                "Result artifact for packing job " + jobId + " is missing " + problem);
+    }
+
+    private BlobContainerClient ensureContainer(PackingJobId jobId) {
+        if (containerEnsured.get()) {
+            return container;
+        }
+        try {
+            container.createIfNotExists();
+            containerEnsured.set(true);
+            return container;
+        } catch (BlobStorageException e) {
+            throw external("create storage container", jobId, e);
+        }
     }
 
     private ExternalServiceException external(String operation, PackingJobId jobId,

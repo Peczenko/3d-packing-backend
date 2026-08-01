@@ -18,6 +18,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.ByteArrayInputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
@@ -46,11 +50,12 @@ class AzurePackingJobArtifactStoreIT {
             };
 
     private BlobContainerClient container;
+    private BlobServiceClient serviceClient;
     private PackingJobArtifactStore artifacts;
 
     @BeforeEach
     void setUp() {
-        BlobServiceClient serviceClient = new BlobServiceClientBuilder()
+        serviceClient = new BlobServiceClientBuilder()
                 .connectionString(AZURITE.getConnectionString())
                 .buildClient();
         container = serviceClient.getBlobContainerClient(CONTAINER);
@@ -70,6 +75,18 @@ class AzurePackingJobArtifactStoreIT {
         byte[] request = container.getBlobClient(requestKey(jobId)).downloadContent().toBytes();
         assertThat(new String(request, StandardCharsets.UTF_8)).isEqualTo(
                 "{\"requestVersion\":1,\"maxRuntimeSeconds\":60,\"spec\":{\"nested\":{\"flag\":true,\"values\":[1,{\"name\":\"opaque\"}]}}}");
+    }
+
+    @Test
+    void createsTheContainerWhenTheFirstRequestIsWritten() {
+        BlobContainerClient freshContainer = serviceClient.getBlobContainerClient(
+                "packing-" + UUID.randomUUID().toString().replace("-", ""));
+        PackingJobArtifactStore freshArtifacts = new AzurePackingJobArtifactStore(freshContainer,
+                new AccountKeyBlobSasIssuer(), new PackingContractCodec(new ObjectMapper()));
+
+        freshArtifacts.writeRequestIfAbsent(jobId(), PackingRequestEnvelope.versionOne(60, "{}"));
+
+        assertThat(freshContainer.exists()).isTrue();
     }
 
     @Test
@@ -101,7 +118,7 @@ class AzurePackingJobArtifactStoreIT {
     }
 
     @Test
-    void readsResultMetadataAndLengthAndSignsTheDeterministicResultKey() {
+    void readsResultMetadataAndLengthAndSignsTheDeterministicResultKey() throws Exception {
         PackingJobId jobId = jobId();
         byte[] output = "packed result".getBytes(StandardCharsets.UTF_8);
         container.getBlobClient(resultKey(jobId)).uploadWithResponse(
@@ -124,6 +141,52 @@ class AzurePackingJobArtifactStoreIT {
         assertThat(url.url().getPath()).endsWith("/" + resultKey(jobId));
         assertThat(url.expiresAt()).isBetween(
                 java.time.Instant.now().plusSeconds(540), java.time.Instant.now().plusSeconds(660));
+        assertThat(fetch(url.url()).statusCode()).isEqualTo(200);
+        assertThat(fetch(url.url()).body()).isEqualTo(output);
+    }
+
+    @Test
+    void rejectsAResultWithMissingRequiredMetadata() {
+        PackingJobId jobId = jobId();
+        uploadResult(jobId, Map.of(
+                "contentType", "application/x-packing-result",
+                "checksumSha256", "a".repeat(64),
+                "engineVersion", "packer 0.3.0",
+                "engineChecksumSha256", "b".repeat(64)), "result".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> artifacts.findResult(jobId))
+                .isInstanceOf(com.packing.backend.core.shared.ExternalServiceException.class)
+                .hasMessageContaining("fileName");
+    }
+
+    @Test
+    void rejectsAResultWithBlankRequiredMetadata() {
+        PackingJobId jobId = jobId();
+        uploadResult(jobId, Map.of(
+                "fileName", "output.bin",
+                "contentType", "",
+                "checksumSha256", "a".repeat(64),
+                "engineVersion", "packer 0.3.0",
+                "engineChecksumSha256", "b".repeat(64)), "result".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> artifacts.findResult(jobId))
+                .isInstanceOf(com.packing.backend.core.shared.ExternalServiceException.class)
+                .hasMessageContaining("contentType");
+    }
+
+    @Test
+    void rejectsAResultWithNoOutputBytes() {
+        PackingJobId jobId = jobId();
+        uploadResult(jobId, Map.of(
+                "fileName", "output.bin",
+                "contentType", "application/x-packing-result",
+                "checksumSha256", "a".repeat(64),
+                "engineVersion", "packer 0.3.0",
+                "engineChecksumSha256", "b".repeat(64)), new byte[0]);
+
+        assertThatThrownBy(() -> artifacts.findResult(jobId))
+                .isInstanceOf(com.packing.backend.core.shared.ExternalServiceException.class)
+                .hasMessageContaining("positive size");
     }
 
     private static PackingJobId jobId() {
@@ -136,5 +199,18 @@ class AzurePackingJobArtifactStoreIT {
 
     private static String resultKey(PackingJobId jobId) {
         return "packing-jobs/" + jobId + "/result/output";
+    }
+
+    private void uploadResult(PackingJobId jobId, Map<String, String> metadata, byte[] output) {
+        container.getBlobClient(resultKey(jobId)).uploadWithResponse(
+                new BlobParallelUploadOptions(new ByteArrayInputStream(output))
+                        .setMetadata(metadata), null, null);
+    }
+
+    private static HttpResponse<byte[]> fetch(URI url) throws Exception {
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            return client.send(HttpRequest.newBuilder(url).GET().build(),
+                    HttpResponse.BodyHandlers.ofByteArray());
+        }
     }
 }
