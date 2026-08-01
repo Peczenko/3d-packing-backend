@@ -1,8 +1,10 @@
 package com.packing.backend.infra.packing;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.packing.backend.core.packing.message.PackingDispatchMessage;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
@@ -17,9 +19,12 @@ public final class PackingContractCodec {
     private static final int VERSION_ONE = 1;
 
     private final ObjectMapper objectMapper;
+    private final ObjectReader strictTreeReader;
 
     public PackingContractCodec(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
+        this.strictTreeReader = objectMapper.reader()
+                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     }
 
     public String encodeRequest(PackingRequestEnvelope envelope) {
@@ -27,7 +32,7 @@ public final class PackingContractCodec {
         ObjectNode request = objectMapper.createObjectNode();
         request.put("requestVersion", envelope.requestVersion());
         request.put("maxRuntimeSeconds", envelope.maxRuntimeSeconds());
-        request.set("spec", readTree(envelope.specJson()));
+        request.set("spec", readSpec(envelope.specJson()));
         return write(request);
     }
 
@@ -135,11 +140,26 @@ public final class PackingContractCodec {
     }
 
     private JsonNode readTree(String json) {
-        try {
-            return objectMapper.readTree(json);
-        } catch (JsonProcessingException e) {
+        if (json == null || json.isBlank()) {
             throw new DomainRuleViolationException("Packing message must be valid JSON");
         }
+        try {
+            JsonNode value = strictTreeReader.readTree(json);
+            if (value == null || value.isMissingNode()) {
+                throw new DomainRuleViolationException("Packing message must be valid JSON");
+            }
+            return value;
+        } catch (JsonProcessingException | IllegalArgumentException e) {
+            throw new DomainRuleViolationException("Packing message must be valid JSON");
+        }
+    }
+
+    private JsonNode readSpec(String json) {
+        JsonNode spec = readTree(json);
+        if (spec.isNull()) {
+            throw new DomainRuleViolationException("Packing request spec must not be null");
+        }
+        return spec;
     }
 
     private JsonNode readObject(String json) {
