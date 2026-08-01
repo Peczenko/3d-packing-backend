@@ -5,6 +5,7 @@ import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.domain.packing.PackingJobId;
+import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.infra.persistence.shared.Paging;
 import lombok.RequiredArgsConstructor;
@@ -39,5 +40,20 @@ public class JooqPackingJobFinder implements PackingJobFinder {
                 .from(PACKING_JOBS)
                 .where(PackingJobQueries.inProject(projectId).and(PACKING_JOBS.ID.eq(jobId)))
                 .fetchOptional(PackingJobQueries::toView);
+    }
+
+    @Override
+    public List<PackingJobId> findUndispatched(int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+
+        return dsl.select(PACKING_JOBS.ID)
+                .from(PACKING_JOBS)
+                .where(PACKING_JOBS.STATUS.eq(PackingJobStatus.QUEUED)
+                        .and(PACKING_JOBS.DISPATCHED_AT.isNull()))
+                .orderBy(PACKING_JOBS.CREATED_AT.asc(), PACKING_JOBS.ID.asc())
+                .limit(limit)
+                .fetch(PACKING_JOBS.ID);
     }
 }
