@@ -8,6 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
+import org.hibernate.validator.constraints.time.DurationMin;
 
 import java.time.Duration;
 
@@ -19,7 +20,7 @@ public record PackingMessagingProperties(
         @DefaultValue("") String connectionString,
         @NotBlank @DefaultValue("packing-dispatch") String dispatchQueue,
         @NotBlank @DefaultValue("packing-results") String resultQueue,
-        @NotNull @DefaultValue("PT30S") Duration reconcileDelay,
+        @NotNull @DurationMin(millis = 1) @DefaultValue("PT30S") Duration reconcileDelay,
         @Positive @DefaultValue("5") int resultConcurrentSessions) {
 
     @AssertTrue(message = "A Service Bus connection string or fully qualified namespace is required when messaging is enabled")

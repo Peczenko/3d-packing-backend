@@ -1,4 +1,4 @@
-package com.packing.backend.infra.packingmessaging;
+package com.packing.backend.infra.packing.messaging;
 
 import com.azure.messaging.servicebus.ServiceBusReceiverClient;
 import com.azure.messaging.servicebus.ServiceBusSenderClient;
@@ -9,17 +9,19 @@ import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.infra.packing.PackingContractCodec;
-import com.packing.backend.infra.packing.messaging.PackingMessagingConfig;
-import com.packing.backend.infra.packing.messaging.PackingMessagingProperties;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -28,7 +30,7 @@ class PackingMessagingConfigTest {
 
     @Test
     void disabledMessagingCreatesNoBrokerClientsSchedulingOrDispatchComponents() {
-        runner().withPropertyValues("packing.messaging.enabled=false")
+        runner(defaultProperties()).withPropertyValues("packing.messaging.enabled=false")
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(ServiceBusSenderClient.class);
                     assertThat(context).doesNotHaveBean(ServiceBusReceiverClient.class);
@@ -42,10 +44,7 @@ class PackingMessagingConfigTest {
 
     @Test
     void enabledMessagingWiresTheClientsSchedulerAndDispatchComponents() {
-        runner().withPropertyValues(
-                        "packing.messaging.enabled=true",
-                        "packing.messaging.connection-string=Endpoint=sb://example.servicebus.windows.net/;"
-                                + "SharedAccessKeyName=name;SharedAccessKey=key")
+        runner(properties(true, connectionString(), Duration.ofSeconds(30))).withPropertyValues("packing.messaging.enabled=true")
                 .run(context -> {
                     assertThat(context).hasBean("packingDispatchSenderClient");
                     assertThat(context).hasBean("packingResultSenderClient");
@@ -62,48 +61,61 @@ class PackingMessagingConfigTest {
 
     @Test
     void bindsTheSharedMessagingDefaults() {
-        runner().run(context -> assertThat(context.getBean(PackingMessagingProperties.class))
-                .isEqualTo(new PackingMessagingProperties(
-                        false, "", "", "packing-dispatch", "packing-results", java.time.Duration.ofSeconds(30), 5)));
+        assertThat(bind(Map.of("packing.messaging.enabled", "false"))).isEqualTo(defaultProperties());
     }
 
-    private static ApplicationContextRunner runner() {
+    @Test
+    void bindsTheConfiguredLocalConnectionString() {
+        assertThat(bind(Map.of("packing.messaging.connection-string", connectionString())).connectionString())
+                .isEqualTo(connectionString());
+    }
+
+    @Test
+    void rejectsAZeroReconcileDelay() {
+        assertThat(validator().validate(properties(false, "", Duration.ZERO))).isNotEmpty();
+    }
+
+    @Test
+    void rejectsANegativeReconcileDelay() {
+        assertThat(validator().validate(properties(false, "", Duration.ofSeconds(-1)))).isNotEmpty();
+    }
+
+    @Test
+    void rejectsEnabledMessagingWithoutConnectionConfiguration() {
+        assertThat(validator().validate(properties(true, "", Duration.ofSeconds(30)))).isNotEmpty();
+    }
+
+    private static ApplicationContextRunner runner(PackingMessagingProperties properties) {
         return new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(PackingMessagingConfig.class, TestConfiguration.class));
+                .withConfiguration(AutoConfigurations.of(PackingMessagingConfig.class))
+                .withBean(PackingMessagingProperties.class, () -> properties)
+                .withBean(PackingContractCodec.class, () -> new PackingContractCodec(new ObjectMapper()))
+                .withBean(PackingJobRepository.class, () -> mock(PackingJobRepository.class))
+                .withBean(PackingJobArtifactStore.class, () -> mock(PackingJobArtifactStore.class))
+                .withBean(PackingJobFinder.class, () -> mock(PackingJobFinder.class))
+                .withBean(Clock.class, Clock::systemUTC);
     }
 
-    @Configuration(proxyBeanMethods = false)
-    @EnableConfigurationProperties(PackingMessagingProperties.class)
-    static class TestConfiguration {
+    private static PackingMessagingProperties bind(Map<String, Object> properties) {
+        return new Binder(new MapConfigurationPropertySource(properties))
+                .bind("packing.messaging", Bindable.of(PackingMessagingProperties.class))
+                .orElseThrow(IllegalStateException::new);
+    }
 
-        @Bean
-        ObjectMapper objectMapper() {
-            return new ObjectMapper();
-        }
+    private static PackingMessagingProperties defaultProperties() {
+        return properties(false, "", Duration.ofSeconds(30));
+    }
 
-        @Bean
-        PackingContractCodec packingContractCodec(ObjectMapper objectMapper) {
-            return new PackingContractCodec(objectMapper);
-        }
+    private static PackingMessagingProperties properties(boolean enabled, String connectionString, Duration reconcileDelay) {
+        return new PackingMessagingProperties(
+                enabled, "", connectionString, "packing-dispatch", "packing-results", reconcileDelay, 5);
+    }
 
-        @Bean
-        PackingJobRepository packingJobRepository() {
-            return mock(PackingJobRepository.class);
-        }
+    private static String connectionString() {
+        return "Endpoint=sb://example.servicebus.windows.net/;SharedAccessKeyName=name;SharedAccessKey=key";
+    }
 
-        @Bean
-        PackingJobArtifactStore packingJobArtifactStore() {
-            return mock(PackingJobArtifactStore.class);
-        }
-
-        @Bean
-        PackingJobFinder packingJobFinder() {
-            return mock(PackingJobFinder.class);
-        }
-
-        @Bean
-        Clock clock() {
-            return Clock.systemUTC();
-        }
+    private static Validator validator() {
+        return Validation.buildDefaultValidatorFactory().getValidator();
     }
 }
