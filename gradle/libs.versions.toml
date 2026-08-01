@@ -5,7 +5,7 @@ jooq = "3.19.35"
 jooqDocker = "8.0.30"
 # Codegen classpath only; every other usage is BOM-managed. Keep in step with the Boot BOM.
 postgres = "42.7.11"
-firebaseAdmin = "9.9.0"
+firebaseAdmin = "9.10.0"
 archunit = "1.4.1"
 
 [libraries]
