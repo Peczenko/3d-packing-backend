@@ -1,19 +1,14 @@
 package com.packing.backend.infra.packing.messaging;
 
 import com.packing.backend.core.packing.PackingJobDispatchService;
-import com.packing.backend.core.packing.port.out.PackingDispatchSender;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.domain.packing.PackingJobId;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
 
-@Component
-@ConditionalOnBean(PackingDispatchSender.class)
 @RequiredArgsConstructor
 @Slf4j
 class PackingDispatchReconciler {

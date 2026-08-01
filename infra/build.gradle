@@ -28,6 +28,7 @@ dependencies {
     implementation 'com.azure.spring:spring-cloud-azure-starter-storage'
 
     implementation 'com.azure:azure-storage-blob'
+    implementation 'com.azure:azure-messaging-servicebus'
 
     implementation libs.firebase.admin
 
