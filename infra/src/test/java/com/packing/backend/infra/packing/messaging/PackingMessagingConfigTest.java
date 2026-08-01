@@ -6,6 +6,8 @@ import com.azure.messaging.servicebus.ServiceBusSenderClient;
 import com.azure.messaging.servicebus.models.ServiceBusReceiveMode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packing.backend.core.packing.PackingJobDispatchService;
+import com.packing.backend.core.packing.PackingJobRecoveryService;
+import com.packing.backend.core.packing.PackingWorkerEventService;
 import com.packing.backend.core.packing.port.out.PackingDispatchSender;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
@@ -65,6 +67,7 @@ class PackingMessagingConfigTest {
                     assertThat(context).doesNotHaveBean(PackingJobDispatchService.class);
                     assertThat(context).doesNotHaveBean("packingJobQueuedListener");
                     assertThat(context).doesNotHaveBean("packingDispatchReconciler");
+                    assertThat(context).doesNotHaveBean("packingDeadLetterReconciler");
                     assertThat(context).doesNotHaveBean(ScheduledAnnotationBeanPostProcessor.class);
                 });
     }
@@ -82,6 +85,7 @@ class PackingMessagingConfigTest {
                     assertThat(context).hasSingleBean(PackingJobDispatchService.class);
                     assertThat(context).hasBean("packingJobQueuedListener");
                     assertThat(context).hasBean("packingDispatchReconciler");
+                    assertThat(context).hasBean("packingDeadLetterReconciler");
                     assertThat(context).hasSingleBean(ScheduledAnnotationBeanPostProcessor.class);
                 });
     }
@@ -120,6 +124,8 @@ class PackingMessagingConfigTest {
                 .withBean(PackingJobRepository.class, () -> mock(PackingJobRepository.class))
                 .withBean(PackingJobArtifactStore.class, () -> mock(PackingJobArtifactStore.class))
                 .withBean(PackingJobFinder.class, () -> mock(PackingJobFinder.class))
+                .withBean(PackingJobRecoveryService.class, () -> mock(PackingJobRecoveryService.class))
+                .withBean(PackingWorkerEventService.class, () -> mock(PackingWorkerEventService.class))
                 .withBean(Clock.class, Clock::systemUTC);
     }
 

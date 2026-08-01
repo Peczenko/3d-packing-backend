@@ -7,6 +7,8 @@ import com.azure.messaging.servicebus.ServiceBusSenderClient;
 import com.azure.messaging.servicebus.models.ServiceBusReceiveMode;
 import com.azure.messaging.servicebus.models.SubQueue;
 import com.packing.backend.core.packing.PackingJobDispatchService;
+import com.packing.backend.core.packing.PackingJobRecoveryService;
+import com.packing.backend.core.packing.PackingWorkerEventService;
 import com.packing.backend.core.packing.port.out.PackingDispatchSender;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
@@ -91,8 +93,20 @@ public class PackingMessagingConfig {
 
     @Bean
     PackingDispatchReconciler packingDispatchReconciler(PackingJobFinder finder,
-                                                         PackingJobDispatchService dispatcher) {
-        return new PackingDispatchReconciler(finder, dispatcher);
+                                                         PackingJobDispatchService dispatcher,
+                                                         PackingJobArtifactStore artifacts,
+                                                         PackingJobRecoveryService recovery) {
+        return new PackingDispatchReconciler(finder, dispatcher, artifacts, recovery);
+    }
+
+    @Bean
+    PackingDeadLetterReconciler packingDeadLetterReconciler(
+            @Qualifier("packingDispatchDeadLetterReceiver") ServiceBusReceiverClient dispatchReceiver,
+            @Qualifier("packingResultDeadLetterReceiver") ServiceBusReceiverClient resultReceiver,
+            PackingContractCodec codec,
+            PackingJobRecoveryService recovery,
+            PackingWorkerEventService workerEvents) {
+        return new PackingDeadLetterReconciler(dispatchReceiver, resultReceiver, codec, recovery, workerEvents);
     }
 
     private ServiceBusReceiverClient deadLetterReceiver(PackingMessagingProperties properties, String queueName) {

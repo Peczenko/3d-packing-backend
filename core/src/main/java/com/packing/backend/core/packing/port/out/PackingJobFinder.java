@@ -16,4 +16,6 @@ public interface PackingJobFinder {
     Optional<PackingJobView> detailInProject(ProjectId projectId, PackingJobId jobId);
 
     List<PackingJobId> findUndispatched(int limit);
+
+    List<PackingJobId> findRunning(int limit);
 }

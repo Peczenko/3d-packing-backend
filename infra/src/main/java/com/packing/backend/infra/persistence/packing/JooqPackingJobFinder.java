@@ -56,4 +56,18 @@ public class JooqPackingJobFinder implements PackingJobFinder {
                 .limit(limit)
                 .fetch(PACKING_JOBS.ID);
     }
+
+    @Override
+    public List<PackingJobId> findRunning(int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+
+        return dsl.select(PACKING_JOBS.ID)
+                .from(PACKING_JOBS)
+                .where(PACKING_JOBS.STATUS.eq(PackingJobStatus.RUNNING))
+                .orderBy(PACKING_JOBS.STARTED_AT.asc(), PACKING_JOBS.ID.asc())
+                .limit(limit)
+                .fetch(PACKING_JOBS.ID);
+    }
 }

@@ -92,6 +92,28 @@ class JooqPackingJobFinderIT {
                 .containsExactly(largerId.value());
     }
 
+    @Test
+    void findsOnlyRunningJobsInStartedAtThenIdOrderAndHonorsTheLimit() {
+        Instant base = now();
+        PackingJobId firstId = new PackingJobId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        PackingJobId secondId = new PackingJobId(UUID.fromString("00000000-0000-0000-0000-000000000002"));
+        PackingJob first = runningJob(projectA, firstId, base, base.plusSeconds(10));
+        PackingJob second = runningJob(projectA, secondId, base.plusSeconds(1), base.plusSeconds(10));
+        persist(first);
+        persist(second);
+        persistJob(projectA, base.plusSeconds(2));
+
+        assertThat(finder().findRunning(1)).containsExactly(first.id());
+        assertThat(finder().findRunning(2)).containsExactly(first.id(), second.id());
+    }
+
+    @Test
+    void rejectsANonPositiveRunningJobLimit() {
+        org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
+                .isThrownBy(() -> finder().findRunning(0))
+                .withMessage("limit must be positive");
+    }
+
     private JooqPackingJobFinder finder() {
         return new JooqPackingJobFinder(dsl);
     }
@@ -109,8 +131,18 @@ class JooqPackingJobFinderIT {
     private PackingJob persistJob(ProjectId project, PackingJobId id, Instant createdAt) {
         PackingJob job = PackingJob.queue(id, project, user,
                 "{\"testField\":42}", 60, createdAt);
-        new JooqPackingJobRepository(dsl, new AggregateWriter(dsl)).save(job);
+        persist(job);
         return job;
+    }
+
+    private PackingJob runningJob(ProjectId project, PackingJobId id, Instant createdAt, Instant startedAt) {
+        PackingJob job = PackingJob.queue(id, project, user, "{\"testField\":42}", 60, createdAt);
+        job.markRunning("packer 0.1.0", "a".repeat(64), startedAt);
+        return job;
+    }
+
+    private void persist(PackingJob job) {
+        new JooqPackingJobRepository(dsl, new AggregateWriter(dsl)).save(job);
     }
 
     private static Instant now() {
