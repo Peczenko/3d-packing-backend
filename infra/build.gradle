@@ -112,6 +112,12 @@ tasks.named('generateJooqClasses') {
                                 .withTo('com.packing.backend.domain.file.ModelFormat::name'))
                         .withIncludeExpression('files\\.format'),
                 new ForcedType()
+                        .withUserType('com.packing.backend.domain.packing.PackingJobStatus')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.packing.PackingJobStatus::valueOf')
+                                .withTo('com.packing.backend.domain.packing.PackingJobStatus::name'))
+                        .withIncludeExpression('packing_jobs\\.status'),
+                new ForcedType()
                         .withUserType('com.packing.backend.domain.user.UserId')
                         .withLambdaConverter(new LambdaConverter()
                                 .withFrom('com.packing.backend.domain.user.UserId::new')
@@ -120,7 +126,8 @@ tasks.named('generateJooqClasses') {
                                 '|project_members\\.user_id' +
                                 '|project_members\\.added_by' +
                                 '|projects\\.created_by' +
-                                '|files\\.owner_user_id'),
+                                '|files\\.owner_user_id' +
+                                '|packing_jobs\\.created_by'),
                 new ForcedType()
                         .withUserType('com.packing.backend.domain.project.ProjectId')
                         .withLambdaConverter(new LambdaConverter()
@@ -128,13 +135,20 @@ tasks.named('generateJooqClasses') {
                                 .withTo('com.packing.backend.domain.project.ProjectId::value'))
                         .withIncludeExpression('projects\\.id' +
                                 '|project_members\\.project_id' +
-                                '|files\\.project_id'),
+                                '|files\\.project_id' +
+                                '|packing_jobs\\.project_id'),
                 new ForcedType()
                         .withUserType('com.packing.backend.domain.file.FileId')
                         .withLambdaConverter(new LambdaConverter()
                                 .withFrom('com.packing.backend.domain.file.FileId::new')
                                 .withTo('com.packing.backend.domain.file.FileId::value'))
                         .withIncludeExpression('files\\.id'),
+                new ForcedType()
+                        .withUserType('com.packing.backend.domain.packing.PackingJobId')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.packing.PackingJobId::new')
+                                .withTo('com.packing.backend.domain.packing.PackingJobId::value'))
+                        .withIncludeExpression('packing_jobs\\.id'),
                 new ForcedType()
                         .withUserType('java.time.Instant')
                         .withLambdaConverter(new LambdaConverter()
