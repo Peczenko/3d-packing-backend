@@ -22,6 +22,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jooq.JooqTest;
 import org.springframework.context.annotation.Import;
+import org.skyscreamer.jsonassert.JSONAssert;
+import org.skyscreamer.jsonassert.JSONCompareMode;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -57,12 +59,12 @@ class JooqPackingJobRepositoryIT {
     }
 
     @Test
-    void savesQueuedJobThenPersistsRunningProvenanceAndVersion() {
+    void savesQueuedJobThenPersistsRunningProvenanceAndVersion() throws Exception {
         PackingJob job = queuedJob(now());
 
         repository().save(job);
         PackingJob reloaded = repository().findById(job.id()).orElseThrow();
-        assertThat(reloaded.specJson()).isEqualTo("{\"testField\":42}");
+        JSONAssert.assertEquals("{\"testField\":42}", reloaded.specJson(), JSONCompareMode.STRICT);
         reloaded.markRunning("packer 0.3.0", ENGINE_CHECKSUM, now());
         repository().save(reloaded);
 

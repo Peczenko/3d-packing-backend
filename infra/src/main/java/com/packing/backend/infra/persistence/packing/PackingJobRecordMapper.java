@@ -1,7 +1,5 @@
 package com.packing.backend.infra.persistence.packing;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.infra.persistence.jooq.tables.records.PackingJobsRecord;
 import com.packing.backend.infra.persistence.shared.AggregateTable;
@@ -13,8 +11,6 @@ import java.util.Set;
 import static com.packing.backend.infra.persistence.jooq.tables.PackingJobs.PACKING_JOBS;
 
 final class PackingJobRecordMapper {
-
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     static final AggregateTable<PackingJobsRecord> TABLE = new AggregateTable<>(
             "PackingJob", PACKING_JOBS.VERSION, Set.<Field<?>>of(
@@ -30,7 +26,7 @@ final class PackingJobRecordMapper {
                 record.getId(),
                 record.getProjectId(),
                 record.getCreatedBy(),
-                compactJson(record.getSpecJson().data()),
+                record.getSpecJson().data(),
                 record.getMaxRuntimeSeconds(),
                 record.getStatus(),
                 record.getEngineVersion(),
@@ -68,13 +64,5 @@ final class PackingJobRecordMapper {
         record.setVersion(job.version());
         record.setCreatedAt(job.createdAt());
         return record;
-    }
-
-    private static String compactJson(String json) {
-        try {
-            return JSON.readTree(json).toString();
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Packing job JSON from the database is invalid", e);
-        }
     }
 }
