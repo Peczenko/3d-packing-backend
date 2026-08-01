@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.0.0](https://github.com/Peczenko/3d-packing-backend/compare/v0.0.5...v1.0.0) (2026-07-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* projects and file management ([#27](https://github.com/Peczenko/3d-packing-backend/issues/27))
+
+### Features
+
+* add email notifications and server error alerting ([#26](https://github.com/Peczenko/3d-packing-backend/issues/26)) ([8a564eb](https://github.com/Peczenko/3d-packing-backend/commit/8a564eb432688dc0e90ed3e13b91b5f7bb4b09dd))
+* expose build version on /actuator/info ([#22](https://github.com/Peczenko/3d-packing-backend/issues/22)) ([e2f9e32](https://github.com/Peczenko/3d-packing-backend/commit/e2f9e3208e6913f527847db5de6566952529c032))
+* jooq runtime settings ([#33](https://github.com/Peczenko/3d-packing-backend/issues/33)) ([f716af6](https://github.com/Peczenko/3d-packing-backend/commit/f716af6db5bab1650500f53df140e7c465802567))
+* projects and file management ([#27](https://github.com/Peczenko/3d-packing-backend/issues/27)) ([c725bd6](https://github.com/Peczenko/3d-packing-backend/commit/c725bd6bd782af9274ee73a3ef556b45c635d65f))
+
+
+### Bug Fixes
+
+* exact constraint violation mapping ([#29](https://github.com/Peczenko/3d-packing-backend/issues/29)) ([de858de](https://github.com/Peczenko/3d-packing-backend/commit/de858de7b959cb2d34e694bf4719297604fe72d6))
+* fix duplicated buildInfo() gradle task ([8cdd232](https://github.com/Peczenko/3d-packing-backend/commit/8cdd232940d94acb74c440ba7e2672f2b123035f))
+* secret hygiene and alert leak ([#28](https://github.com/Peczenko/3d-packing-backend/issues/28)) ([1924e00](https://github.com/Peczenko/3d-packing-backend/commit/1924e008fe50a833b597424352266d9893df9c92))
+
+
+### Refactoring
+
+* paging takes the order separately ([#32](https://github.com/Peczenko/3d-packing-backend/issues/32)) ([d5560e3](https://github.com/Peczenko/3d-packing-backend/commit/d5560e3cc9898c43e2c2fbd610423b423c93970f))
+
+
+### Build System
+
+* generate jooq from postgres ([#34](https://github.com/Peczenko/3d-packing-backend/issues/34)) ([1e5c8fc](https://github.com/Peczenko/3d-packing-backend/commit/1e5c8fc4fc324620749f26bcd449fb53afcc6240))
+* make jooqCodegen up-to-date and cacheable ([#31](https://github.com/Peczenko/3d-packing-backend/issues/31)) ([3dad2e9](https://github.com/Peczenko/3d-packing-backend/commit/3dad2e987dff00a01cd39234182fb605feeb7f2d))
+
+
+### Chores & Dependencies
+
+* resync master with develop ([2dc8ec3](https://github.com/Peczenko/3d-packing-backend/commit/2dc8ec3a8c0b432f41f324666428838db3a18ada))
+
 ## [0.0.5](https://github.com/Peczenko/3d-packing-backend/compare/v0.0.4...v0.0.5) (2026-07-25)
 
 
