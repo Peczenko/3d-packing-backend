@@ -25,59 +25,19 @@ public class JooqPackingJobFinder implements PackingJobFinder {
     @Override
     public Page<PackingJobView> listInProject(ProjectId projectId, PageRequest page) {
         return Paging.fetch(dsl,
-                dsl.select(PACKING_JOBS.ID, PACKING_JOBS.PROJECT_ID, PACKING_JOBS.STATUS,
-                                PACKING_JOBS.MAX_RUNTIME_SECONDS, PACKING_JOBS.ENGINE_VERSION,
-                                PACKING_JOBS.ENGINE_CHECKSUM_SHA256, PACKING_JOBS.CREATED_AT,
-                                PACKING_JOBS.STARTED_AT, PACKING_JOBS.FINISHED_AT,
-                                PACKING_JOBS.FAILURE_REASON, PACKING_JOBS.RESULT_FILE_NAME,
-                                PACKING_JOBS.RESULT_CONTENT_TYPE, PACKING_JOBS.RESULT_SIZE_BYTES,
-                                PACKING_JOBS.RESULT_CHECKSUM_SHA256)
+                dsl.select(PackingJobQueries.VIEW_FIELDS)
                         .from(PACKING_JOBS)
-                        .where(PACKING_JOBS.PROJECT_ID.eq(projectId)),
+                        .where(PackingJobQueries.inProject(projectId)),
                 List.of(PACKING_JOBS.CREATED_AT.desc(), PACKING_JOBS.ID.desc()),
                 page,
-                record -> new PackingJobView(
-                        record.get(PACKING_JOBS.ID).value(),
-                        record.get(PACKING_JOBS.PROJECT_ID).value(),
-                        record.get(PACKING_JOBS.STATUS),
-                        record.get(PACKING_JOBS.MAX_RUNTIME_SECONDS),
-                        record.get(PACKING_JOBS.ENGINE_VERSION),
-                        record.get(PACKING_JOBS.ENGINE_CHECKSUM_SHA256),
-                        record.get(PACKING_JOBS.CREATED_AT),
-                        record.get(PACKING_JOBS.STARTED_AT),
-                        record.get(PACKING_JOBS.FINISHED_AT),
-                        record.get(PACKING_JOBS.FAILURE_REASON),
-                        record.get(PACKING_JOBS.RESULT_FILE_NAME),
-                        record.get(PACKING_JOBS.RESULT_CONTENT_TYPE),
-                        record.get(PACKING_JOBS.RESULT_SIZE_BYTES),
-                        record.get(PACKING_JOBS.RESULT_CHECKSUM_SHA256)));
+                PackingJobQueries::toView);
     }
 
     @Override
     public Optional<PackingJobView> detailInProject(ProjectId projectId, PackingJobId jobId) {
-        return dsl.select(PACKING_JOBS.ID, PACKING_JOBS.PROJECT_ID, PACKING_JOBS.STATUS,
-                        PACKING_JOBS.MAX_RUNTIME_SECONDS, PACKING_JOBS.ENGINE_VERSION,
-                        PACKING_JOBS.ENGINE_CHECKSUM_SHA256, PACKING_JOBS.CREATED_AT,
-                        PACKING_JOBS.STARTED_AT, PACKING_JOBS.FINISHED_AT,
-                        PACKING_JOBS.FAILURE_REASON, PACKING_JOBS.RESULT_FILE_NAME,
-                        PACKING_JOBS.RESULT_CONTENT_TYPE, PACKING_JOBS.RESULT_SIZE_BYTES,
-                        PACKING_JOBS.RESULT_CHECKSUM_SHA256)
+        return dsl.select(PackingJobQueries.VIEW_FIELDS)
                 .from(PACKING_JOBS)
-                .where(PACKING_JOBS.PROJECT_ID.eq(projectId).and(PACKING_JOBS.ID.eq(jobId)))
-                .fetchOptional(record -> new PackingJobView(
-                        record.get(PACKING_JOBS.ID).value(),
-                        record.get(PACKING_JOBS.PROJECT_ID).value(),
-                        record.get(PACKING_JOBS.STATUS),
-                        record.get(PACKING_JOBS.MAX_RUNTIME_SECONDS),
-                        record.get(PACKING_JOBS.ENGINE_VERSION),
-                        record.get(PACKING_JOBS.ENGINE_CHECKSUM_SHA256),
-                        record.get(PACKING_JOBS.CREATED_AT),
-                        record.get(PACKING_JOBS.STARTED_AT),
-                        record.get(PACKING_JOBS.FINISHED_AT),
-                        record.get(PACKING_JOBS.FAILURE_REASON),
-                        record.get(PACKING_JOBS.RESULT_FILE_NAME),
-                        record.get(PACKING_JOBS.RESULT_CONTENT_TYPE),
-                        record.get(PACKING_JOBS.RESULT_SIZE_BYTES),
-                        record.get(PACKING_JOBS.RESULT_CHECKSUM_SHA256)));
+                .where(PackingJobQueries.inProject(projectId).and(PACKING_JOBS.ID.eq(jobId)))
+                .fetchOptional(PackingJobQueries::toView);
     }
 }

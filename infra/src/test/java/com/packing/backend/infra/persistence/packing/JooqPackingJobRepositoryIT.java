@@ -62,6 +62,7 @@ class JooqPackingJobRepositoryIT {
 
         repository().save(job);
         PackingJob reloaded = repository().findById(job.id()).orElseThrow();
+        assertThat(reloaded.specJson()).isEqualTo("{\"testField\":42}");
         reloaded.markRunning("packer 0.3.0", ENGINE_CHECKSUM, now());
         repository().save(reloaded);
 

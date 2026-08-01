@@ -26,6 +26,7 @@ import org.springframework.context.annotation.Import;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -76,6 +77,21 @@ class JooqPackingJobFinderIT {
         assertThat(finder().detailInProject(projectA, jobInProjectB.id())).isEmpty();
     }
 
+    @Test
+    void breaksCreatedAtTiesByDescendingJobId() {
+        Instant createdAt = now();
+        PackingJobId smallerId = new PackingJobId(
+                UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        PackingJobId largerId = new PackingJobId(
+                UUID.fromString("00000000-0000-0000-0000-000000000002"));
+        persistJob(projectA, smallerId, createdAt);
+        persistJob(projectA, largerId, createdAt);
+
+        assertThat(finder().listInProject(projectA, new PageRequest(0, 1)).content())
+                .extracting(PackingJobView::id)
+                .containsExactly(largerId.value());
+    }
+
     private JooqPackingJobFinder finder() {
         return new JooqPackingJobFinder(dsl);
     }
@@ -87,7 +103,11 @@ class JooqPackingJobFinderIT {
     }
 
     private PackingJob persistJob(ProjectId project, Instant createdAt) {
-        PackingJob job = PackingJob.queue(PackingJobId.generate(), project, user,
+        return persistJob(project, PackingJobId.generate(), createdAt);
+    }
+
+    private PackingJob persistJob(ProjectId project, PackingJobId id, Instant createdAt) {
+        PackingJob job = PackingJob.queue(id, project, user,
                 "{\"testField\":42}", 60, createdAt);
         new JooqPackingJobRepository(dsl, new AggregateWriter(dsl)).save(job);
         return job;
