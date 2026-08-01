@@ -9,6 +9,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
@@ -130,7 +131,7 @@ public final class PackingJob extends AggregateRoot {
     }
 
     public boolean markRunning(String version, String checksum, Instant now) {
-        if (status == PackingJobStatus.RUNNING) {
+        if (status == PackingJobStatus.RUNNING || isTerminal()) {
             return false;
         }
         requireStatus(PackingJobStatus.QUEUED);
@@ -148,14 +149,9 @@ public final class PackingJob extends AggregateRoot {
                            String version,
                            String engineChecksum,
                            Instant now) {
-        if (status == PackingJobStatus.SUCCEEDED) {
-            if (hasSameSuccess(fileName, contentType, sizeBytes, checksum, version,
-                    engineChecksum, now)) {
-                return false;
-            }
-            throw new DomainRuleViolationException("Cannot succeed packing job " + id + " from " + status);
+        if (isTerminal()) {
+            return false;
         }
-        requireStatus(PackingJobStatus.RUNNING);
 
         String requiredFileName = requireText(fileName, "resultFileName");
         String requiredContentType = requireText(contentType, "resultContentType");
@@ -177,7 +173,7 @@ public final class PackingJob extends AggregateRoot {
     }
 
     public boolean fail(String reason, String version, String checksum, Instant now) {
-        if (status == PackingJobStatus.FAILED) {
+        if (isTerminal()) {
             return false;
         }
         if (status != PackingJobStatus.QUEUED && status != PackingJobStatus.RUNNING) {
@@ -192,13 +188,10 @@ public final class PackingJob extends AggregateRoot {
     }
 
     public boolean failBeforeStart(String reason, Instant now) {
-        String requiredReason = requireText(reason, "failureReason");
-        if (status == PackingJobStatus.FAILED) {
-            if (engineVersion == null && engineChecksum == null && failureReason.equals(requiredReason)) {
-                return false;
-            }
-            throw new DomainRuleViolationException("Cannot fail packing job " + id + " from " + status);
+        if (isTerminal()) {
+            return false;
         }
+        String requiredReason = requireText(reason, "failureReason");
         requireStatus(PackingJobStatus.QUEUED);
         failureReason = requiredReason;
         status = PackingJobStatus.FAILED;
@@ -210,20 +203,8 @@ public final class PackingJob extends AggregateRoot {
         version++;
     }
 
-    private boolean hasSameSuccess(String fileName,
-                                   String contentType,
-                                   long sizeBytes,
-                                   String checksum,
-                                   String version,
-                                   String engineChecksum,
-                                   Instant now) {
-        return Objects.equals(resultFileName, fileName)
-                && Objects.equals(resultContentType, contentType)
-                && Objects.equals(resultSizeBytes, sizeBytes)
-                && Objects.equals(resultChecksum, checksum)
-                && Objects.equals(this.engineVersion, version)
-                && Objects.equals(this.engineChecksum, engineChecksum)
-                && Objects.equals(finishedAt, now);
+    private boolean isTerminal() {
+        return status == PackingJobStatus.SUCCEEDED || status == PackingJobStatus.FAILED;
     }
 
     private void requireStatus(PackingJobStatus expected) {
@@ -258,7 +239,7 @@ public final class PackingJob extends AggregateRoot {
         if (value == null || !SHA_256.matcher(value).matches()) {
             throw new DomainRuleViolationException(field + " must be a SHA-256 hexadecimal string");
         }
-        return value;
+        return value.toLowerCase(Locale.ROOT);
     }
 
     @Override

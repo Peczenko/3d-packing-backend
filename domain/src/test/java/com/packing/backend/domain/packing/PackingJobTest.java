@@ -51,11 +51,14 @@ class PackingJobTest {
     }
 
     @Test
-    void rejectsTerminalTransitionFromSucceeded() {
-        PackingJob job = succeededJob();
+    void succeedsQueuedJobWhenStartedMessageArrivesLate() {
+        PackingJob job = queuedJob();
 
-        assertThatThrownBy(() -> job.fail("boom", "packer 0.3.0", SHA_A, NOW))
-                .isInstanceOf(DomainRuleViolationException.class);
+        assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B,
+                "packer 0.3.0", SHA_A, NOW.plusSeconds(1))).isTrue();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
+        assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(1));
     }
 
     @Test
@@ -95,7 +98,7 @@ class PackingJobTest {
         PackingJob job = queuedJob();
 
         assertThat(job.failBeforeStart("dead-lettered", NOW)).isTrue();
-        assertThat(job.failBeforeStart("dead-lettered", NOW)).isFalse();
+        assertThat(job.failBeforeStart("different reason", NOW.plusSeconds(1))).isFalse();
         assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
         assertThat(job.engineVersion()).isNull();
         assertThat(job.engineChecksum()).isNull();
@@ -103,14 +106,76 @@ class PackingJobTest {
     }
 
     @Test
-    void rejectsSuccessWithDifferentDataAfterItIsTerminal() {
+    void duplicateSuccessAtDifferentTimeDoesNotReplaceTerminalData() {
         PackingJob job = succeededJob();
+        Instant originalFinishedAt = job.finishedAt();
 
         assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B,
-                "packer 0.3.0", SHA_A, NOW.plusSeconds(2))).isFalse();
-        assertThatThrownBy(() -> job.succeed("different.bin", "application/octet-stream", 12, SHA_B,
-                "packer 0.3.0", SHA_A, NOW.plusSeconds(3)))
-                .isInstanceOf(DomainRuleViolationException.class);
+                "packer 0.3.0", SHA_A, NOW.plusSeconds(3))).isFalse();
+
+        assertThat(job.finishedAt()).isEqualTo(originalFinishedAt);
+        assertThat(job.resultFileName()).isEqualTo("output.bin");
+        assertThat(job.resultChecksum()).isEqualTo(SHA_B);
+    }
+
+    @Test
+    void ignoresDifferentLateResultMessagesAfterSucceededWithoutChangingTerminalData() {
+        PackingJob job = succeededJob();
+        Instant originalFinishedAt = job.finishedAt();
+
+        assertThat(job.succeed("different.bin", "application/octet-stream", 99, SHA_A,
+                "different", SHA_B, NOW.plusSeconds(3))).isFalse();
+        assertThat(job.fail("different failure", "different", SHA_B, NOW.plusSeconds(4))).isFalse();
+        assertThat(job.failBeforeStart("different failure", NOW.plusSeconds(5))).isFalse();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
+        assertThat(job.finishedAt()).isEqualTo(originalFinishedAt);
+        assertThat(job.resultFileName()).isEqualTo("output.bin");
+        assertThat(job.resultChecksum()).isEqualTo(SHA_B);
+        assertThat(job.failureReason()).isNull();
+    }
+
+    @Test
+    void ignoresDifferentLateResultMessagesAfterFailedWithoutChangingTerminalData() {
+        PackingJob job = failedJob();
+        Instant originalFinishedAt = job.finishedAt();
+
+        assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B,
+                "packer 0.3.0", SHA_A, NOW.plusSeconds(3))).isFalse();
+        assertThat(job.fail("different failure", "different", SHA_B, NOW.plusSeconds(4))).isFalse();
+        assertThat(job.failBeforeStart("different failure", NOW.plusSeconds(5))).isFalse();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
+        assertThat(job.finishedAt()).isEqualTo(originalFinishedAt);
+        assertThat(job.failureReason()).isEqualTo("engine exited");
+        assertThat(job.resultFileName()).isNull();
+        assertThat(job.engineVersion()).isEqualTo("packer 0.3.0");
+    }
+
+    @Test
+    void ignoresLateStartedMessagesAfterTerminalJobs() {
+        PackingJob succeeded = succeededJob();
+        PackingJob failed = failedJob();
+
+        assertThat(succeeded.markRunning("different", SHA_B, NOW.plusSeconds(3))).isFalse();
+        assertThat(failed.markRunning("different", SHA_B, NOW.plusSeconds(3))).isFalse();
+
+        assertThat(succeeded.engineVersion()).isEqualTo("packer 0.3.0");
+        assertThat(succeeded.startedAt()).isEqualTo(NOW.plusSeconds(1));
+        assertThat(failed.engineVersion()).isEqualTo("packer 0.3.0");
+        assertThat(failed.startedAt()).isNull();
+    }
+
+    @Test
+    void normalizesUppercaseEngineAndResultChecksums() {
+        PackingJob job = queuedJob();
+
+        job.markRunning("packer 0.3.0", SHA_A.toUpperCase(), NOW.plusSeconds(1));
+        job.succeed("output.bin", "application/octet-stream", 12, SHA_B.toUpperCase(),
+                "packer 0.3.0", SHA_A.toUpperCase(), NOW.plusSeconds(2));
+
+        assertThat(job.engineChecksum()).isEqualTo(SHA_A);
+        assertThat(job.resultChecksum()).isEqualTo(SHA_B);
     }
 
     @Test
@@ -144,6 +209,12 @@ class PackingJobTest {
         job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(1));
         job.succeed("output.bin", "application/octet-stream", 12, SHA_B,
                 "packer 0.3.0", SHA_A, NOW.plusSeconds(2));
+        return job;
+    }
+
+    private PackingJob failedJob() {
+        PackingJob job = queuedJob();
+        job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(1));
         return job;
     }
 }
