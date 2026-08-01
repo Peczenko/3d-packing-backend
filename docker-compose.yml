@@ -36,6 +36,57 @@ services:
       timeout: 5s
       retries: 12
 
+  servicebus-sql:
+    profiles: ["messaging"]
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: packing-servicebus-sql
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SERVICE_BUS_SQL_PASSWORD:-PackingServiceBus1!}
+    volumes:
+      - servicebus-sql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q \"SELECT 1\" -b -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  servicebus:
+    profiles: ["messaging"]
+    image: packing-servicebus-emulator:local
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM mcr.microsoft.com/dotnet/aspnet:8.0.3-cbl-mariner2.0-amd64 AS health-tools
+        FROM mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+        COPY --from=health-tools /bin/sh /bin/sh
+        COPY --from=health-tools /usr/bin/curl /usr/bin/curl
+        COPY --from=health-tools /usr/lib /usr/lib
+    container_name: packing-servicebus
+    restart: unless-stopped
+    depends_on:
+      servicebus-sql:
+        condition: service_healthy
+    environment:
+      ACCEPT_EULA: "Y"
+      SQL_SERVER: servicebus-sql
+      MSSQL_SA_PASSWORD: ${SERVICE_BUS_SQL_PASSWORD:-PackingServiceBus1!}
+      EMULATOR_HTTP_PORT: 5300
+      SQL_WAIT_INTERVAL: 5
+    volumes:
+      - ./config/servicebus/config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+      - servicebus-logs:/home/app/EmulatorLogs
+    ports:
+      - "${SERVICE_BUS_AMQP_PORT:-5672}:5672"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:5300/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
   app:
     profiles: ["app"]
     build:
@@ -65,6 +116,8 @@ services:
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
       ALERT_RECIPIENTS: ${ALERT_RECIPIENTS:-}
+      PACKING_MESSAGING_ENABLED: ${PACKING_MESSAGING_ENABLED:-false}
+      SERVICE_BUS_CONNECTION_STRING: ${SERVICE_BUS_CONNECTION_STRING:-}
     ports:
       - "${APP_PORT:-8080}:8080"
 
@@ -97,4 +150,6 @@ services:
 volumes:
   postgres-data:
   azurite-data:
+  servicebus-sql-data:
+  servicebus-logs:
   rclone-cache:
