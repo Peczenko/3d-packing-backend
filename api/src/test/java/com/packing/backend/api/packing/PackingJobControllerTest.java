@@ -3,6 +3,7 @@ package com.packing.backend.api.packing;
 import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
+import com.packing.backend.core.packing.PackingJobApplicationService.ListPackingJobsQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
 import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.core.shared.Page;
@@ -129,6 +130,16 @@ class PackingJobControllerTest {
     }
 
     @Test
+    void createRejectsRuntimeBelowOneSecond() throws Exception {
+        authenticate();
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"maxRuntimeSeconds\":0,\"spec\":{}}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void listReturnsStandardPageFields() throws Exception {
         authenticate();
         when(jobs.list(any())).thenReturn(new Page<>(List.of(view(UUID.randomUUID())), 0, 20, 1));
@@ -140,6 +151,14 @@ class PackingJobControllerTest {
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.totalPages").value(1));
+
+        ArgumentCaptor<ListPackingJobsQuery> query =
+                ArgumentCaptor.forClass(ListPackingJobsQuery.class);
+        verify(jobs).list(query.capture());
+        assertThat(query.getValue().firebaseUid()).isEqualTo(UID);
+        assertThat(query.getValue().projectId()).isEqualTo(PROJECT_ID);
+        assertThat(query.getValue().page().page()).isZero();
+        assertThat(query.getValue().page().size()).isEqualTo(20);
     }
 
     @Test
