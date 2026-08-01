@@ -99,6 +99,9 @@ services:
         condition: service_healthy
       azurite:
         condition: service_healthy
+      servicebus:
+        condition: service_healthy
+        required: false
     environment:
       SPRING_PROFILES_ACTIVE: local
       DB_HOST: postgres
@@ -106,12 +109,16 @@ services:
       DB_NAME: ${DB_NAME:-packing}
       DB_USERNAME: ${DB_USERNAME:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-packing}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-postgres}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-packing-local}
       FIREBASE_SERVICE_ACCOUNT_B64: ${FIREBASE_SERVICE_ACCOUNT_B64:-}
       FIREBASE_ADMIN_ENABLED: ${FIREBASE_ADMIN_ENABLED:-false}
       # Inside the Compose network the emulator answers to its service name, not localhost.
       AZURITE_HOST: azurite
       AZURITE_BLOB_PORT: 10000
+      SPRING_CLOUD_AZURE_STORAGE_BLOB_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
