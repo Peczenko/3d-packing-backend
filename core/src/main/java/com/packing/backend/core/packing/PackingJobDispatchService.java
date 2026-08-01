@@ -10,13 +10,11 @@ import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 
-@Service
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @RequiredArgsConstructor
 public class PackingJobDispatchService {
