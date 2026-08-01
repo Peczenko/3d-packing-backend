@@ -1,6 +1,7 @@
 package com.packing.backend.core.packing;
 
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
+import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
@@ -10,15 +11,19 @@ import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
+import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectNotFoundException;
 import com.packing.backend.domain.project.ProjectPermission;
+import com.packing.backend.domain.shared.ResourceConflictException;
+import com.packing.backend.domain.shared.ResourceNotFoundException;
 import com.packing.backend.domain.user.FirebaseUid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.UUID;
 
 @Service
@@ -33,6 +38,7 @@ public class PackingJobApplicationService {
     private final PackingJobFinder finder;
     private final ProjectAccessLookup access;
     private final DomainEventPublisher events;
+    private final PackingJobArtifactStore artifacts;
     private final Clock clock;
 
     public PackingJobView create(CreatePackingJobCommand command) {
@@ -59,6 +65,23 @@ public class PackingJobApplicationService {
         return requireView(project.projectId(), new PackingJobId(query.jobId()));
     }
 
+    @Transactional(readOnly = true)
+    public PackingJobArtifactStore.TemporaryUrl prepareResultDownload(PackingJobResultQuery query) {
+        ProjectAccess project = requireAccess(query.firebaseUid(), query.projectId(),
+                ProjectPermission.READ);
+        PackingJobId jobId = new PackingJobId(query.jobId());
+        PackingJob job = jobs.findById(jobId)
+                .filter(candidate -> candidate.projectId().equals(project.projectId()))
+                .orElseThrow(() -> PackingJobNotFoundException.byId(jobId));
+        if (job.status() != PackingJobStatus.SUCCEEDED) {
+            throw new ResourceConflictException(
+                    "Packing job result is not available until the job succeeds");
+        }
+        artifacts.findResult(jobId).orElseThrow(() -> new ResourceNotFoundException(
+                "Result artifact for packing job " + jobId + " was not found"));
+        return artifacts.createResultDownloadUrl(jobId, Duration.ofMinutes(10));
+    }
+
     private ProjectAccess requireAccess(String firebaseUid,
                                         UUID projectId,
                                         ProjectPermission required) {
@@ -83,5 +106,8 @@ public class PackingJobApplicationService {
     }
 
     public record PackingJobQuery(String firebaseUid, UUID projectId, UUID jobId) {
+    }
+
+    public record PackingJobResultQuery(String firebaseUid, UUID projectId, UUID jobId) {
     }
 }
