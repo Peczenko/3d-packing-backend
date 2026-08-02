@@ -6,6 +6,8 @@ package pipeline
 import (
 	"context"
 	"time"
+
+	"github.com/Peczenko/3d-packing-backend/worker/internal/contracts"
 )
 
 // EngineProvenance identifies the packer that produced a result: the
@@ -52,4 +54,45 @@ type EngineFailure struct {
 
 func (f *EngineFailure) Error() string {
 	return f.Reason
+}
+
+// Delivery is one broker message. It exposes only its body: the job id is
+// read from the payload and never from a subject, session or application
+// property, so a message cannot claim to be about a job its body does not
+// name.
+type Delivery interface {
+	Body() []byte
+}
+
+// Queue is the dispatch/result broker. Settlement is manual and explicit:
+// Complete says the job reached a terminal state, Abandon asks for a
+// redelivery, and neither is called when the lock is already lost.
+type Queue interface {
+	ReceiveOne(context.Context) (Delivery, error)
+	RenewLock(context.Context, Delivery) error
+	SendEvent(context.Context, contracts.WorkerEvent) error
+	Complete(context.Context, Delivery) error
+	Abandon(context.Context, Delivery) error
+}
+
+// Artifacts is the request/result blob store, addressed by job id: the
+// adapter owns the key layout, so nothing here can derive a key that
+// disagrees with it.
+type Artifacts interface {
+	DownloadRequest(context.Context, string, string) error
+	// FindResult reports (nil, nil) when the job has no result yet. A
+	// non-nil error is always infrastructure, never absence.
+	FindResult(context.Context, string) (*StoredResult, error)
+	// CreateResult uploads conditionally and returns the created metadata,
+	// or the metadata already stored when another delivery won the race.
+	// The loser must report the winner's result rather than its own.
+	CreateResult(context.Context, string, string, StoredResult) (*StoredResult, error)
+}
+
+// StoredResult is what a finished job leaves behind: which packer ran, and
+// what it produced. It is the whole succeeded event, so a redelivered
+// message can report an outcome it did not compute itself.
+type StoredResult struct {
+	Engine EngineProvenance
+	Result EngineResult
 }
