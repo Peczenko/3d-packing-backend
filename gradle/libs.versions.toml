@@ -1,7 +1,7 @@
 [versions]
 springBoot = "3.5.16"
 springCloudAzure = "6.1.0"
-jooq = "3.19.35"
+jooq = "3.21.6"
 jooqDocker = "8.0.30"
 # Codegen classpath only; every other usage is BOM-managed. Keep in step with the Boot BOM.
 postgres = "42.7.11"
