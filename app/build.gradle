@@ -31,6 +31,17 @@ dependencies {
     testImplementation libs.archunit.junit5
 }
 
+// config/servicebus/config.json sits above every module, so ServiceBusEmulatorConfigTest cannot reach it
+// from the test task's own working directory. Declaring it an input matters as much as the path: without
+// it Gradle marks this task UP-TO-DATE when only that file changed, and the regression guard stops running
+// at exactly the moment it would catch something.
+tasks.named('test') {
+    systemProperty 'packing.repositoryRoot', rootDir
+    inputs.file(rootProject.file('config/servicebus/config.json'))
+            .withPropertyName('serviceBusEmulatorConfig')
+            .withPathSensitivity(PathSensitivity.NONE)
+}
+
 tasks.named('jar') {
     enabled = false
 }

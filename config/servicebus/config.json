@@ -7,7 +7,7 @@
           {
             "Name": "packing-dispatch",
             "Properties": {
-              "DeadLetteringOnMessageExpiration": false,
+              "DeadLetteringOnMessageExpiration": true,
               "DefaultMessageTimeToLive": "PT1H",
               "DuplicateDetectionHistoryTimeWindow": "PT20S",
               "ForwardDeadLetteredMessagesTo": "",
@@ -21,7 +21,7 @@
           {
             "Name": "packing-results",
             "Properties": {
-              "DeadLetteringOnMessageExpiration": false,
+              "DeadLetteringOnMessageExpiration": true,
               "DefaultMessageTimeToLive": "PT1H",
               "DuplicateDetectionHistoryTimeWindow": "PT20S",
               "ForwardDeadLetteredMessagesTo": "",
