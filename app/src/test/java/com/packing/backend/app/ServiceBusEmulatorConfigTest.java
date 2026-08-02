@@ -29,11 +29,11 @@ class ServiceBusEmulatorConfigTest {
                 JsonNode properties = queue.required("Properties");
                 JsonNode timeToLive = properties.get("DefaultMessageTimeToLive");
 
-                if (!outlivesTheLongestJob(timeToLive) && !properties.path("DeadLetteringOnMessageExpiration").asBoolean(false)) {
+                if (!outlivesTheLongestJob(timeToLive) && !deadLettersOnExpiration(properties)) {
                     offenders.add("%s (DefaultMessageTimeToLive=%s, DeadLetteringOnMessageExpiration=%s)"
                             .formatted(name,
                                     timeToLive == null ? "<absent>" : timeToLive.asText(),
-                                    properties.path("DeadLetteringOnMessageExpiration").asBoolean(false)));
+                                    deadLettersOnExpiration(properties)));
                 }
                 queueNames.add(name);
             }
@@ -54,13 +54,32 @@ class ServiceBusEmulatorConfigTest {
         return timeToLive != null && Duration.parse(timeToLive.asText()).compareTo(LONGEST_JOB) > 0;
     }
 
+    // TextNode.asBoolean("true") returns true, so a quoted "true" would silently pass here even though
+    // .NET's System.Text.Json rejects a string for a bool and the emulator would crash-loop on it.
+    private static boolean deadLettersOnExpiration(JsonNode properties) {
+        JsonNode flag = properties.path("DeadLetteringOnMessageExpiration");
+        return flag.isBoolean() && flag.booleanValue();
+    }
+
     private static JsonNode emulatorConfig() throws IOException {
-        String repositoryRoot = System.getProperty("packing.repositoryRoot");
-        assertThat(repositoryRoot)
-                .as("packing.repositoryRoot must be set by the test task; config/ sits above every module")
-                .isNotNull();
-        Path config = Path.of(repositoryRoot, "config", "servicebus", "config.json");
+        Path config = repositoryRoot().resolve("config").resolve("servicebus").resolve("config.json");
         assertThat(config).exists();
         return new ObjectMapper().readTree(Files.readString(config));
+    }
+
+    // config/ sits above every module, so this test cannot reach it via the classpath the way
+    // PackingMessagingProfileConfigTest reaches main resources. Walk up from the working directory
+    // instead of relying on a Gradle-supplied system property, so the test also runs under IntelliJ's
+    // own JUnit runner.
+    private static Path repositoryRoot() {
+        Path dir = Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        while (dir != null) {
+            if (Files.exists(dir.resolve("settings.gradle"))) {
+                return dir;
+            }
+            dir = dir.getParent();
+        }
+        throw new IllegalStateException(
+                "could not locate settings.gradle by walking up from " + System.getProperty("user.dir"));
     }
 }
