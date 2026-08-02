@@ -35,17 +35,24 @@ type RequestEnvelope struct {
 	Spec              json.RawMessage `json:"spec"`
 }
 
+// The five optional fields are pointers, not plain values with omitempty.
+// EncodeSucceeded/EncodeFailed always populate the fields their event type
+// owns, including an explicit zero (0, ""); only a nil pointer (the fields
+// a started event doesn't have) is omitted. A plain int64/string would be
+// unable to tell "0 result bytes" or "empty reason" apart from "absent",
+// and the committed Java decoder's requiredLong/requiredText treats a
+// missing key as a hard decode failure.
 type WorkerEvent struct {
-	MessageVersion    int    `json:"messageVersion"`
-	EventType         string `json:"eventType"`
-	JobID             string `json:"jobId"`
-	EngineVersion     string `json:"engineVersion"`
-	EngineChecksum    string `json:"engineChecksum"`
-	ResultFileName    string `json:"resultFileName,omitempty"`
-	ResultContentType string `json:"resultContentType,omitempty"`
-	ResultSizeBytes   int64  `json:"resultSizeBytes,omitempty"`
-	ResultChecksum    string `json:"resultChecksum,omitempty"`
-	Reason            string `json:"reason,omitempty"`
+	MessageVersion    int     `json:"messageVersion"`
+	EventType         string  `json:"eventType"`
+	JobID             string  `json:"jobId"`
+	EngineVersion     string  `json:"engineVersion"`
+	EngineChecksum    string  `json:"engineChecksum"`
+	ResultFileName    *string `json:"resultFileName,omitempty"`
+	ResultContentType *string `json:"resultContentType,omitempty"`
+	ResultSizeBytes   *int64  `json:"resultSizeBytes,omitempty"`
+	ResultChecksum    *string `json:"resultChecksum,omitempty"`
+	Reason            *string `json:"reason,omitempty"`
 }
 
 func isCanonicalUUID(s string) bool {
@@ -58,7 +65,7 @@ func DecodeDispatch(data []byte) (DispatchMessage, error) {
 		JobID          *string `json:"jobId"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
-		return DispatchMessage{}, fmt.Errorf("decode dispatch message: %w (%v)", ErrInvalidJSON, err)
+		return DispatchMessage{}, fmt.Errorf("decode dispatch message: %w: %w", ErrInvalidJSON, err)
 	}
 	if wire.MessageVersion == nil || *wire.MessageVersion != messageVersion {
 		return DispatchMessage{}, fmt.Errorf("decode dispatch message: %w", ErrUnsupportedVersion)
@@ -79,7 +86,7 @@ func DecodeRequest(data []byte) (RequestEnvelope, error) {
 		Spec              json.RawMessage `json:"spec"`
 	}
 	if err := json.Unmarshal(data, &wire); err != nil {
-		return RequestEnvelope{}, fmt.Errorf("decode request envelope: %w (%v)", ErrInvalidJSON, err)
+		return RequestEnvelope{}, fmt.Errorf("decode request envelope: %w: %w", ErrInvalidJSON, err)
 	}
 	if wire.RequestVersion == nil || *wire.RequestVersion != messageVersion {
 		return RequestEnvelope{}, fmt.Errorf("decode request envelope: %w", ErrUnsupportedVersion)
@@ -114,10 +121,10 @@ func EncodeSucceeded(jobID, engineVersion, engineChecksum, resultFileName, resul
 		JobID:             jobID,
 		EngineVersion:     engineVersion,
 		EngineChecksum:    engineChecksum,
-		ResultFileName:    resultFileName,
-		ResultContentType: resultContentType,
-		ResultSizeBytes:   resultSizeBytes,
-		ResultChecksum:    resultChecksum,
+		ResultFileName:    &resultFileName,
+		ResultContentType: &resultContentType,
+		ResultSizeBytes:   &resultSizeBytes,
+		ResultChecksum:    &resultChecksum,
 	})
 }
 
@@ -128,6 +135,6 @@ func EncodeFailed(jobID, engineVersion, engineChecksum, reason string) ([]byte, 
 		JobID:          jobID,
 		EngineVersion:  engineVersion,
 		EngineChecksum: engineChecksum,
-		Reason:         reason,
+		Reason:         &reason,
 	})
 }

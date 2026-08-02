@@ -108,10 +108,10 @@ func TestSucceededEventRoundTrip(t *testing.T) {
 		event.JobID,
 		event.EngineVersion,
 		event.EngineChecksum,
-		event.ResultFileName,
-		event.ResultContentType,
-		event.ResultSizeBytes,
-		event.ResultChecksum,
+		*event.ResultFileName,
+		*event.ResultContentType,
+		*event.ResultSizeBytes,
+		*event.ResultChecksum,
 	)
 	if err != nil {
 		t.Fatalf("EncodeSucceeded: %v", err)
@@ -137,12 +137,61 @@ func TestFailedEventRoundTrip(t *testing.T) {
 		t.Fatalf("round trip mismatch:\n got:  %s\n want: %s", got, want)
 	}
 
-	encoded, err := EncodeFailed(event.JobID, event.EngineVersion, event.EngineChecksum, event.Reason)
+	encoded, err := EncodeFailed(event.JobID, event.EngineVersion, event.EngineChecksum, *event.Reason)
 	if err != nil {
 		t.Fatalf("EncodeFailed: %v", err)
 	}
 	if !bytes.Equal(encoded, want) {
 		t.Fatalf("EncodeFailed mismatch:\n got:  %s\n want: %s", encoded, want)
+	}
+}
+
+func TestEncodeSucceededEmitsExplicitZeroSize(t *testing.T) {
+	encoded, err := EncodeSucceeded(
+		"00000000-0000-0000-0000-000000000001",
+		"packer 0.3.0",
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"output.bin",
+		"application/octet-stream",
+		0,
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	)
+	if err != nil {
+		t.Fatalf("EncodeSucceeded: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	size, ok := fields["resultSizeBytes"]
+	if !ok {
+		t.Fatalf("resultSizeBytes key missing from encoded succeeded event with size 0: %s", encoded)
+	}
+	if string(size) != "0" {
+		t.Fatalf("resultSizeBytes = %s, want 0", size)
+	}
+}
+
+func TestEncodeFailedEmitsExplicitEmptyReason(t *testing.T) {
+	encoded, err := EncodeFailed(
+		"00000000-0000-0000-0000-000000000001",
+		"packer 0.3.0",
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("EncodeFailed: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	reason, ok := fields["reason"]
+	if !ok {
+		t.Fatalf("reason key missing from encoded failed event with empty reason: %s", encoded)
+	}
+	if string(reason) != `""` {
+		t.Fatalf(`reason = %s, want ""`, reason)
 	}
 }
 

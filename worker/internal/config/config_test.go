@@ -19,6 +19,8 @@ func clearAuthEnv(t *testing.T) {
 		"PACKING_WORK_ROOT",
 		"PACKING_RECEIVE_TIMEOUT",
 		"PACKING_LOCK_RENEW_INTERVAL",
+		"PACKING_DISPATCH_QUEUE",
+		"PACKING_RESULT_QUEUE",
 	} {
 		t.Setenv(key, "")
 	}
@@ -69,6 +71,8 @@ func TestLoadAppliesOverrides(t *testing.T) {
 	t.Setenv("PACKING_WORK_ROOT", "/var/tmp/packing")
 	t.Setenv("PACKING_RECEIVE_TIMEOUT", "90s")
 	t.Setenv("PACKING_LOCK_RENEW_INTERVAL", "5s")
+	t.Setenv("PACKING_DISPATCH_QUEUE", "custom-dispatch")
+	t.Setenv("PACKING_RESULT_QUEUE", "custom-results")
 
 	cfg, err := Load()
 	if err != nil {
@@ -89,6 +93,12 @@ func TestLoadAppliesOverrides(t *testing.T) {
 	}
 	if cfg.LockRenewInterval != 5*time.Second {
 		t.Errorf("LockRenewInterval = %v, want 5s", cfg.LockRenewInterval)
+	}
+	if cfg.DispatchQueue != "custom-dispatch" {
+		t.Errorf("DispatchQueue = %q, want custom-dispatch", cfg.DispatchQueue)
+	}
+	if cfg.ResultQueue != "custom-results" {
+		t.Errorf("ResultQueue = %q, want custom-results", cfg.ResultQueue)
 	}
 }
 
@@ -111,15 +121,26 @@ func TestLoadUsesServiceBusConnectionString(t *testing.T) {
 
 func TestLoadUsesServiceBusNamespace(t *testing.T) {
 	clearAuthEnv(t)
-	t.Setenv("SERVICE_BUS_NAMESPACE", "example.servicebus.windows.net")
+	t.Setenv("SERVICE_BUS_NAMESPACE", "example-namespace")
 	t.Setenv("STORAGE_ACCOUNT_URL", "https://example.blob.core.windows.net")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.ServiceBusNamespace == "" {
-		t.Error("ServiceBusNamespace should be populated")
+	if cfg.ServiceBusNamespace != "example-namespace" {
+		t.Errorf("ServiceBusNamespace = %q, want example-namespace", cfg.ServiceBusNamespace)
+	}
+}
+
+func TestLoadRejectsFullyQualifiedServiceBusNamespace(t *testing.T) {
+	clearAuthEnv(t)
+	t.Setenv("SERVICE_BUS_NAMESPACE", "example-namespace.servicebus.windows.net")
+	t.Setenv("STORAGE_ACCOUNT_URL", "https://example.blob.core.windows.net")
+
+	_, err := Load()
+	if !errors.Is(err, ErrServiceBusNamespaceFormat) {
+		t.Fatalf("expected ErrServiceBusNamespaceFormat, got %v", err)
 	}
 }
 
@@ -136,7 +157,7 @@ func TestLoadRejectsMissingServiceBusAuth(t *testing.T) {
 func TestLoadRejectsBothServiceBusAuth(t *testing.T) {
 	clearAuthEnv(t)
 	t.Setenv("SERVICE_BUS_CONNECTION_STRING", "conn")
-	t.Setenv("SERVICE_BUS_NAMESPACE", "ns.servicebus.windows.net")
+	t.Setenv("SERVICE_BUS_NAMESPACE", "ns")
 	t.Setenv("STORAGE_CONNECTION_STRING", "conn")
 
 	_, err := Load()
@@ -172,8 +193,28 @@ func TestLoadRejectsInvalidReceiveTimeout(t *testing.T) {
 	t.Setenv("PACKING_RECEIVE_TIMEOUT", "not-a-duration")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected an error for invalid PACKING_RECEIVE_TIMEOUT")
+	if !errors.Is(err, ErrInvalidReceiveTimeout) {
+		t.Fatalf("expected ErrInvalidReceiveTimeout, got %v", err)
+	}
+}
+
+func TestLoadRejectsZeroReceiveTimeout(t *testing.T) {
+	setValidAuth(t)
+	t.Setenv("PACKING_RECEIVE_TIMEOUT", "0s")
+
+	_, err := Load()
+	if !errors.Is(err, ErrInvalidReceiveTimeout) {
+		t.Fatalf("expected ErrInvalidReceiveTimeout, got %v", err)
+	}
+}
+
+func TestLoadRejectsNegativeReceiveTimeout(t *testing.T) {
+	setValidAuth(t)
+	t.Setenv("PACKING_RECEIVE_TIMEOUT", "-1s")
+
+	_, err := Load()
+	if !errors.Is(err, ErrInvalidReceiveTimeout) {
+		t.Fatalf("expected ErrInvalidReceiveTimeout, got %v", err)
 	}
 }
 
@@ -182,7 +223,27 @@ func TestLoadRejectsInvalidLockRenewInterval(t *testing.T) {
 	t.Setenv("PACKING_LOCK_RENEW_INTERVAL", "not-a-duration")
 
 	_, err := Load()
-	if err == nil {
-		t.Fatal("expected an error for invalid PACKING_LOCK_RENEW_INTERVAL")
+	if !errors.Is(err, ErrInvalidLockRenewInterval) {
+		t.Fatalf("expected ErrInvalidLockRenewInterval, got %v", err)
+	}
+}
+
+func TestLoadRejectsZeroLockRenewInterval(t *testing.T) {
+	setValidAuth(t)
+	t.Setenv("PACKING_LOCK_RENEW_INTERVAL", "0s")
+
+	_, err := Load()
+	if !errors.Is(err, ErrInvalidLockRenewInterval) {
+		t.Fatalf("expected ErrInvalidLockRenewInterval, got %v", err)
+	}
+}
+
+func TestLoadRejectsNegativeLockRenewInterval(t *testing.T) {
+	setValidAuth(t)
+	t.Setenv("PACKING_LOCK_RENEW_INTERVAL", "-5s")
+
+	_, err := Load()
+	if !errors.Is(err, ErrInvalidLockRenewInterval) {
+		t.Fatalf("expected ErrInvalidLockRenewInterval, got %v", err)
 	}
 }
