@@ -287,6 +287,35 @@ func TestProvenanceFailureIsInfrastructure(t *testing.T) {
 	})
 }
 
+// TestProvenanceBoundsVersionOutput guards against a packer that streams
+// instead of printing one short line and exiting on --version: Run's
+// stdout goes to os.DevNull, Run's stderr is capped by tailBuffer, and
+// exec.ExitError.Stderr is capped by os/exec itself, but nothing bounded
+// Provenance's own stdout read before headBuffer. It keeps the head, not
+// the tail: unlike a stderr log where the newest lines matter, a --version
+// stream is one line at the very front, so the head is the only part
+// worth keeping — this test's exact-prefix assertion fails against a
+// tail-retaining cap just as it fails against no cap at all.
+func TestProvenanceBoundsVersionOutput(t *testing.T) {
+	runner := testRunner(t)
+	noise := helperNoise(3 * maxVersionBytes)
+	t.Setenv(helperVersion, string(noise))
+	t.Setenv(helperNewlines, "0")
+
+	provenance, err := runner.Provenance(context.Background())
+	if err != nil {
+		t.Fatalf("Provenance: %v", err)
+	}
+
+	want := string(noise[:maxVersionBytes])
+	if len(provenance.Version) != maxVersionBytes {
+		t.Fatalf("Version is %d bytes, want exactly %d: stdout is not bounded", len(provenance.Version), maxVersionBytes)
+	}
+	if provenance.Version != want {
+		t.Fatalf("Version is not the head of stdout: got %q", truncateForLog(provenance.Version))
+	}
+}
+
 func TestRunPassesExactlyTheDocumentedArguments(t *testing.T) {
 	runner := testRunner(t)
 	request := testRequest(t, 60*time.Second)
@@ -350,6 +379,40 @@ func TestRunTimeoutIsAnEngineFailure(t *testing.T) {
 	}
 	if elapsed > 30*time.Second {
 		t.Fatalf("Run took %s after a 1s runtime limit", elapsed)
+	}
+}
+
+// TestParentContextDeadlineIsNotAnEngineFailure guards the classification
+// order in Run: a parent deadline must be checked, and must win, before the
+// runtime-limit deadline is even considered. request.Runtime's own
+// context.WithTimeout is derived from ctx, so when the parent's shorter
+// deadline fires first, runCtx.Err() is ALSO context.DeadlineExceeded —
+// indistinguishable from a genuine runtime-limit timeout by that check
+// alone. If the two cases in Run's switch were swapped, this parent-caused
+// cancellation would be misreported as the packing job exceeding its
+// multi-minute runtime limit, so the worker would fail the job and
+// terminate the delivery instead of abandoning it for redelivery. The
+// existing cancellation tests use context.WithCancel, whose
+// context.Canceled never matches the DeadlineExceeded branch regardless of
+// order, so they cannot catch this; only a parent context.WithTimeout can.
+func TestParentContextDeadlineIsNotAnEngineFailure(t *testing.T) {
+	runner := testRunner(t)
+	request := testRequest(t, 5*time.Minute)
+	t.Setenv(helperSleep, "5m")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	_, err := runner.Run(ctx, request)
+	elapsed := time.Since(started)
+
+	requireInfrastructureError(t, err)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error %v does not wrap the parent context's DeadlineExceeded", err)
+	}
+	if elapsed > 30*time.Second {
+		t.Fatalf("Run took %s after a 300ms parent deadline against a 5m runtime limit", elapsed)
 	}
 }
 
@@ -563,6 +626,14 @@ func TestRunKillsAChildThatIgnoresTermination(t *testing.T) {
 		}
 		if elapsed < terminateGrace-time.Second {
 			t.Fatalf("child was killed after %s, before the %s termination grace elapsed", elapsed, terminateGrace)
+		}
+		// Pinned to the literal 5-second budget, not the terminateGrace
+		// constant: the requirement is "wait at most five seconds" before
+		// killing, independent of whatever the constant currently reads. A
+		// canceled packer must not be able to hold a Service Bus lock for
+		// however long a future change happens to set terminateGrace to.
+		if want := 5 * time.Second; elapsed > want+2*time.Second {
+			t.Fatalf("child was killed after %s, want at most %s", elapsed, want)
 		}
 	})
 }

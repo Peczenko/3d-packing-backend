@@ -33,6 +33,11 @@ const (
 	// maxStderrBytes bounds what a failure reason carries; a packer that
 	// logs progress to stderr can otherwise produce megabytes of it.
 	maxStderrBytes = 8 << 10
+
+	// maxVersionBytes bounds what Provenance reads from `--version` stdout;
+	// a packer that streams there instead of printing one short line and
+	// exiting must not be able to grow this without bound.
+	maxVersionBytes = 8 << 10
 )
 
 var errBlankVersion = errors.New("engine: packer --version printed nothing")
@@ -56,16 +61,20 @@ func (r *Runner) Provenance(ctx context.Context) (pipeline.EngineProvenance, err
 		return pipeline.EngineProvenance{}, fmt.Errorf("engine: locate packer %q: %w", r.path, err)
 	}
 
-	printed, err := exec.CommandContext(ctx, executable, "--version").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
-			return pipeline.EngineProvenance{}, fmt.Errorf("engine: %s --version: %w: %s", executable, err, tail(exitErr.Stderr))
+	cmd := exec.CommandContext(ctx, executable, "--version")
+	var stdout headBuffer
+	var stderr tailBuffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if noise := stderr.String(); noise != "" {
+			return pipeline.EngineProvenance{}, fmt.Errorf("engine: %s --version: %w: %s", executable, err, noise)
 		}
 		return pipeline.EngineProvenance{}, fmt.Errorf("engine: %s --version: %w", executable, err)
 	}
 
-	version := strings.TrimSuffix(string(printed), "\n")
+	version := strings.TrimSuffix(stdout.String(), "\n")
 	if strings.TrimSpace(version) == "" {
 		// The backend rejects a blank engineVersion outright, so every
 		// lifecycle event for this job would fail to decode. Failing here
@@ -212,9 +221,26 @@ func (b *tailBuffer) String() string {
 	return string(b.data)
 }
 
-func tail(b []byte) string {
-	if len(b) > maxStderrBytes {
-		b = b[len(b)-maxStderrBytes:]
+// headBuffer retains only the first maxVersionBytes written to it. A
+// stderr log's most recent lines are the useful ones, which is why
+// tailBuffer keeps the tail; a `--version` stream is one short line at the
+// front, so keeping the head means a runaway packer yields a truncated but
+// still-real version prefix instead of the newest bytes of a stream that
+// never reached the version it printed at the start.
+type headBuffer struct {
+	data []byte
+}
+
+func (b *headBuffer) Write(p []byte) (int, error) {
+	if room := maxVersionBytes - len(b.data); room > 0 {
+		if room > len(p) {
+			room = len(p)
+		}
+		b.data = append(b.data, p[:room]...)
 	}
-	return string(b)
+	return len(p), nil
+}
+
+func (b *headBuffer) String() string {
+	return string(b.data)
 }
