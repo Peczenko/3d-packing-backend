@@ -67,6 +67,7 @@ class PackingDeadLetterReconcilerTest {
         PackingWorkerEvent event = new PackingWorkerEvent.Started(1, PackingJobId.generate(), "packer 0.1.0", CHECKSUM);
         received(dispatchMessage, codec.encodeDispatch(PackingDispatchMessage.versionOne(dispatchId)));
         received(resultMessage, codec.encodeWorkerEvent(event));
+        when(resultMessage.getSessionId()).thenReturn(event.jobId().toString());
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of(dispatchMessage)));
         when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of(resultMessage)));
 
@@ -77,6 +78,22 @@ class PackingDeadLetterReconcilerTest {
         order.verify(dispatchReceiver).complete(dispatchMessage);
         order.verify(workerEvents).apply(event);
         order.verify(resultReceiver).complete(resultMessage);
+    }
+
+    @Test
+    void leavesAResultWithAMismatchedSessionUnsettledWithoutApplyingIt() {
+        PackingWorkerEvent event = new PackingWorkerEvent.Started(1, PackingJobId.generate(), "packer 0.1.0", CHECKSUM);
+        received(resultMessage, codec.encodeWorkerEvent(event));
+        when(resultMessage.getSessionId()).thenReturn(PackingJobId.generate().toString());
+        when(resultMessage.getMessageId()).thenReturn("result-session-mismatch");
+        when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1)))
+                .thenReturn(IterableStream.of(List.of(resultMessage)));
+
+        reconciler.reconcilePeriodically();
+
+        verifyNoInteractions(workerEvents);
+        verify(resultReceiver, never()).complete(resultMessage);
+        verify(resultReceiver, never()).abandon(resultMessage);
     }
 
     @Test
@@ -105,6 +122,7 @@ class PackingDeadLetterReconcilerTest {
         when(dispatchMessage.getMessageId()).thenReturn("dispatch-malformed");
         PackingWorkerEvent event = new PackingWorkerEvent.Started(1, PackingJobId.generate(), "packer 0.1.0", CHECKSUM);
         received(resultMessage, codec.encodeWorkerEvent(event));
+        when(resultMessage.getSessionId()).thenReturn(event.jobId().toString());
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of(dispatchMessage)));
         when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of(resultMessage)));
 

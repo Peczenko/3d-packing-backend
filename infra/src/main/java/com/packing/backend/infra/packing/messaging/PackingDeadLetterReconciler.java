@@ -4,6 +4,7 @@ import com.azure.messaging.servicebus.ServiceBusReceivedMessage;
 import com.azure.messaging.servicebus.ServiceBusReceiverClient;
 import com.packing.backend.core.packing.PackingJobRecoveryService;
 import com.packing.backend.core.packing.PackingWorkerEventService;
+import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.infra.packing.PackingContractCodec;
 import lombok.RequiredArgsConstructor;
@@ -73,7 +74,15 @@ class PackingDeadLetterReconciler {
     }
 
     private void replayResult(ServiceBusReceivedMessage message) {
-        workerEvents.apply(codec.decodeWorkerEvent(message.getBody().toString()));
+        PackingWorkerEvent event = codec.decodeWorkerEvent(message.getBody().toString());
+        requireMatchingSession(message, event);
+        workerEvents.apply(event);
+    }
+
+    private void requireMatchingSession(ServiceBusReceivedMessage message, PackingWorkerEvent event) {
+        if (!event.jobId().toString().equals(message.getSessionId())) {
+            throw new DomainRuleViolationException("Packing result message session does not match job id");
+        }
     }
 
     private void abandon(ServiceBusReceiverClient receiver, ServiceBusReceivedMessage message) {
