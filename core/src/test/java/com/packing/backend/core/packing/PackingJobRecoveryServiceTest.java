@@ -44,7 +44,7 @@ class PackingJobRecoveryServiceTest {
     }
 
     @Test
-    void exhaustedDispatchFailsOnlyAQueuedJobWithoutEngineProvenance() {
+    void exhaustedDispatchFailsAQueuedJobWithoutEngineProvenance() {
         PackingJob job = queuedJob();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
@@ -73,15 +73,24 @@ class PackingJobRecoveryServiceTest {
     }
 
     @Test
-    void exhaustedDispatchLeavesARunningJobUnchanged() {
+    void exhaustedDispatchFailsARunningJobKeepingTheEngineProvenanceItRecorded() {
         PackingJob job = runningJob();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
         service.failExhaustedDispatch(job.id());
 
-        assertThat(job.status()).isEqualTo(PackingJobStatus.RUNNING);
+        assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
+        assertThat(job.failureReason()).isEqualTo("Dispatch exhausted Service Bus delivery attempts");
         assertThat(job.engineVersion()).isEqualTo("packer 0.1.0");
-        verify(jobs, never()).save(job);
+        assertThat(job.engineChecksum()).isEqualTo(CHECKSUM);
+        assertThat(job.finishedAt()).isEqualTo(NOW);
+        verify(jobs).save(job);
+    }
+
+    @Test
+    void looksUpNoResultArtifactInsideTheTransaction() {
+        assertThat(PackingJobRecoveryService.class.getDeclaredFields())
+                .noneMatch(field -> PackingJobArtifactStore.class.isAssignableFrom(field.getType()));
     }
 
     @Test

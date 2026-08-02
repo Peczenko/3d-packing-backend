@@ -104,9 +104,11 @@ public class PackingMessagingConfig {
             @Qualifier("packingDispatchDeadLetterReceiver") ServiceBusReceiverClient dispatchReceiver,
             @Qualifier("packingResultDeadLetterReceiver") ServiceBusReceiverClient resultReceiver,
             PackingContractCodec codec,
+            PackingJobArtifactStore artifacts,
             PackingJobRecoveryService recovery,
             PackingWorkerEventService workerEvents) {
-        return new PackingDeadLetterReconciler(dispatchReceiver, resultReceiver, codec, recovery, workerEvents);
+        return new PackingDeadLetterReconciler(
+                dispatchReceiver, resultReceiver, codec, artifacts, recovery, workerEvents);
     }
 
     private ServiceBusReceiverClient deadLetterReceiver(PackingMessagingProperties properties, String queueName) {

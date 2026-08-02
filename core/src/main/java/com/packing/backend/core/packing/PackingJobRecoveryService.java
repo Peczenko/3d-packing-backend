@@ -28,10 +28,7 @@ public class PackingJobRecoveryService {
     public void failExhaustedDispatch(PackingJobId id) {
         PackingJob job = jobs.findById(id)
                 .orElseThrow(() -> PackingJobNotFoundException.byId(id));
-        if (job.status() != PackingJobStatus.QUEUED) {
-            return;
-        }
-        if (job.failBeforeStart(DISPATCH_EXHAUSTED, clock.instant())) {
+        if (job.failStalled(DISPATCH_EXHAUSTED, clock.instant())) {
             jobs.save(job);
         }
     }

@@ -5,6 +5,8 @@ import com.azure.messaging.servicebus.ServiceBusReceiverClient;
 import com.packing.backend.core.packing.PackingJobRecoveryService;
 import com.packing.backend.core.packing.PackingWorkerEventService;
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
+import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.infra.packing.PackingContractCodec;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ class PackingDeadLetterReconciler {
     private final ServiceBusReceiverClient dispatchReceiver;
     private final ServiceBusReceiverClient resultReceiver;
     private final PackingContractCodec codec;
+    private final PackingJobArtifactStore artifacts;
     private final PackingJobRecoveryService recovery;
     private final PackingWorkerEventService workerEvents;
 
@@ -70,7 +73,10 @@ class PackingDeadLetterReconciler {
     }
 
     private void replayDispatch(ServiceBusReceivedMessage message) {
-        recovery.failExhaustedDispatch(codec.decodeDispatch(message.getBody().toString()).jobId());
+        PackingJobId jobId = codec.decodeDispatch(message.getBody().toString()).jobId();
+        artifacts.findResult(jobId).ifPresentOrElse(
+                result -> recovery.recoverResult(jobId, result),
+                () -> recovery.failExhaustedDispatch(jobId));
     }
 
     private void replayResult(ServiceBusReceivedMessage message) {

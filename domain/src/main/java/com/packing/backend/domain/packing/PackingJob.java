@@ -187,15 +187,15 @@ public final class PackingJob extends AggregateRoot {
         return true;
     }
 
-    public boolean failBeforeStart(String reason, Instant now) {
+    public boolean failStalled(String reason, Instant now) {
         if (isTerminal()) {
             return false;
         }
         String requiredReason = requireText(reason, "failureReason");
-        requireStatus(PackingJobStatus.QUEUED);
+        Instant finished = Objects.requireNonNull(now, "now");
         failureReason = requiredReason;
         status = PackingJobStatus.FAILED;
-        finishedAt = Objects.requireNonNull(now, "now");
+        finishedAt = finished;
         return true;
     }
 

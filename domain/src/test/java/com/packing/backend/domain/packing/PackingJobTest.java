@@ -94,15 +94,44 @@ class PackingJobTest {
     }
 
     @Test
-    void failureBeforeStartLeavesEngineProvenanceEmpty() {
+    void stalledFailureBeforeStartLeavesEngineProvenanceEmpty() {
         PackingJob job = queuedJob();
 
-        assertThat(job.failBeforeStart("dead-lettered", NOW)).isTrue();
-        assertThat(job.failBeforeStart("different reason", NOW.plusSeconds(1))).isFalse();
+        assertThat(job.failStalled("dead-lettered", NOW)).isTrue();
+        assertThat(job.failStalled("different reason", NOW.plusSeconds(1))).isFalse();
         assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
         assertThat(job.engineVersion()).isNull();
         assertThat(job.engineChecksum()).isNull();
         assertThat(job.failureReason()).isEqualTo("dead-lettered");
+        assertThat(job.finishedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void stalledFailureAfterStartKeepsTheEngineProvenanceRecordedAtStart() {
+        PackingJob job = queuedJob();
+        job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(1));
+
+        assertThat(job.failStalled("dead-lettered", NOW.plusSeconds(2))).isTrue();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
+        assertThat(job.failureReason()).isEqualTo("dead-lettered");
+        assertThat(job.engineVersion()).isEqualTo("packer 0.3.0");
+        assertThat(job.engineChecksum()).isEqualTo(SHA_A);
+        assertThat(job.startedAt()).isEqualTo(NOW.plusSeconds(1));
+        assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(2));
+    }
+
+    @Test
+    void stalledFailureRejectsABlankReasonWithoutLeavingTheJobHalfFailed() {
+        PackingJob job = queuedJob();
+        job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(1));
+
+        assertThatThrownBy(() -> job.failStalled(" ", NOW.plusSeconds(2)))
+                .isInstanceOf(DomainRuleViolationException.class);
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.RUNNING);
+        assertThat(job.failureReason()).isNull();
+        assertThat(job.finishedAt()).isNull();
     }
 
     @Test
@@ -126,7 +155,7 @@ class PackingJobTest {
         assertThat(job.succeed("different.bin", "application/octet-stream", 99, SHA_A,
                 "different", SHA_B, NOW.plusSeconds(3))).isFalse();
         assertThat(job.fail("different failure", "different", SHA_B, NOW.plusSeconds(4))).isFalse();
-        assertThat(job.failBeforeStart("different failure", NOW.plusSeconds(5))).isFalse();
+        assertThat(job.failStalled("different failure", NOW.plusSeconds(5))).isFalse();
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
         assertThat(job.finishedAt()).isEqualTo(originalFinishedAt);
@@ -143,7 +172,7 @@ class PackingJobTest {
         assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B,
                 "packer 0.3.0", SHA_A, NOW.plusSeconds(3))).isFalse();
         assertThat(job.fail("different failure", "different", SHA_B, NOW.plusSeconds(4))).isFalse();
-        assertThat(job.failBeforeStart("different failure", NOW.plusSeconds(5))).isFalse();
+        assertThat(job.failStalled("different failure", NOW.plusSeconds(5))).isFalse();
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
         assertThat(job.finishedAt()).isEqualTo(originalFinishedAt);
