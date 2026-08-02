@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Peczenko/3d-packing-backend/worker/internal/contracts"
@@ -28,10 +28,19 @@ const (
 	outputFileName = "output"
 
 	// unreportedFailure stands in for a packer failure that named no
-	// reason. The backend rejects a blank one, and a rejected event leaves
-	// the job RUNNING until the dead-letter reconciler notices.
+	// reason. PackingJob.fail rejects a blank one, so the event would be
+	// dead-lettered and the job would never reach a terminal state.
 	unreportedFailure = "packer failed without reporting a reason"
+
+	// settleTimeout bounds the settlement call that runs after a shutdown
+	// has already canceled the caller's context.
+	settleTimeout = 30 * time.Second
 )
+
+// sha256Hex mirrors PackingJob.SHA_256. An event carrying anything else is
+// rejected by the backend's domain model, not by its decoder, so it is
+// dead-lettered on the result queue where nothing can settle it.
+var sha256Hex = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 
 var (
 	// ErrNoMessage means the dispatch queue had nothing for this run. It is
@@ -91,9 +100,18 @@ func (p *Processor) RunOnce(ctx context.Context) error {
 		return ErrNoMessage
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	renewal := p.startRenewal(runCtx, cancel, delivery)
+	runCtx, withdrawJob := context.WithCancel(ctx)
+	defer withdrawJob()
+
+	// The renewal hangs off ctx rather than runCtx, and owns a context of
+	// its own that stop() cancels. Renewing under runCtx would deadlock: a
+	// RenewLock that never returns cannot see a stop signal, and the only
+	// cancel of runCtx is the deferred one that cannot run until RunOnce
+	// has returned.
+	renewal := p.startRenewal(ctx, withdrawJob, delivery)
+	// Idempotent, and the goroutine is joined even if a later edit adds an
+	// early return between here and the explicit stop below.
+	defer func() { _ = renewal.stop() }()
 
 	decision, err := p.handle(runCtx, delivery)
 
@@ -105,13 +123,20 @@ func (p *Processor) RunOnce(ctx context.Context) error {
 		return lockErr
 	}
 
+	// Settlement outlives a shutdown. The job's work is already over by
+	// here, and skipping the call because SIGTERM canceled ctx would leave
+	// the message locked for its full lock duration before the broker
+	// redelivered work that is finished.
+	settleCtx, cancelSettle := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
+	defer cancelSettle()
+
 	if decision == settleComplete {
-		if settleErr := p.queue.Complete(runCtx, delivery); settleErr != nil {
+		if settleErr := p.queue.Complete(settleCtx, delivery); settleErr != nil {
 			return errors.Join(err, fmt.Errorf("pipeline: complete dispatch: %w", settleErr))
 		}
 		return err
 	}
-	if settleErr := p.queue.Abandon(runCtx, delivery); settleErr != nil {
+	if settleErr := p.queue.Abandon(settleCtx, delivery); settleErr != nil {
 		return errors.Join(err, fmt.Errorf("pipeline: abandon dispatch: %w", settleErr))
 	}
 	return err
@@ -125,7 +150,7 @@ func (p *Processor) handle(ctx context.Context, delivery Delivery) (settlement, 
 	if err != nil {
 		// Abandoning a message this worker cannot parse leaves retry
 		// exhaustion to the broker's delivery count and dead-letter policy.
-		return settleAbandon, err
+		return settleAbandon, fmt.Errorf("pipeline: %w", err)
 	}
 	jobID := dispatch.JobID
 
@@ -134,6 +159,9 @@ func (p *Processor) handle(ctx context.Context, delivery Delivery) (settlement, 
 		return settleAbandon, fmt.Errorf("pipeline: look up result for job %s: %w", jobID, err)
 	}
 	if stored != nil {
+		if err := validateStoredResult(*stored); err != nil {
+			return settleAbandon, fmt.Errorf("pipeline: stored result for job %s is unusable: %w", jobID, err)
+		}
 		return p.reportStored(ctx, jobID, *stored)
 	}
 
@@ -163,6 +191,13 @@ func (p *Processor) handle(ctx context.Context, delivery Delivery) (settlement, 
 	engine, err := p.engine.Provenance(ctx)
 	if err != nil {
 		return settleAbandon, fmt.Errorf("pipeline: read packer provenance for job %s: %w", jobID, err)
+	}
+	// Checked before the started event, while the job is still QUEUED: a
+	// provenance the backend's domain model rejects would otherwise be sent
+	// on the result queue, where a dead-lettered event settles nothing and
+	// the job never reaches a terminal state.
+	if err := validateProvenance(engine); err != nil {
+		return settleAbandon, fmt.Errorf("pipeline: packer provenance for job %s is unusable: %w", jobID, err)
 	}
 
 	if err := p.queue.SendEvent(ctx, startedEvent(jobID, engine)); err != nil {
@@ -196,6 +231,9 @@ func (p *Processor) handle(ctx context.Context, delivery Delivery) (settlement, 
 	}
 	if created == nil {
 		return settleAbandon, fmt.Errorf("pipeline: upload result for job %s: no metadata reported", jobID)
+	}
+	if err := validateStoredResult(*created); err != nil {
+		return settleAbandon, fmt.Errorf("pipeline: stored result for job %s is unusable: %w", jobID, err)
 	}
 
 	// created, not result: when another delivery won the conditional create,
@@ -233,6 +271,43 @@ func (p *Processor) reportFailure(ctx context.Context, jobID string, engine Engi
 	return settleComplete, nil
 }
 
+// validateStoredResult and validateProvenance enforce, on this side of the
+// wire, what PackingJob.markRunning and PackingJob.succeed enforce on the
+// other. These values come from blob metadata written by another process,
+// so nothing else in the worker has seen them. An event the backend's
+// domain model rejects is dead-lettered on the result queue, and the result
+// dead-letter reconciler leaves such a message for inspection rather than
+// settling it, so it is re-logged forever and the job is never terminal.
+// Refusing to send it is what keeps that from happening.
+func validateStoredResult(stored StoredResult) error {
+	if err := validateProvenance(stored.Engine); err != nil {
+		return err
+	}
+	if strings.TrimSpace(stored.Result.FileName) == "" {
+		return errors.New("result file name is blank")
+	}
+	if strings.TrimSpace(stored.Result.ContentType) == "" {
+		return errors.New("result content type is blank")
+	}
+	if stored.Result.SizeBytes <= 0 {
+		return fmt.Errorf("result size %d is not positive", stored.Result.SizeBytes)
+	}
+	if !sha256Hex.MatchString(stored.Result.Checksum) {
+		return fmt.Errorf("result checksum %q is not a SHA-256 hex string", stored.Result.Checksum)
+	}
+	return nil
+}
+
+func validateProvenance(engine EngineProvenance) error {
+	if strings.TrimSpace(engine.Version) == "" {
+		return errors.New("engine version is blank")
+	}
+	if !sha256Hex.MatchString(engine.Checksum) {
+		return fmt.Errorf("engine checksum %q is not a SHA-256 hex string", engine.Checksum)
+	}
+	return nil
+}
+
 func (p *Processor) fetchRequest(ctx context.Context, jobID, workspace string) (contracts.RequestEnvelope, error) {
 	path := filepath.Join(workspace, requestFileName)
 	if err := p.artifacts.DownloadRequest(ctx, jobID, path); err != nil {
@@ -251,18 +326,20 @@ func (p *Processor) fetchRequest(ctx context.Context, jobID, workspace string) (
 
 // lockRenewal holds the delivery's lock for as long as the job runs.
 type lockRenewal struct {
-	stopOnce sync.Once
-	stopped  chan struct{}
-	done     chan struct{}
+	// cancel ends the renewal's own context, which is both how the loop is
+	// told to stop and how an in-flight RenewLock is interrupted.
+	cancel context.CancelFunc
+	done   chan struct{}
 	// err is written before done is closed and read after it closes, so the
 	// channel carries the happens-before edge.
 	err error
 }
 
-func (p *Processor) startRenewal(ctx context.Context, cancel context.CancelFunc, delivery Delivery) *lockRenewal {
+func (p *Processor) startRenewal(ctx context.Context, withdrawJob context.CancelFunc, delivery Delivery) *lockRenewal {
+	renewCtx, stopRenewal := context.WithCancel(ctx)
 	renewal := &lockRenewal{
-		stopped: make(chan struct{}),
-		done:    make(chan struct{}),
+		cancel: stopRenewal,
+		done:   make(chan struct{}),
 	}
 	ticker := time.NewTicker(p.lockRenewInterval)
 
@@ -271,27 +348,26 @@ func (p *Processor) startRenewal(ctx context.Context, cancel context.CancelFunc,
 		defer ticker.Stop()
 		for {
 			select {
-			case <-renewal.stopped:
-				return
-			case <-ctx.Done():
+			case <-renewCtx.Done():
 				return
 			case <-ticker.C:
-				err := p.queue.RenewLock(ctx, delivery)
+				err := p.queue.RenewLock(renewCtx, delivery)
 				if err == nil {
 					continue
 				}
-				if ctx.Err() != nil {
-					// The context was withdrawn under the renewal — a
-					// shutdown, not a lock this worker lost. Saying
-					// ErrLockLost here would suppress the abandon that a
-					// shutdown should still produce.
+				if renewCtx.Err() != nil {
+					// The renewal's own context was withdrawn — a shutdown,
+					// or stop() interrupting a call whose job is already
+					// over. Neither is a lock this worker lost, and saying
+					// ErrLockLost here would suppress a settlement that
+					// should still happen.
 					return
 				}
 				// Reported once, and once only: the goroutine stops at the
 				// first failure rather than retrying a lock the broker has
 				// most likely already reassigned.
 				renewal.err = fmt.Errorf("%w: %w", ErrLockLost, err)
-				cancel()
+				withdrawJob()
 				return
 			}
 		}
@@ -300,10 +376,11 @@ func (p *Processor) startRenewal(ctx context.Context, cancel context.CancelFunc,
 	return renewal
 }
 
-// stop halts the ticker, waits for the goroutine, and reports the renewal
-// failure if there was one. Nothing may be settled before it returns.
+// stop cancels the renewal, waits for the goroutine, and reports the
+// renewal failure if there was one. Nothing may be settled before it
+// returns, and it is safe to call more than once.
 func (r *lockRenewal) stop() error {
-	r.stopOnce.Do(func() { close(r.stopped) })
+	r.cancel()
 	<-r.done
 	return r.err
 }

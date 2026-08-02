@@ -68,7 +68,15 @@ type Delivery interface {
 // Complete says the job reached a terminal state, Abandon asks for a
 // redelivery, and neither is called when the lock is already lost.
 type Queue interface {
+	// ReceiveOne returns ErrNoMessage, or a nil Delivery, when the receive
+	// window closed empty. That nil must be a nil INTERFACE value: an
+	// adapter returning a typed nil pointer ((*x)(nil)) produces a non-nil
+	// interface, which defeats the caller's nil check and panics on the
+	// first Body call.
 	ReceiveOne(context.Context) (Delivery, error)
+	// RenewLock must honour its context. The processor cancels it to stop
+	// renewing, and waits for the call to return before it settles the
+	// message; a RenewLock that ignores cancellation blocks that wait.
 	RenewLock(context.Context, Delivery) error
 	SendEvent(context.Context, contracts.WorkerEvent) error
 	Complete(context.Context, Delivery) error
