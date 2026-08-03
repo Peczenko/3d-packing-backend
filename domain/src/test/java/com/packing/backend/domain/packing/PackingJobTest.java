@@ -135,6 +135,19 @@ class PackingJobTest {
     }
 
     @Test
+    void stalledFailureRejectsAMissingTimestampWithoutLeavingTheJobHalfFailed() {
+        PackingJob job = queuedJob();
+        job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(1));
+
+        assertThatThrownBy(() -> job.failStalled("dead-lettered", null))
+                .isInstanceOf(NullPointerException.class);
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.RUNNING);
+        assertThat(job.failureReason()).isNull();
+        assertThat(job.finishedAt()).isNull();
+    }
+
+    @Test
     void duplicateSuccessAtDifferentTimeDoesNotReplaceTerminalData() {
         PackingJob job = succeededJob();
         Instant originalFinishedAt = job.finishedAt();

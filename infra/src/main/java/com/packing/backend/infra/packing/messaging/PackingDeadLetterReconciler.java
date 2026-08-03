@@ -16,7 +16,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.time.Duration;
-import java.util.function.Consumer;
+import java.util.Optional;
 
 @RequiredArgsConstructor
 @Slf4j
@@ -24,6 +24,7 @@ class PackingDeadLetterReconciler {
 
     private static final int BATCH_SIZE = 20;
     private static final Duration RECEIVE_WAIT = Duration.ofSeconds(1);
+    private static final String DELIVERY_EXHAUSTED = "MaxDeliveryCountExceeded";
 
     private final ServiceBusReceiverClient dispatchReceiver;
     private final ServiceBusReceiverClient resultReceiver;
@@ -47,7 +48,7 @@ class PackingDeadLetterReconciler {
         reconcileQueue(resultReceiver, this::replayResult);
     }
 
-    private void reconcileQueue(ServiceBusReceiverClient receiver, Consumer<ServiceBusReceivedMessage> replay) {
+    private void reconcileQueue(ServiceBusReceiverClient receiver, Replay replay) {
         try {
             for (ServiceBusReceivedMessage message : receiver.receiveMessages(BATCH_SIZE, RECEIVE_WAIT)) {
                 replayIndependently(receiver, message, replay);
@@ -59,10 +60,11 @@ class PackingDeadLetterReconciler {
 
     private void replayIndependently(ServiceBusReceiverClient receiver,
                                      ServiceBusReceivedMessage message,
-                                     Consumer<ServiceBusReceivedMessage> replay) {
+                                     Replay replay) {
         try {
-            replay.accept(message);
-            receiver.complete(message);
+            if (replay.settles(message)) {
+                receiver.complete(message);
+            }
         } catch (DomainRuleViolationException malformed) {
             log.warn("Packing dead-letter message {} is malformed and was left for inspection",
                     message.getMessageId(), malformed);
@@ -72,17 +74,39 @@ class PackingDeadLetterReconciler {
         }
     }
 
-    private void replayDispatch(ServiceBusReceivedMessage message) {
+    private boolean replayDispatch(ServiceBusReceivedMessage message) {
         PackingJobId jobId = codec.decodeDispatch(message.getBody().toString()).jobId();
-        artifacts.findResult(jobId).ifPresentOrElse(
-                result -> recovery.recoverStalledResult(jobId, result),
-                () -> recovery.failExhaustedDispatch(jobId));
+        Optional<PackingJobArtifactStore.ResultArtifact> stored = artifacts.findResult(jobId);
+        if (stored.isPresent()) {
+            recovery.recoverStalledResult(jobId, stored.get());
+            return true;
+        }
+        if (recovery.resolveStalledDispatch(jobId, stallOf(message))) {
+            return true;
+        }
+        log.info("Packing dispatch dead-letter for job {} kept: the job is still running and its "
+                + "worker may still hold the message", jobId);
+        return false;
     }
 
-    private void replayResult(ServiceBusReceivedMessage message) {
+    // Only delivery exhaustion proves the peek-lock is free. Every other reason, expiry included,
+    // leaves open that a worker is still packing, so the evidence is kept for a later pass.
+    private PackingJobRecoveryService.DispatchStall stallOf(ServiceBusReceivedMessage message) {
+        return DELIVERY_EXHAUSTED.equalsIgnoreCase(message.getDeadLetterReason())
+                ? PackingJobRecoveryService.DispatchStall.DELIVERY_EXHAUSTED
+                : PackingJobRecoveryService.DispatchStall.EXPIRED;
+    }
+
+    private boolean replayResult(ServiceBusReceivedMessage message) {
         PackingWorkerEvent event = codec.decodeWorkerEvent(message.getBody().toString());
         requireMatchingSession(message, event);
         workerEvents.apply(event);
+        return true;
+    }
+
+    @FunctionalInterface
+    private interface Replay {
+        boolean settles(ServiceBusReceivedMessage message);
     }
 
     private void requireMatchingSession(ServiceBusReceivedMessage message, PackingWorkerEvent event) {

@@ -1,5 +1,6 @@
 package com.packing.backend.core.packing;
 
+import com.packing.backend.core.packing.PackingJobRecoveryService.DispatchStall;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.domain.packing.PackingJob;
@@ -48,7 +49,7 @@ class PackingJobRecoveryServiceTest {
         PackingJob job = queuedJob();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
-        service.failExhaustedDispatch(job.id());
+        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.DELIVERY_EXHAUSTED)).isTrue();
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
         assertThat(job.failureReason()).isEqualTo("Dispatch exhausted Service Bus delivery attempts");
@@ -65,7 +66,7 @@ class PackingJobRecoveryServiceTest {
                 "packer 0.1.0", CHECKSUM, NOW.minusSeconds(1));
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
-        service.failExhaustedDispatch(job.id());
+        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.DELIVERY_EXHAUSTED)).isTrue();
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
         assertThat(job.failureReason()).isNull();
@@ -77,7 +78,7 @@ class PackingJobRecoveryServiceTest {
         PackingJob job = runningJob();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
-        service.failExhaustedDispatch(job.id());
+        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.DELIVERY_EXHAUSTED)).isTrue();
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
         assertThat(job.failureReason()).isEqualTo("Dispatch exhausted Service Bus delivery attempts");
@@ -85,6 +86,46 @@ class PackingJobRecoveryServiceTest {
         assertThat(job.engineChecksum()).isEqualTo(CHECKSUM);
         assertThat(job.finishedAt()).isEqualTo(NOW);
         verify(jobs).save(job);
+    }
+
+    @Test
+    void expiredDispatchLeavesARunningJobForTheWorkerThatMayStillHoldIt() {
+        PackingJob job = runningJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.EXPIRED)).isFalse();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.RUNNING);
+        assertThat(job.failureReason()).isNull();
+        assertThat(job.finishedAt()).isNull();
+        verify(jobs, never()).save(job);
+    }
+
+    @Test
+    void expiredDispatchFailsAQueuedJobBecauseNoWorkerEverStartedIt() {
+        PackingJob job = queuedJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.EXPIRED)).isTrue();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
+        assertThat(job.failureReason()).isEqualTo("Dispatch expired before the job started");
+        assertThat(job.engineVersion()).isNull();
+        assertThat(job.finishedAt()).isEqualTo(NOW);
+        verify(jobs).save(job);
+    }
+
+    @Test
+    void expiredDispatchIsResolvedOnceTheJobReachedATerminalStateByAnotherRoute() {
+        PackingJob job = runningJob();
+        job.succeed("existing.bin", "application/octet-stream", 1, CHECKSUM,
+                "packer 0.1.0", CHECKSUM, NOW.minusSeconds(1));
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.EXPIRED)).isTrue();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
+        verify(jobs, never()).save(job);
     }
 
     @Test
@@ -169,7 +210,7 @@ class PackingJobRecoveryServiceTest {
         PackingJobId unknown = PackingJobId.generate();
         when(jobs.findById(unknown)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.failExhaustedDispatch(unknown))
+        assertThatThrownBy(() -> service.resolveStalledDispatch(unknown, DispatchStall.DELIVERY_EXHAUSTED))
                 .isInstanceOf(PackingJobNotFoundException.class);
 
         verify(jobs, never()).save(org.mockito.ArgumentMatchers.any());
