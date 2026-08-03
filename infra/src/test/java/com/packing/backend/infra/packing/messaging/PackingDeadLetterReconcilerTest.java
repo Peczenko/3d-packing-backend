@@ -99,7 +99,7 @@ class PackingDeadLetterReconcilerTest {
 
         reconciler.reconcilePeriodically();
 
-        verify(recovery).recoverResult(jobId, result);
+        verify(recovery).recoverStalledResult(jobId, result);
         verify(recovery, never()).failExhaustedDispatch(jobId);
         verify(dispatchReceiver).complete(dispatchMessage);
     }

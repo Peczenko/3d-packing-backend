@@ -124,6 +124,47 @@ class PackingJobRecoveryServiceTest {
     }
 
     @Test
+    void stalledResultCompletesAQueuedJobWhoseStartedEventNeverArrived() {
+        PackingJob job = queuedJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.recoverStalledResult(job.id(), artifact());
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
+        assertThat(job.resultFileName()).isEqualTo("result.bin");
+        assertThat(job.resultChecksum()).isEqualTo(CHECKSUM);
+        assertThat(job.engineVersion()).isEqualTo("packer 0.2.0");
+        assertThat(job.finishedAt()).isEqualTo(NOW);
+        verify(jobs).save(job);
+    }
+
+    @Test
+    void stalledResultCompletesARunningJobUsingItsMetadata() {
+        PackingJob job = runningJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.recoverStalledResult(job.id(), artifact());
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
+        assertThat(job.engineVersion()).isEqualTo("packer 0.2.0");
+        verify(jobs).save(job);
+    }
+
+    @Test
+    void stalledResultLeavesATerminalJobUnchanged() {
+        PackingJob job = runningJob();
+        job.succeed("existing.bin", "application/octet-stream", 1, CHECKSUM,
+                "packer 0.1.0", CHECKSUM, NOW.minusSeconds(1));
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.recoverStalledResult(job.id(), artifact());
+
+        assertThat(job.resultFileName()).isEqualTo("existing.bin");
+        assertThat(job.finishedAt()).isEqualTo(NOW.minusSeconds(1));
+        verify(jobs, never()).save(job);
+    }
+
+    @Test
     void unknownJobIsReportedForBrokerRedelivery() {
         PackingJobId unknown = PackingJobId.generate();
         when(jobs.findById(unknown)).thenReturn(Optional.empty());

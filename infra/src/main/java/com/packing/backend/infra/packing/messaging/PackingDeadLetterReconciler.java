@@ -75,7 +75,7 @@ class PackingDeadLetterReconciler {
     private void replayDispatch(ServiceBusReceivedMessage message) {
         PackingJobId jobId = codec.decodeDispatch(message.getBody().toString()).jobId();
         artifacts.findResult(jobId).ifPresentOrElse(
-                result -> recovery.recoverResult(jobId, result),
+                result -> recovery.recoverStalledResult(jobId, result),
                 () -> recovery.failExhaustedDispatch(jobId));
     }
 
