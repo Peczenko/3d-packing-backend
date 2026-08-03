@@ -11,7 +11,12 @@ import com.packing.backend.core.packing.PackingWorkerEventService;
 import com.packing.backend.core.packing.message.PackingDispatchMessage;
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.core.packing.port.out.PackingJobRepository;
+import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
+import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.project.ProjectId;
+import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.packing.PackingContractCodec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,7 +29,10 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.lang.reflect.Method;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,6 +49,7 @@ import static org.mockito.Mockito.when;
 class PackingDeadLetterReconcilerTest {
 
     private static final String CHECKSUM = "a".repeat(64);
+    private static final Instant NOW = Instant.parse("2026-08-01T12:00:00Z");
 
     @Mock
     private ServiceBusReceiverClient dispatchReceiver;
@@ -69,7 +78,7 @@ class PackingDeadLetterReconcilerTest {
     }
 
     @Test
-    void replaysDispatchAndResultDeadLettersBeforeCompletingEachMessage() {
+    void drainsTheResultDeadLetterQueueBeforeTheDispatchDeadLetterQueue() {
         PackingJobId dispatchId = PackingJobId.generate();
         PackingWorkerEvent event = new PackingWorkerEvent.Started(1, PackingJobId.generate(), "packer 0.1.0", CHECKSUM);
         received(dispatchMessage, codec.encodeDispatch(PackingDispatchMessage.versionOne(dispatchId)));
@@ -84,11 +93,41 @@ class PackingDeadLetterReconcilerTest {
         reconciler.reconcilePeriodically();
 
         InOrder order = inOrder(artifacts, recovery, workerEvents, dispatchReceiver, resultReceiver);
+        order.verify(workerEvents).apply(event);
+        order.verify(resultReceiver).complete(resultMessage);
         order.verify(artifacts).findResult(dispatchId);
         order.verify(recovery).resolveStalledDispatch(dispatchId, DispatchStall.DELIVERY_EXHAUSTED);
         order.verify(dispatchReceiver).complete(dispatchMessage);
-        order.verify(workerEvents).apply(event);
-        order.verify(resultReceiver).complete(resultMessage);
+    }
+
+    @Test
+    void aStartedEventReplayedFirstKeepsATtlExpiredDispatchFromFailingTheJobItAlreadyStarted() {
+        PackingJobId jobId = PackingJobId.generate();
+        PackingJob job = PackingJob.queue(jobId, ProjectId.generate(), UserId.generate(),
+                "{\"testField\":true}", 5_400, NOW.minusSeconds(3_700));
+        InMemoryPackingJobRepository jobs = new InMemoryPackingJobRepository(job);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        PackingDeadLetterReconciler reconcilerUnderTest = new PackingDeadLetterReconciler(
+                dispatchReceiver, resultReceiver, codec, artifacts,
+                new PackingJobRecoveryService(jobs, clock), new PackingWorkerEventService(jobs, clock));
+
+        PackingWorkerEvent started = new PackingWorkerEvent.Started(1, jobId, "packer 0.1.0", CHECKSUM);
+        received(dispatchMessage, codec.encodeDispatch(PackingDispatchMessage.versionOne(jobId)));
+        received(resultMessage, codec.encodeWorkerEvent(started));
+        when(dispatchMessage.getDeadLetterReason()).thenReturn("TTLExpiredException");
+        when(resultMessage.getSessionId()).thenReturn(jobId.toString());
+        when(artifacts.findResult(jobId)).thenReturn(Optional.empty());
+        when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
+                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+        when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1)))
+                .thenReturn(IterableStream.of(List.of(resultMessage)));
+
+        reconcilerUnderTest.reconcilePeriodically();
+
+        assertThat(jobs.current().status()).isEqualTo(PackingJobStatus.RUNNING);
+        verify(dispatchReceiver, never()).complete(dispatchMessage);
+        verify(dispatchReceiver, never()).abandon(dispatchMessage);
+        verify(resultReceiver).complete(resultMessage);
     }
 
     @Test
@@ -145,6 +184,22 @@ class PackingDeadLetterReconcilerTest {
         PackingJobId jobId = PackingJobId.generate();
         received(dispatchMessage, codec.encodeDispatch(PackingDispatchMessage.versionOne(jobId)));
         when(dispatchMessage.getDeadLetterReason()).thenReturn("HeaderSizeExceeded");
+        when(artifacts.findResult(jobId)).thenReturn(Optional.empty());
+        when(recovery.resolveStalledDispatch(jobId, DispatchStall.EXPIRED)).thenReturn(false);
+        when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
+                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+
+        reconciler.reconcilePeriodically();
+
+        verify(recovery).resolveStalledDispatch(jobId, DispatchStall.EXPIRED);
+        verify(dispatchReceiver, never()).complete(dispatchMessage);
+    }
+
+    @Test
+    void treatsANullDeadLetterReasonAsExpiryRatherThanDeliveryExhaustion() {
+        PackingJobId jobId = PackingJobId.generate();
+        received(dispatchMessage, codec.encodeDispatch(PackingDispatchMessage.versionOne(jobId)));
+        when(dispatchMessage.getDeadLetterReason()).thenReturn(null);
         when(artifacts.findResult(jobId)).thenReturn(Optional.empty());
         when(recovery.resolveStalledDispatch(jobId, DispatchStall.EXPIRED)).thenReturn(false);
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
@@ -247,5 +302,29 @@ class PackingDeadLetterReconcilerTest {
 
     private static void received(ServiceBusReceivedMessage message, String body) {
         when(message.getBody()).thenReturn(BinaryData.fromString(body));
+    }
+
+    private static final class InMemoryPackingJobRepository implements PackingJobRepository {
+
+        private PackingJob job;
+
+        InMemoryPackingJobRepository(PackingJob job) {
+            this.job = job;
+        }
+
+        @Override
+        public PackingJob save(PackingJob job) {
+            this.job = job;
+            return job;
+        }
+
+        @Override
+        public Optional<PackingJob> findById(PackingJobId id) {
+            return job.id().equals(id) ? Optional.of(job) : Optional.empty();
+        }
+
+        PackingJob current() {
+            return job;
+        }
     }
 }

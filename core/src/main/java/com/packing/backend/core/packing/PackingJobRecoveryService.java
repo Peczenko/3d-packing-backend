@@ -63,8 +63,7 @@ public class PackingJobRecoveryService {
         succeed(job, result);
     }
 
-    // A dead-lettered dispatch proves no worker still holds the message, so there is no race left
-    // to guard against and any non-terminal job may be completed from its blob.
+    // What removes the race here is the result blob existing, not the dead letter: an uploaded blob means the work finished regardless of who still holds the peek-lock.
     public void recoverStalledResult(PackingJobId id, PackingJobArtifactStore.ResultArtifact result) {
         succeed(load(id), result);
     }

@@ -44,8 +44,12 @@ class PackingDeadLetterReconciler {
     }
 
     private void reconcileBatch() {
-        reconcileQueue(dispatchReceiver, this::replayDispatch);
+        // Replay lifecycle events first so a job's status is as fresh as possible when a dispatch
+        // dead-letter is judged: a started/succeeded/failed event moving the job out of QUEUED can
+        // change whether that dispatch deserves a fail, and this order also settles genuine
+        // terminal-job dispatch dead-letters a pass earlier.
         reconcileQueue(resultReceiver, this::replayResult);
+        reconcileQueue(dispatchReceiver, this::replayDispatch);
     }
 
     private void reconcileQueue(ServiceBusReceiverClient receiver, Replay replay) {
