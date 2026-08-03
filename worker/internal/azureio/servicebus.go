@@ -54,19 +54,33 @@ type ServiceBusQueue struct {
 
 var _ pipeline.Queue = (*ServiceBusQueue)(nil)
 
+// dispatchReceiverOptions is hoisted out of the call below so the receive mode
+// is assertable in a test: the SDK exposes no accessor for it, and it is the
+// single most consequential setting in this file. Receive-and-delete would
+// pre-settle every dispatch the instant it was read, so both Abandon and
+// Complete would fail and any job whose packer failed — or whose container was
+// evicted — would be lost with the job stuck RUNNING. The value is copied at
+// the call site and never mutated.
+var dispatchReceiverOptions = azservicebus.ReceiverOptions{
+	ReceiveMode: azservicebus.ReceiveModePeekLock,
+}
+
+// unwindCloseTimeout bounds the receiver close on the failed-startup path. The
+// error being returned is already known, and a broken connection must not turn
+// reporting it into a hang.
+const unwindCloseTimeout = 10 * time.Second
+
 func NewServiceBusQueue(client *azservicebus.Client, cfg config.Config) (*ServiceBusQueue, error) {
-	// Peek lock is the SDK default, and is stated because the whole processor
-	// depends on it: receive-and-delete would drop a job the moment it was
-	// read, leaving nothing to abandon when the work failed.
-	receiver, err := client.NewReceiverForQueue(cfg.DispatchQueue, &azservicebus.ReceiverOptions{
-		ReceiveMode: azservicebus.ReceiveModePeekLock,
-	})
+	options := dispatchReceiverOptions
+	receiver, err := client.NewReceiverForQueue(cfg.DispatchQueue, &options)
 	if err != nil {
 		return nil, fmt.Errorf("azureio: open receiver for queue %s: %w", cfg.DispatchQueue, err)
 	}
 	sender, err := client.NewSender(cfg.ResultQueue, nil)
 	if err != nil {
-		closeErr := receiver.Close(context.Background())
+		closeCtx, abandonClose := context.WithTimeout(context.Background(), unwindCloseTimeout)
+		defer abandonClose()
+		closeErr := receiver.Close(closeCtx)
 		return nil, errors.Join(fmt.Errorf("azureio: open sender for queue %s: %w", cfg.ResultQueue, err), closeErr)
 	}
 	return newServiceBusQueue(receiver, sender, cfg.ReceiveTimeout), nil

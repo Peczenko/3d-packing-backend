@@ -365,7 +365,7 @@ func TestReceiveOneRequestsExactlyOneMessage(t *testing.T) {
 
 // An empty window is the normal outcome of a one-shot worker, not a failure.
 func TestReceiveOneReportsNoMessageOnAnEmptySlice(t *testing.T) {
-	queue, _, _ := newTestQueue(time.Second)
+	queue, receiver, _ := newTestQueue(time.Second)
 
 	delivery, err := queue.ReceiveOne(context.Background())
 	if !errors.Is(err, pipeline.ErrNoMessage) {
@@ -373,6 +373,11 @@ func TestReceiveOneReportsNoMessageOnAnEmptySlice(t *testing.T) {
 	}
 	if delivery != nil {
 		t.Fatalf("ReceiveOne delivery = %#v, want an untyped nil interface", delivery)
+	}
+	// Checked on the empty path too, not just when a message is present: an
+	// internal poll loop here is exactly the retry the broker owns.
+	if receiver.receiveCalls != 1 {
+		t.Fatalf("receiveCalls = %d, want exactly 1 attempt", receiver.receiveCalls)
 	}
 }
 
@@ -408,6 +413,11 @@ func TestReceiveOneReturnsAnUntypedNilDelivery(t *testing.T) {
 // "The receive window closed empty" must stay distinguishable from "the
 // parent context was cancelled" and from a transport error: Task 6 maps the
 // three to different exit codes.
+// The five-second bound against a one-minute window is the second half of
+// this test: a receive whose context is not derived from the parent still
+// classifies correctly afterwards, but only once the whole window has closed.
+// Live that is a SIGTERM hanging for a full minute, past most container
+// grace periods.
 func TestReceiveOneDistinguishesParentCancellationFromAnEmptyWindow(t *testing.T) {
 	queue, receiver, _ := newTestQueue(time.Minute)
 	receiver.blockReceive = true
@@ -415,12 +425,22 @@ func TestReceiveOneDistinguishesParentCancellationFromAnEmptyWindow(t *testing.T
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := queue.ReceiveOne(ctx)
-	if errors.Is(err, pipeline.ErrNoMessage) {
-		t.Fatal("a cancelled parent context was reported as an empty receive window")
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("ReceiveOne error = %v, want it to wrap context.Canceled", err)
+	returned := make(chan error, 1)
+	go func() {
+		_, err := queue.ReceiveOne(ctx)
+		returned <- err
+	}()
+
+	select {
+	case err := <-returned:
+		if errors.Is(err, pipeline.ErrNoMessage) {
+			t.Fatal("a cancelled parent context was reported as an empty receive window")
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("ReceiveOne error = %v, want it to wrap context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReceiveOne did not follow its parent's cancellation and blocked into the receive window")
 	}
 }
 
@@ -602,6 +622,17 @@ func TestCloseReportsBothFailures(t *testing.T) {
 	err := queue.Close(context.Background())
 	if !errors.Is(err, receiverErr) || !errors.Is(err, senderErr) {
 		t.Fatalf("Close error = %v, want it to carry both close failures", err)
+	}
+}
+
+// Peek lock is what the entire processor is built on, and the SDK exposes no
+// accessor for it, so the options value is asserted directly. Under
+// receive-and-delete every dispatch is settled at receive: Abandon and
+// Complete both fail, and a job whose packer failed or whose container was
+// evicted is lost permanently with the job stuck RUNNING.
+func TestDispatchReceiverUsesPeekLock(t *testing.T) {
+	if dispatchReceiverOptions.ReceiveMode != azservicebus.ReceiveModePeekLock {
+		t.Fatalf("ReceiveMode = %v, want ReceiveModePeekLock (%v)", dispatchReceiverOptions.ReceiveMode, azservicebus.ReceiveModePeekLock)
 	}
 }
 
