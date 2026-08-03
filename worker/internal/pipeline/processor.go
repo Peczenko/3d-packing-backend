@@ -14,12 +14,6 @@ import (
 )
 
 const (
-	// messageVersion mirrors the pinned contract version in package
-	// contracts, whose own constant is unexported. The tests compare every
-	// event built here against that package's encoders byte for byte, so
-	// the two cannot drift apart unnoticed.
-	messageVersion = 1
-
 	requestFileName = "request.json"
 	specFileName    = "input.json"
 	// outputFileName is the last segment of the result blob key
@@ -387,7 +381,7 @@ func (r *lockRenewal) stop() error {
 
 func startedEvent(jobID string, engine EngineProvenance) contracts.WorkerEvent {
 	return contracts.WorkerEvent{
-		MessageVersion: messageVersion,
+		MessageVersion: contracts.MessageVersion,
 		EventType:      "started",
 		JobID:          jobID,
 		EngineVersion:  engine.Version,
@@ -397,7 +391,7 @@ func startedEvent(jobID string, engine EngineProvenance) contracts.WorkerEvent {
 
 func succeededEvent(jobID string, engine EngineProvenance, result EngineResult) contracts.WorkerEvent {
 	return contracts.WorkerEvent{
-		MessageVersion:    messageVersion,
+		MessageVersion:    contracts.MessageVersion,
 		EventType:         "succeeded",
 		JobID:             jobID,
 		EngineVersion:     engine.Version,
@@ -411,7 +405,7 @@ func succeededEvent(jobID string, engine EngineProvenance, result EngineResult) 
 
 func failedEvent(jobID string, engine EngineProvenance, reason string) contracts.WorkerEvent {
 	return contracts.WorkerEvent{
-		MessageVersion: messageVersion,
+		MessageVersion: contracts.MessageVersion,
 		EventType:      "failed",
 		JobID:          jobID,
 		EngineVersion:  engine.Version,

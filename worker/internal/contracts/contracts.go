@@ -12,7 +12,10 @@ import (
 	"regexp"
 )
 
-const messageVersion = 1
+// MessageVersion is the pinned version every message on the packing wire
+// carries, in both directions. It is exported so nothing outside this package
+// has to restate it: a second copy is a second thing to bump.
+const MessageVersion = 1
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
@@ -67,7 +70,7 @@ func DecodeDispatch(data []byte) (DispatchMessage, error) {
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return DispatchMessage{}, fmt.Errorf("decode dispatch message: %w: %w", ErrInvalidJSON, err)
 	}
-	if wire.MessageVersion == nil || *wire.MessageVersion != messageVersion {
+	if wire.MessageVersion == nil || *wire.MessageVersion != MessageVersion {
 		return DispatchMessage{}, fmt.Errorf("decode dispatch message: %w", ErrUnsupportedVersion)
 	}
 	if wire.JobID == nil || !isCanonicalUUID(*wire.JobID) {
@@ -88,7 +91,7 @@ func DecodeRequest(data []byte) (RequestEnvelope, error) {
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return RequestEnvelope{}, fmt.Errorf("decode request envelope: %w: %w", ErrInvalidJSON, err)
 	}
-	if wire.RequestVersion == nil || *wire.RequestVersion != messageVersion {
+	if wire.RequestVersion == nil || *wire.RequestVersion != MessageVersion {
 		return RequestEnvelope{}, fmt.Errorf("decode request envelope: %w", ErrUnsupportedVersion)
 	}
 	if wire.MaxRuntimeSeconds == nil || *wire.MaxRuntimeSeconds < 1 || *wire.MaxRuntimeSeconds > 7200 {
@@ -106,7 +109,7 @@ func DecodeRequest(data []byte) (RequestEnvelope, error) {
 
 func EncodeStarted(jobID, engineVersion, engineChecksum string) ([]byte, error) {
 	return json.Marshal(WorkerEvent{
-		MessageVersion: messageVersion,
+		MessageVersion: MessageVersion,
 		EventType:      "started",
 		JobID:          jobID,
 		EngineVersion:  engineVersion,
@@ -116,7 +119,7 @@ func EncodeStarted(jobID, engineVersion, engineChecksum string) ([]byte, error) 
 
 func EncodeSucceeded(jobID, engineVersion, engineChecksum, resultFileName, resultContentType string, resultSizeBytes int64, resultChecksum string) ([]byte, error) {
 	return json.Marshal(WorkerEvent{
-		MessageVersion:    messageVersion,
+		MessageVersion:    MessageVersion,
 		EventType:         "succeeded",
 		JobID:             jobID,
 		EngineVersion:     engineVersion,
@@ -130,7 +133,7 @@ func EncodeSucceeded(jobID, engineVersion, engineChecksum, resultFileName, resul
 
 func EncodeFailed(jobID, engineVersion, engineChecksum, reason string) ([]byte, error) {
 	return json.Marshal(WorkerEvent{
-		MessageVersion: messageVersion,
+		MessageVersion: MessageVersion,
 		EventType:      "failed",
 		JobID:          jobID,
 		EngineVersion:  engineVersion,
