@@ -190,9 +190,12 @@ func newEventMessage(event contracts.WorkerEvent) (*azservicebus.Message, error)
 		return nil, fmt.Errorf("azureio: encode %s event for job %s: %w", event.EventType, event.JobID, err)
 	}
 	contentType := eventContentType
-	// "{jobId}:{eventType}" is what makes a resent started/succeeded pair
-	// idempotent when the broker redelivers a dispatch whose result is
-	// already in storage: duplicate detection sees the same id twice.
+	// "{jobId}:{eventType}" identifies the event for tracing and nothing more.
+	// It is deliberately not the idempotency mechanism: packing-results sets
+	// RequiresDuplicateDetection false, so the broker never compares two ids.
+	// A resent started/succeeded pair is harmless because
+	// PackingWorkerEventService.apply persists only when markRunning/succeed/
+	// fail report an actual state change.
 	messageID := event.JobID + ":" + event.EventType
 	// packing-results is session enabled, and the Java side rejects a message
 	// whose session id is not the decoded event's job id — the result
