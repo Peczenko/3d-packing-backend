@@ -121,9 +121,16 @@ func (a *BlobArtifacts) DownloadRequest(ctx context.Context, jobID, path string)
 }
 
 // FindResult reads the result blob's metadata and reports (nil, nil) when there
-// is none. Only a 404 is absence — a missing container included, which is what
-// the Java side treats as absence too, since both are "no result for this job"
-// and neither is a transport failure worth a redelivery.
+// is none. Absence is exactly the two 404s — a missing blob and a missing
+// container — which is the same line the Java side draws from
+// getStatusCode() == 404, since both mean "no result for this job".
+//
+// Everything else is an error, and the width of that rule matters in both
+// directions. Narrowing it to BlobNotFound alone would turn a container that
+// has not been created yet into a redelivery loop; widening it to every failure
+// would let a rejected credential read as "not packed yet", which silently
+// skips the resend-from-storage path on every redelivery and leaves a finished
+// job RUNNING.
 //
 // What it finds is returned as it stands, including a blank a writer left out.
 // The processor validates every field against the Java domain model's rules and
@@ -171,17 +178,23 @@ func (a *BlobArtifacts) CreateResult(ctx context.Context, jobID, path string, re
 	if err != nil {
 		return nil, fmt.Errorf("azureio: open result file for job %s: %w", jobID, err)
 	}
-	// Read-only, so nothing is lost by ignoring the close error, and it must
-	// not mask the upload's.
+	// Discarded, not joined: azcore wraps a request body in
+	// retryableRequestBody and closes it itself at the end of Do, so this
+	// deferred call is a second close and reports os.ErrClosed. It exists to
+	// release the descriptor on the paths that never reach the SDK.
 	defer func() { _ = file.Close() }()
 
-	// blockblob.Upload, not the Client.UploadFile helper: UploadFile switches to
-	// staged blocks above 256 MiB and its getCommitBlockListOptions drops
-	// AccessConditions, so a large result would silently overwrite one already
-	// in storage. A single conditional PUT carries the condition whatever the
-	// size, and still streams the body off disk rather than buffering it — the
-	// service's own Put Blob ceiling is a loud failure, which a lost condition
-	// is not.
+	// blockblob.Upload, not the Client.UploadFile helper: above 256 MiB
+	// UploadFile switches to staged blocks, and its getCommitBlockListOptions
+	// omits AccessConditions where getUploadBlockBlobOptions passes them
+	// through, so a large result would silently overwrite one already in
+	// storage. UploadStream chunks and does carry the condition, so it is a
+	// genuine alternative; a single conditional PUT is chosen because a packing
+	// result is kilobytes to megabytes, and it buys the condition on every size
+	// with no chunking to reason about. It streams the body off disk rather than
+	// buffering it. The generated client sends x-ms-version 2026-06-06, where
+	// Put Blob accepts 5000 MiB, and overrunning that is a loud 4xx — which a
+	// dropped condition is not.
 	_, err = a.container.NewBlockBlobClient(resultKey(jobID)).Upload(ctx, file, &blockblob.UploadOptions{
 		Metadata: resultMetadata(result),
 		// Set on the blob as well as in metadata so the SAS download URL the

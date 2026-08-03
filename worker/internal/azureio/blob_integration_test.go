@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -114,6 +115,59 @@ func TestBlobArtifacts(t *testing.T) {
 		}
 	})
 
+	// The two subtests below pin the width of the absence rule from both sides.
+	// Narrowing it to BlobNotFound alone, or widening it to every error, are
+	// both one-token edits that the happy-path tests cannot see.
+	t.Run("reports no result when the container does not exist", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), azuriteTimeout)
+		defer cancel()
+
+		// Deliberately never created: before the Java side writes the first
+		// request, the container is not there, and that is still "no result for
+		// this job" rather than a failure worth a redelivery.
+		cfg := config.Config{
+			StorageConnectionString: connectionString,
+			StorageContainer:        "worker-blob-absent-" + randomHex(t, 8),
+		}
+		client, err := NewBlobClient(cfg)
+		if err != nil {
+			t.Fatalf("NewBlobClient: %v", err)
+		}
+
+		stored, err := NewBlobArtifacts(client, cfg).FindResult(ctx, newJobID(t))
+		if err != nil {
+			t.Fatalf("FindResult against a missing container: %v", err)
+		}
+		if stored != nil {
+			t.Errorf("FindResult = %+v, want nil for a missing container", *stored)
+		}
+	})
+
+	t.Run("reports a rejected credential as an error, not as absence", func(t *testing.T) {
+		ctx, _, cfg := newAzuriteContainer(t, connectionString)
+
+		// A 403 is a transport failure the processor abandons the delivery for.
+		// Collapsing it into (nil, nil) would make an expired credential read as
+		// "not packed yet", so a redelivery would re-run the packer instead of
+		// resending the stored result, and the loss would be invisible.
+		cfg.StorageConnectionString = withWrongAccountKey(t, connectionString)
+		client, err := NewBlobClient(cfg)
+		if err != nil {
+			t.Fatalf("NewBlobClient: %v", err)
+		}
+
+		stored, err := NewBlobArtifacts(client, cfg).FindResult(ctx, newJobID(t))
+		if err == nil {
+			t.Fatalf("FindResult = %v, nil; want an error for a credential the service rejects", stored)
+		}
+		if stored != nil {
+			t.Errorf("FindResult = %+v alongside an error, want nil", *stored)
+		}
+		if bloberror.HasCode(err, bloberror.BlobNotFound, bloberror.ContainerNotFound) {
+			t.Errorf("FindResult error = %v, want something other than a 404", err)
+		}
+	})
+
 	t.Run("finds an existing result from the derived key and its metadata", func(t *testing.T) {
 		ctx, client, cfg := newAzuriteContainer(t, connectionString)
 		artifacts := NewBlobArtifacts(client, cfg)
@@ -157,11 +211,19 @@ func TestBlobArtifacts(t *testing.T) {
 		artifacts := NewBlobArtifacts(client, cfg)
 		jobID := newJobID(t)
 		body := []byte(`{"placements":[{"id":"a"}]}`)
+		// NOT application/octet-stream. That is what Azure and Azurite store by
+		// default when no x-ms-blob-content-type is sent, so asserting it would
+		// pass with the BlobContentType header dropped entirely — the content
+		// type would be right by coincidence rather than because this adapter
+		// set it. engine/runner.go hardcodes octet-stream today, but the SAS
+		// download URL the Java side issues sets no rsct override, so the blob's
+		// own header is what a browser receives.
+		const contentType = "application/vnd.packing+json"
 		result := pipeline.StoredResult{
 			Engine: pipeline.EngineProvenance{Version: "packer 0.3.0", Checksum: strings.Repeat("c", 64)},
 			Result: pipeline.EngineResult{
 				FileName:    "output",
-				ContentType: "application/octet-stream",
+				ContentType: contentType,
 				SizeBytes:   int64(len(body)),
 				Checksum:    strings.Repeat("d", 64),
 			},
@@ -183,10 +245,10 @@ func TestBlobArtifacts(t *testing.T) {
 			t.Errorf("stored body = %q, want %q", downloaded, body)
 		}
 		if properties.ContentLength == nil || *properties.ContentLength != int64(len(body)) {
-			t.Errorf("stored content length = %v, want %d", properties.ContentLength, len(body))
+			t.Errorf("stored content length = %s, want %d", showInt64(properties.ContentLength), len(body))
 		}
-		if properties.ContentType == nil || *properties.ContentType != "application/octet-stream" {
-			t.Errorf("stored content type = %v, want application/octet-stream", properties.ContentType)
+		if properties.ContentType == nil || *properties.ContentType != contentType {
+			t.Errorf("stored content type = %s, want %s", showString(properties.ContentType), contentType)
 		}
 		// The names are the cross-language contract; the values are what
 		// AzurePackingJobArtifactStore.findResult hands the download endpoint.
@@ -197,7 +259,7 @@ func TestBlobArtifacts(t *testing.T) {
 		// case-insensitively for the same reason.
 		wantMetadata := map[string]string{
 			"fileName":             "output",
-			"contentType":          "application/octet-stream",
+			"contentType":          contentType,
 			"checksumSha256":       strings.Repeat("d", 64),
 			"engineVersion":        "packer 0.3.0",
 			"engineChecksumSha256": strings.Repeat("c", 64),
@@ -293,7 +355,7 @@ func TestBlobArtifacts(t *testing.T) {
 			t.Errorf("stored body = %q, want the winner's %q", downloaded, wantBody)
 		}
 		if properties.ContentLength == nil || *properties.ContentLength != winner.Result.SizeBytes {
-			t.Errorf("stored content length = %v, want the reported %d", properties.ContentLength, winner.Result.SizeBytes)
+			t.Errorf("stored content length = %s, want the reported %d", showInt64(properties.ContentLength), winner.Result.SizeBytes)
 		}
 		if got := resultMetadataValue(properties.Metadata, metaEngineChecksum); got != winner.Engine.Checksum {
 			t.Errorf("stored engine checksum = %q, want the reported %q", got, winner.Engine.Checksum)
@@ -385,6 +447,28 @@ func listBlobs(t *testing.T, ctx context.Context, client *azblob.Client, cfg con
 	return names
 }
 
+// withWrongAccountKey swaps the account key for another well-formed one, so the
+// request is signed and sent and the service is what rejects it. Anything that
+// failed client-side would prove nothing about how a service error is
+// classified.
+func withWrongAccountKey(t *testing.T, connectionString string) string {
+	t.Helper()
+
+	const keyPrefix = "AccountKey="
+	parts := strings.Split(connectionString, ";")
+	replaced := false
+	for i, part := range parts {
+		if strings.HasPrefix(part, keyPrefix) {
+			parts[i] = keyPrefix + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 64))
+			replaced = true
+		}
+	}
+	if !replaced {
+		t.Skipf("SKIPPING: %s carries no AccountKey, so this subtest cannot forge a credential the service will reject", storageEnv)
+	}
+	return strings.Join(parts, ";")
+}
+
 func writeTempFile(t *testing.T, body []byte) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "output")
@@ -392,6 +476,23 @@ func writeTempFile(t *testing.T, body []byte) string {
 		t.Fatalf("write temp file: %v", err)
 	}
 	return path
+}
+
+// showString and showInt64 keep a failing assertion readable: the SDK models
+// these as pointers, and %v on one prints an address rather than the value the
+// assertion is about.
+func showString(value *string) string {
+	if value == nil {
+		return "<nil>"
+	}
+	return *value
+}
+
+func showInt64(value *int64) string {
+	if value == nil {
+		return "<nil>"
+	}
+	return strconv.FormatInt(*value, 10)
 }
 
 func metadataNames(metadata map[string]*string) []string {
