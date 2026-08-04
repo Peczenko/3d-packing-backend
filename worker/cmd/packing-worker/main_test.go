@@ -6,10 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"os/exec"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -36,7 +40,15 @@ const (
 	testResultChecksum = "2222222222222222222222222222222222222222222222222222222222222222"
 )
 
+// testConnectionString is well formed and points at a namespace that does not
+// resolve. The subprocess tests run the real main() against it: nothing
+// connects until the first receive, and the receive window is what ends that.
 var testConnectionString = "Endpoint=sb://fake.servicebus.windows.net/;SharedAccessKeyName=worker;SharedAccessKey=" + testSecretMarker
+
+// testStorageConnectionString has to parse, or connectAzure would fail before
+// the worker ever reached the queue and every subprocess test would be
+// asserting a configuration failure instead of what it means to.
+const testStorageConnectionString = "DefaultEndpointsProtocol=https;AccountName=fake;AccountKey=ZmFrZS1hY2NvdW50LWtleQ==;EndpointSuffix=core.windows.net"
 
 func dispatchBody() []byte {
 	return []byte(`{"messageVersion":1,"jobId":"` + testJobID + `"}`)
@@ -84,15 +96,19 @@ type connectorSpy struct {
 	cfg         config.Config
 	closes      int
 	closeCtxErr error
+	// runsAtClose is how many times RunOnce had been called when the close
+	// ran. Without it, closing the worker before running it passes everything.
+	runsAtClose int
 }
 
-func (s *connectorSpy) serving(handler oneShot, closeErr error) connector {
+func (s *connectorSpy) serving(handler *fakeHandler, closeErr error) connector {
 	return func(cfg config.Config, _ *logger) (oneShot, func(context.Context) error, error) {
 		s.calls++
 		s.cfg = cfg
 		return handler, func(ctx context.Context) error {
 			s.closes++
 			s.closeCtxErr = ctx.Err()
+			s.runsAtClose = handler.calls
 			return closeErr
 		}, nil
 	}
@@ -304,6 +320,136 @@ func logMessages(t *testing.T, out *bytes.Buffer) []string {
 	return messages
 }
 
+// mainSentinel makes the test binary run the worker's main() instead of the
+// test suite. An exit status is only observable from another process, and
+// main's two consequential expressions — the argument slice it hands to run,
+// and the code it hands to os.Exit — are invisible to every in-process test:
+// os.Args[1:] -> os.Args, and code -> 0, both pass the whole suite otherwise.
+const mainSentinel = "PACKING_WORKER_TEST_RUN_MAIN"
+
+func TestMain(m *testing.M) {
+	if os.Getenv(mainSentinel) != "" {
+		// The child process is the worker. main() ends in os.Exit, so this
+		// never returns.
+		main()
+	}
+	os.Exit(m.Run())
+}
+
+// workerCommand re-execs the test binary as the worker. The environment is
+// stated in full — every variable config.Load reads, empty where it has to be
+// absent — so a variable set on the machine running the test cannot change
+// what the child loads. exec.Cmd keeps the last of any duplicate key.
+func workerCommand(t *testing.T, receiveTimeout string, args ...string) (*exec.Cmd, *bytes.Buffer) {
+	t.Helper()
+	ctx, giveUp := context.WithTimeout(context.Background(), time.Minute)
+	t.Cleanup(giveUp)
+
+	cmd := exec.CommandContext(ctx, os.Args[0], args...)
+	cmd.Env = append(os.Environ(),
+		mainSentinel+"=1",
+		"SERVICE_BUS_CONNECTION_STRING="+testConnectionString,
+		"SERVICE_BUS_NAMESPACE=",
+		"STORAGE_CONNECTION_STRING="+testStorageConnectionString,
+		"STORAGE_ACCOUNT_URL=",
+		"PACKING_DISPATCH_QUEUE=test-dispatch",
+		"PACKING_RESULT_QUEUE=test-results",
+		"STORAGE_CONTAINER_NAME=test-models",
+		"PACKER_PATH=/test/bin/packer",
+		"PACKING_WORK_ROOT="+t.TempDir(),
+		"PACKING_RECEIVE_TIMEOUT="+receiveTimeout,
+		"PACKING_LOCK_RENEW_INTERVAL=20s",
+	)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	return cmd, &out
+}
+
+func exitCode(t *testing.T, cmd *exec.Cmd, err error) int {
+	t.Helper()
+	if err == nil {
+		return 0
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("running the worker failed before it could exit: %v", err)
+	}
+	if !cmd.ProcessState.Exited() {
+		t.Fatalf("the worker did not exit on its own: %v", cmd.ProcessState)
+	}
+	return exit.ExitCode()
+}
+
+// TestMainExitsZeroWhenNoDispatchArrives runs the real main() against a
+// namespace that does not resolve. It is also this plan's live demonstration
+// of the Task 4 carry-forward: an unreachable broker is indistinguishable from
+// an idle queue, and both close the receive window empty.
+func TestMainExitsZeroWhenNoDispatchArrives(t *testing.T) {
+	cmd, out := workerCommand(t, "1s")
+
+	code := exitCode(t, cmd, cmd.Run())
+
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", code, out.String())
+	}
+	messages := logMessages(t, out)
+	if !slices.Contains(messages, "no dispatch message within the receive window") {
+		t.Fatalf("log messages = %v, want the empty window reported", messages)
+	}
+	if strings.Contains(out.String(), testSecretMarker) {
+		t.Fatalf("a connection string reached the log of a real run: %s", out.String())
+	}
+}
+
+func TestMainExitsTwoWhenGivenAnArgument(t *testing.T) {
+	cmd, out := workerCommand(t, "1s", "--loop")
+
+	code := exitCode(t, cmd, cmd.Run())
+
+	if code != 2 {
+		t.Fatalf("exit code = %d, want 2\n%s", code, out.String())
+	}
+}
+
+// TestMainExitsOneOnSIGTERM is the only test of the signal wiring, and it is
+// Linux-only on purpose: signal.NotifyContext accepts syscall.SIGTERM on
+// Windows but the signal is never delivered there, so this would be a test
+// that cannot fail. The production image is Linux; the container run is how
+// this is exercised.
+func TestMainExitsOneOnSIGTERM(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("SIGTERM is never delivered on this platform; the production image is Linux")
+	}
+	// A receive window far longer than the test's patience: if the signal were
+	// ignored, this would still be waiting when the deadline below expires.
+	cmd, out := workerCommand(t, "120s")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting the worker: %v", err)
+	}
+
+	// signal.NotifyContext is the first statement of main, so this margin is
+	// about process startup, not about reaching the receive. A signal arriving
+	// before the handler is installed kills the child outright, which
+	// exitCode reports as a failure to exit rather than passing quietly.
+	time.Sleep(500 * time.Millisecond)
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signalling the worker: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if code := exitCode(t, cmd, err); code != 1 {
+			t.Fatalf("exit code = %d, want 1\n%s", code, out.String())
+		}
+	case <-time.After(20 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("the worker ignored SIGTERM and was still running 20s later")
+	}
+}
+
 func TestRunRejectsCommandLineArgumentsWithoutReadingTheEnvironment(t *testing.T) {
 	// run, not runWith: this is the only exit run itself can reach without a
 	// broker, and it has to be reachable before anything is constructed.
@@ -373,6 +519,9 @@ func TestRunWithMapsRunOnceOutcomesToExitCodes(t *testing.T) {
 			}
 			if spy.closes != 1 {
 				t.Fatalf("close called %d times, want 1", spy.closes)
+			}
+			if spy.runsAtClose != 1 {
+				t.Fatalf("RunOnce had run %d times when the worker was closed, want 1: the links are needed until the delivery is settled", spy.runsAtClose)
 			}
 			if len(logLines(t, &out)) == 0 {
 				t.Fatal("the outcome was not logged")
@@ -506,21 +655,35 @@ func TestRunWithReportsAPackedJobAsExitZero(t *testing.T) {
 }
 
 func TestRunWithReportsAnEmptyReceiveWindowAsExitZero(t *testing.T) {
-	useTestEnvironment(t, t.TempDir(), "1h")
-	var out bytes.Buffer
-	queue := &fakeQueue{receiveErr: pipeline.ErrNoMessage}
-
-	code := runWith(context.Background(), nil, &out, processing(queue, &fakeArtifacts{}, &fakeEngine{}))
-
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0: an idle queue is a normal outcome for a one-shot worker", code)
+	cases := []struct {
+		name  string
+		queue *fakeQueue
+	}{
+		{name: "the adapter reports the sentinel", queue: &fakeQueue{receiveErr: pipeline.ErrNoMessage}},
+		// The port permits (nil, nil), so the composition root has to survive
+		// it: the observer that decodes the job id must not reach for a body
+		// that is not there.
+		{name: "the adapter reports no delivery", queue: &fakeQueue{}},
 	}
-	if got := queue.settled(); len(got) != 0 {
-		t.Fatalf("settlement = %v, want none", got)
-	}
-	lines := logLines(t, &out)
-	if len(lines) != 1 || lines[0].JobID != "" {
-		t.Fatalf("log = %+v, want one line with no jobId: nothing was received, so nothing names a job", lines)
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			useTestEnvironment(t, t.TempDir(), "1h")
+			var out bytes.Buffer
+
+			code := runWith(context.Background(), nil, &out, processing(testCase.queue, &fakeArtifacts{}, &fakeEngine{}))
+
+			if code != 0 {
+				t.Fatalf("exit code = %d, want 0: an idle queue is a normal outcome for a one-shot worker", code)
+			}
+			if got := testCase.queue.settled(); len(got) != 0 {
+				t.Fatalf("settlement = %v, want none", got)
+			}
+			lines := logLines(t, &out)
+			if len(lines) != 1 || lines[0].JobID != "" {
+				t.Fatalf("log = %+v, want one line with no jobId: nothing was received, so nothing names a job", lines)
+			}
+		})
 	}
 }
 
@@ -567,8 +730,14 @@ func TestRunWithReportsAnInfrastructureFailureAsExitOne(t *testing.T) {
 	if got := queue.eventTypes(); len(got) != 0 {
 		t.Fatalf("events = %v, want none", got)
 	}
-	if got := logMessages(t, &out); !startsWith(got, "dispatch failed") {
-		t.Fatalf("log messages = %v, want the failure named as such", got)
+	messages := logMessages(t, &out)
+	if !startsWith(messages, "dispatch failed") {
+		t.Fatalf("log messages = %v, want the failure named as such", messages)
+	}
+	// Without this line a redelivery that is on its way looks exactly like a
+	// lost lock, where nothing was settled at all.
+	if !slices.Contains(messages, "dispatch abandoned for redelivery") {
+		t.Fatalf("log messages = %v, want the abandon reported", messages)
 	}
 }
 
@@ -615,6 +784,59 @@ func TestLogCarriesTheJobIDOnceTheDispatchIsDecoded(t *testing.T) {
 		if line.JobID != testJobID {
 			t.Fatalf("line %q carries jobId %q, want %q", line.Message, line.JobID, testJobID)
 		}
+	}
+}
+
+// TestLogLinesCarryExactlyTheContractedFieldNames decodes into a map rather
+// than into logLine. Every other assertion in this file goes through the same
+// struct main.go encodes with, so renaming level -> lvl or jobId -> job_id
+// would pass all of them: the JSON names are the contract, and a test that
+// reads them back through the encoder's own tags pins nothing.
+func TestLogLinesCarryExactlyTheContractedFieldNames(t *testing.T) {
+	useTestEnvironment(t, t.TempDir(), "1h")
+	var out bytes.Buffer
+	queue := &fakeQueue{delivery: &fakeDelivery{body: dispatchBody()}}
+	artifacts := &fakeArtifacts{request: requestBody(), created: pointerTo(storedResult())}
+
+	if code := runWith(context.Background(), nil, &out, processing(queue, artifacts, &fakeEngine{})); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+
+	raw := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(raw) == 0 {
+		t.Fatal("nothing was logged")
+	}
+	for _, line := range raw {
+		fields := map[string]json.RawMessage{}
+		if err := json.Unmarshal([]byte(line), &fields); err != nil {
+			t.Fatalf("log line %q is not a JSON object: %v", line, err)
+		}
+		keys := slices.Sorted(maps.Keys(fields))
+		if !slices.Equal(keys, []string{"jobId", "level", "message"}) {
+			t.Fatalf("log line %q has fields %v, want exactly [jobId level message]", line, keys)
+		}
+		if string(fields["level"]) != `"info"` {
+			t.Fatalf("log line %q has level %s, want \"info\"", line, fields["level"])
+		}
+		if string(fields["jobId"]) != `"`+testJobID+`"` {
+			t.Fatalf("log line %q has jobId %s, want %q", line, fields["jobId"], testJobID)
+		}
+	}
+
+	// The error level is spelled the same way, on a line the run above cannot
+	// produce.
+	var failure bytes.Buffer
+	runWith(context.Background(), []string{"--loop"}, &failure, (&connectorSpy{}).serving(&fakeHandler{}, nil))
+	fields := map[string]json.RawMessage{}
+	if err := json.Unmarshal(failure.Bytes(), &fields); err != nil {
+		t.Fatalf("log line %q is not a JSON object: %v", failure.String(), err)
+	}
+	keys := slices.Sorted(maps.Keys(fields))
+	if !slices.Equal(keys, []string{"level", "message"}) {
+		t.Fatalf("log line %q has fields %v, want exactly [level message]: jobId is omitted until a dispatch is decoded", failure.String(), keys)
+	}
+	if string(fields["level"]) != `"error"` {
+		t.Fatalf("log line %q has level %s, want \"error\"", failure.String(), fields["level"])
 	}
 }
 
@@ -666,9 +888,12 @@ func TestRunWithPropagatesCallerCancellation(t *testing.T) {
 }
 
 func TestConnectAzureRejectsAMalformedServiceBusConnectionString(t *testing.T) {
+	// The marker is in the value this path actually parses. Putting it in the
+	// storage connection string, which construction never reaches, made the
+	// leak assertion below unable to fail.
 	handler, closeWorker, err := connectAzure(config.Config{
-		ServiceBusConnectionString: "not-a-connection-string",
-		StorageConnectionString:    testConnectionString,
+		ServiceBusConnectionString: "not-a-connection-string=" + testSecretMarker,
+		StorageConnectionString:    testStorageConnectionString,
 	}, newLogger(&bytes.Buffer{}))
 
 	if err == nil {
