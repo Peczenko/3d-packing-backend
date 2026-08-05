@@ -40,6 +40,10 @@ services:
     # Also under "packing": packing-worker depends_on servicebus, and Compose
     # rejects the whole project when a dependency's profile is not enabled, so
     # `--profile packing` on its own has to be able to resolve the broker.
+    # The cost: the emulator is now in scope for `--profile packing ... --build`,
+    # which rebuilds its dockerfile_inline image, recreates the container, and
+    # wipes both queues — so a worker run started that way destroys the dispatch
+    # it was meant to handle. Add --no-deps when messages are already in flight.
     profiles: ["messaging", "packing"]
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: packing-servicebus-sql

@@ -49,6 +49,12 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# [CmdletBinding()] makes -Debug a valid parameter, and -Debug makes the web cmdlets write
+# every request header to the debug stream — including "Authorization: Bearer <id token>",
+# and including the SAS query string on the download. Someone debugging a 401 under
+# Start-Transcript would write a live credential to disk. -Debug sets this preference in
+# script scope before the body runs, so assigning it here is what overrides it.
+$DebugPreference = 'SilentlyContinue'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $pollIntervalSeconds = 2
@@ -173,5 +179,22 @@ if ($downloaded.Length -le 0) {
     throw "Downloaded result $outputPath is empty."
 }
 
+# Not merely non-empty: these are the size and checksum the worker computed over the bytes
+# it uploaded, carried across the wire in the succeeded event and persisted by the backend.
+# Checking the download against both is what turns "something arrived" into "the bytes the
+# packer produced arrived", and it is the one assertion that spans every hop at once.
+if ($downloaded.Length -ne $job.resultSizeBytes) {
+    throw "Downloaded $($downloaded.Length) bytes, but the job reports $($job.resultSizeBytes)."
+}
+# Get-FileHash returns upper-case hex and the backend stores lower-case, so both sides are
+# normalised rather than left to PowerShell's case-insensitive -ne, which is easy to read as
+# a case-sensitive comparison that happens to pass.
+$actualChecksum = (Get-FileHash -LiteralPath $outputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$expectedChecksum = "$($job.resultChecksum)".ToLowerInvariant()
+if ($actualChecksum -cne $expectedChecksum) {
+    throw "Downloaded result hashes to $actualChecksum, but the job reports $expectedChecksum."
+}
+
 Write-Host ''
-Write-Host "PASS  job $jobId  ->  $outputPath ($($downloaded.Length) bytes)" -ForegroundColor Green
+Write-Host "PASS  job $jobId  ->  $outputPath" -ForegroundColor Green
+Write-Host "      $($downloaded.Length) bytes, sha256 $actualChecksum — matches the job record" -ForegroundColor Green
