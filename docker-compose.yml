@@ -37,7 +37,10 @@ services:
       retries: 12
 
   servicebus-sql:
-    profiles: ["messaging"]
+    # Also under "packing": packing-worker depends_on servicebus, and Compose
+    # rejects the whole project when a dependency's profile is not enabled, so
+    # `--profile packing` on its own has to be able to resolve the broker.
+    profiles: ["messaging", "packing"]
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: packing-servicebus-sql
     restart: unless-stopped
@@ -54,7 +57,7 @@ services:
       start_period: 30s
 
   servicebus:
-    profiles: ["messaging"]
+    profiles: ["messaging", "packing"]
     image: packing-servicebus-emulator:local
     build:
       context: .
@@ -124,6 +127,39 @@ services:
       PACKING_MESSAGING_CONNECTION_STRING: ${SERVICE_BUS_CONNECTION_STRING:-}
     ports:
       - "${APP_PORT:-8080}:8080"
+
+  # One-shot by design: each container takes at most one dispatch and exits, so
+  # concurrency is `--scale packing-worker=5` and never a loop inside the binary.
+  # No container_name, because a named service cannot be scaled.
+  packing-worker:
+    profiles: ["packing"]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    image: packing-worker:local
+    restart: "no"
+    depends_on:
+      azurite:
+        condition: service_healthy
+      servicebus:
+        condition: service_healthy
+    environment:
+      # Go env names, deliberately not the app service's Spring ones.
+      # config.Load wants exactly one auth mode per dependency, so the two
+      # connection strings are set and SERVICE_BUS_NAMESPACE / STORAGE_ACCOUNT_URL
+      # stay unset — setting both, or neither, exits 2 at startup.
+      SERVICE_BUS_CONNECTION_STRING: Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
+      STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
+      PACKER_PATH: /usr/local/bin/packer
+      # Distroless has no shell, so /tmp is set explicitly rather than left to
+      # os.TempDir(): a work root the nonroot user cannot create into fails as an
+      # infrastructure error and abandons every message it touches.
+      PACKING_WORK_ROOT: /tmp
+      PACKING_RECEIVE_TIMEOUT: ${PACKING_RECEIVE_TIMEOUT:-60s}
+      PACKING_LOCK_RENEW_INTERVAL: ${PACKING_LOCK_RENEW_INTERVAL:-20s}
+      PACKING_DISPATCH_QUEUE: ${PACKING_DISPATCH_QUEUE:-packing-dispatch}
+      PACKING_RESULT_QUEUE: ${PACKING_RESULT_QUEUE:-packing-results}
 
   storage-ui:
     profiles: ["tools"]
