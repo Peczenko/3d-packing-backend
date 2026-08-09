@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -31,6 +33,16 @@ import (
 // the same value that configures the worker configures its test.
 const storageEnv = "STORAGE_CONNECTION_STRING"
 
+// ciEnv is set to "true" by GitHub Actions and by every other CI this could
+// run on. It is the difference between a developer without Docker, for whom
+// skipping is right, and an automated run that was supposed to provide the
+// emulator and did not.
+const ciEnv = "CI"
+
+// guardEnv stops the child process below from spawning one of its own, in
+// case the -test.run anchor is ever loosened.
+const guardEnv = "GO_BLOB_EMULATOR_GUARD"
+
 // requestFixture is the shared contract example the Java side round-trips too.
 // Seeding from it rather than from a literal here means a request this adapter
 // downloads is the request that side agrees to write.
@@ -44,10 +56,11 @@ const azuriteTimeout = 30 * time.Second
 func TestBlobArtifacts(t *testing.T) {
 	connectionString := os.Getenv(storageEnv)
 	if connectionString == "" {
-		t.Skipf("SKIPPING the Azurite-backed blob adapter tests: %s is unset, so nothing in TestBlobArtifacts ran. "+
+		skipOrFail(t, fmt.Sprintf("%s is unset, so nothing in TestBlobArtifacts ran — both derived blob keys, the six "+
+			"metadata names, the content-type header and the absence rules are asserted nowhere else. "+
 			"Start the emulator with `docker compose up -d azurite` and set %s to its connection string "+
 			"(DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=...;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;) "+
-			"to exercise them.", storageEnv, storageEnv)
+			"to exercise them.", storageEnv, storageEnv))
 	}
 
 	t.Run("downloads the version 1 request from the derived key", func(t *testing.T) {
@@ -366,6 +379,48 @@ func TestBlobArtifacts(t *testing.T) {
 	})
 }
 
+// TestBlobArtifactsRefusesToSkipUnderCI re-runs TestBlobArtifacts in a child
+// process shaped like a CI job that forgot its emulator: CI set, the
+// connection string cleared. The suite above is the only place both blob
+// keys, the six metadata names and the content-type header are spelled out,
+// and `go test` prints nothing for a skip without -v — so a workflow that
+// lost all eight subtests reported `ok`, and a renamed metadata constant
+// would have reached production green.
+//
+// A child process rather than a helper call because the rule being pinned is
+// the exit status of the run, which is the only thing CI reads.
+func TestBlobArtifactsRefusesToSkipUnderCI(t *testing.T) {
+	if os.Getenv(guardEnv) == "1" {
+		t.Skip("child process: TestBlobArtifacts is what this run is for")
+	}
+
+	child := exec.Command(os.Args[0], "-test.run=^TestBlobArtifacts$", "-test.v")
+	child.Env = append(environmentWithout(storageEnv), ciEnv+"=true", guardEnv+"=1")
+	output, err := child.CombinedOutput()
+
+	if err == nil {
+		t.Fatalf("TestBlobArtifacts reported success under %s with no %s, so a CI run that never reached a blob is green:\n%s",
+			ciEnv, storageEnv, output)
+	}
+	if !strings.Contains(string(output), storageEnv) {
+		t.Errorf("the failure never names %s, so nobody reading it learns what the job has to set:\n%s", storageEnv, output)
+	}
+	if strings.Contains(string(output), "--- SKIP") {
+		t.Errorf("TestBlobArtifacts skipped instead of failing under %s:\n%s", ciEnv, output)
+	}
+}
+
+func environmentWithout(name string) []string {
+	prefix := name + "="
+	kept := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, prefix) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
 // newAzuriteContainer gives a subtest a container of its own, so nothing here
 // depends on the order subtests run in or on state a previous run left behind.
 func newAzuriteContainer(t *testing.T, connectionString string) (context.Context, *azblob.Client, config.Config) {
@@ -464,9 +519,22 @@ func withWrongAccountKey(t *testing.T, connectionString string) string {
 		}
 	}
 	if !replaced {
-		t.Skipf("SKIPPING: %s carries no AccountKey, so this subtest cannot forge a credential the service will reject", storageEnv)
+		skipOrFail(t, fmt.Sprintf("%s carries no AccountKey, so this subtest cannot forge a credential the service will reject", storageEnv))
 	}
 	return strings.Join(parts, ";")
+}
+
+// skipOrFail reports a missing prerequisite. On a developer's machine that is
+// a missing emulator and skipping is right. Under CI the emulator is the
+// workflow's job to start, so the same condition is a broken workflow — and
+// `go test` prints nothing for a skip without -v, which is how a run that
+// executed none of these assertions still printed `ok`.
+func skipOrFail(t *testing.T, reason string) {
+	t.Helper()
+	if os.Getenv(ciEnv) != "" {
+		t.Fatal("FAILING rather than skipping an Azurite-backed test, because " + ciEnv + " is set: " + reason)
+	}
+	t.Skip("SKIPPING an Azurite-backed test: " + reason)
 }
 
 func writeTempFile(t *testing.T, body []byte) string {
