@@ -30,3 +30,26 @@ jobs:
 
       - name: Build and test
         run: ./gradlew build --no-daemon
+
+  worker:
+    name: Worker Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache-dependency-path: worker/go.sum
+
+      # -race needs cgo, which ubuntu-latest has. The contract fixtures live above worker/,
+      # so the whole repository has to be checked out for these to resolve.
+      - name: Test and vet
+        working-directory: worker
+        run: |
+          go test -race ./...
+          go vet ./...
+
+      - name: Build the worker image
+        run: docker build -f worker/Dockerfile -t packing-worker:ci .
