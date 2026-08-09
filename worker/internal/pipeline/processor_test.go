@@ -1151,6 +1151,41 @@ func TestRunOnceLostLockSuppressesAnEngineFailure(t *testing.T) {
 	assertNoCalls(t, calls, "send:failed", "send:succeeded", "complete", "abandon")
 }
 
+// The lost lock decides the settlement, but it does not get to be the whole
+// story: the job was doing something when the lock went, and that something
+// is all an operator has to go on. main.go keys its exit code off
+// errors.Is(err, ErrLockLost), so the two have to travel together.
+func TestRunOnceLostLockKeepsTheJobsOwnError(t *testing.T) {
+	h := newHarness(t)
+	h.interval = time.Millisecond
+	h.queue.renewErr = errInjected
+
+	packerBroke := errors.New("packer wrote no output file")
+	running := make(chan struct{})
+	h.queue.renewGate = running
+	h.engine.run = func(ctx context.Context, _ RunRequest) (EngineResult, error) {
+		close(running)
+		select {
+		case <-ctx.Done():
+		case <-time.After(5 * time.Second):
+			return EngineResult{}, errors.New("engine context was never canceled")
+		}
+		return EngineResult{}, packerBroke
+	}
+
+	err := h.run()
+
+	if !errors.Is(err, ErrLockLost) {
+		t.Fatalf("RunOnce error = %v, want it to stay recognisable as ErrLockLost", err)
+	}
+	if !errors.Is(err, errInjected) {
+		t.Fatalf("RunOnce error = %v, want it to wrap the renewal failure", err)
+	}
+	if !errors.Is(err, packerBroke) {
+		t.Fatalf("RunOnce error = %v, want it to keep the error the job itself hit", err)
+	}
+}
+
 // Provenance has no timeout of its own, so it is bounded only by the
 // context it is handed. Called under context.Background() a packer that
 // hangs on --version would hold the worker while its lock expired.

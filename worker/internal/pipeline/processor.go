@@ -141,8 +141,13 @@ func (p *Processor) RunOnce(ctx context.Context) error {
 	// already gone makes both settlement calls wrong — the broker may have
 	// redelivered this job to another worker — and whether it is gone is
 	// only known once the goroutine has stopped.
+	//
+	// Joined with err rather than replacing it: the lost lock decides that
+	// nothing is settled, but what the job was doing when the lock went is
+	// the only thing an operator has to go on. errors.Is still finds
+	// ErrLockLost, which is what main.go's exit mapping reads.
 	if lockErr := renewal.stop(); lockErr != nil {
-		return lockErr
+		return errors.Join(err, lockErr)
 	}
 
 	// Settlement outlives a shutdown. The job's work is already over by
