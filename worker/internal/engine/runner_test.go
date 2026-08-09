@@ -316,6 +316,40 @@ func TestProvenanceBoundsVersionOutput(t *testing.T) {
 	}
 }
 
+// Provenance hashes the file exec.LookPath found. Run has to execute that
+// same file, or the checksum recorded against the job describes bytes that
+// were never run — which is the entire point of recording it. Changing PATH
+// between the two calls is the only way to tell a single shared resolution
+// apart from two independent lookups that happen to agree.
+func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the shim is a /bin/sh script; the production image is Linux, which is where this path runs")
+	}
+
+	dir := t.TempDir()
+	shim := filepath.Join(dir, "packer")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--version\" ]; then echo 'packer 9.9.9'; exit 0; fi\n" +
+		"echo packed > \"$4\"\n"
+	if err := os.WriteFile(shim, []byte(script), 0o700); err != nil {
+		t.Fatalf("write shim: %v", err)
+	}
+
+	t.Setenv("PATH", dir)
+	runner := NewRunner("packer")
+	if _, err := runner.Provenance(context.Background()); err != nil {
+		t.Fatalf("Provenance: %v", err)
+	}
+
+	// The packer is still exactly where Provenance found it; only the lookup
+	// that would find it again is gone.
+	t.Setenv("PATH", t.TempDir())
+
+	if _, err := runner.Run(context.Background(), testRequest(t, 60*time.Second)); err != nil {
+		t.Fatalf("Run repeated the lookup instead of using the resolved path: %v", err)
+	}
+}
+
 func TestRunPassesExactlyTheDocumentedArguments(t *testing.T) {
 	runner := testRunner(t)
 	request := testRequest(t, 60*time.Second)

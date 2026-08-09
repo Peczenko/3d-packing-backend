@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Peczenko/3d-packing-backend/worker/internal/pipeline"
@@ -44,6 +45,14 @@ var errBlankVersion = errors.New("engine: packer --version printed nothing")
 
 type Runner struct {
 	path string
+
+	// resolveOnce memoises the lookup so Provenance and Run share one
+	// answer. Both would otherwise call exec.LookPath independently — Run
+	// through exec.Command's own lookup for a bare name — and the invariant
+	// the checksum exists for is that the bytes hashed are the bytes run.
+	resolveOnce sync.Once
+	executable  string
+	resolveErr  error
 }
 
 func NewRunner(path string) *Runner {
@@ -52,13 +61,20 @@ func NewRunner(path string) *Runner {
 
 var _ pipeline.Engine = (*Runner)(nil)
 
+func (r *Runner) resolve() (string, error) {
+	r.resolveOnce.Do(func() {
+		r.executable, r.resolveErr = exec.LookPath(r.path)
+	})
+	if r.resolveErr != nil {
+		return "", fmt.Errorf("engine: locate packer %q: %w", r.path, r.resolveErr)
+	}
+	return r.executable, nil
+}
+
 func (r *Runner) Provenance(ctx context.Context) (pipeline.EngineProvenance, error) {
-	// Resolve once so the bytes that are hashed are the bytes that are
-	// executed; hashing r.path directly would disagree with exec's own
-	// lookup for a bare name.
-	executable, err := exec.LookPath(r.path)
+	executable, err := r.resolve()
 	if err != nil {
-		return pipeline.EngineProvenance{}, fmt.Errorf("engine: locate packer %q: %w", r.path, err)
+		return pipeline.EngineProvenance{}, err
 	}
 
 	cmd := exec.CommandContext(ctx, executable, "--version")
@@ -95,12 +111,16 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 	if request.Runtime <= 0 {
 		return pipeline.EngineResult{}, fmt.Errorf("engine: runtime limit must be positive, got %s", request.Runtime)
 	}
+	executable, err := r.resolve()
+	if err != nil {
+		return pipeline.EngineResult{}, err
+	}
 	seconds := limitSeconds(request.Runtime)
 
 	runCtx, cancel := context.WithTimeout(ctx, request.Runtime)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, r.path,
+	cmd := exec.CommandContext(runCtx, executable,
 		"--spec", request.SpecPath,
 		"--output", request.OutputPath,
 		"--time-limit-seconds", strconv.FormatInt(seconds, 10),
