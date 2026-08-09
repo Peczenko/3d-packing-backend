@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // MessageVersion is the pinned version every message on the packing wire
@@ -78,7 +79,13 @@ func DecodeDispatch(data []byte) (DispatchMessage, error) {
 	}
 	return DispatchMessage{
 		MessageVersion: *wire.MessageVersion,
-		JobID:          *wire.JobID,
+		// Lowercased, not echoed back: the pattern accepts either case, but
+		// Java's PackingJobId normalises through UUID.fromString, so the
+		// canonical form is what PackingResultProcessor matches the event's
+		// jobId against and what both blob keys are spelled with. Returning
+		// the casing that arrived would put a different id in the session id,
+		// in the event and in the keys than the one in the row.
+		JobID: strings.ToLower(*wire.JobID),
 	}, nil
 }
 

@@ -209,6 +209,23 @@ func TestDecodeDispatchRejectsInvalidUUID(t *testing.T) {
 	}
 }
 
+// The accepting regex allows either case because a dispatch is not worth
+// refusing over one, but the id it returns has to be the one Java means:
+// PackingJobId normalises through UUID.fromString, so a canonical-lowercase
+// id is what PackingResultProcessor compares the event's jobId against and
+// what AzurePackingJobArtifactStore spells into both blob keys. Echoing the
+// casing back verbatim would make the session id, the event and the keys
+// disagree with the row.
+func TestDecodeDispatchNormalisesJobIDToLowercase(t *testing.T) {
+	dispatch, err := DecodeDispatch([]byte(`{"messageVersion":1,"jobId":"3F2504E0-4F89-41D3-9A0C-0305E82C3301"}`))
+	if err != nil {
+		t.Fatalf("DecodeDispatch: %v", err)
+	}
+	if want := "3f2504e0-4f89-41d3-9a0c-0305e82c3301"; dispatch.JobID != want {
+		t.Fatalf("JobID = %q, want %q", dispatch.JobID, want)
+	}
+}
+
 func TestDecodeDispatchRejectsMissingJobID(t *testing.T) {
 	_, err := DecodeDispatch([]byte(`{"messageVersion":1}`))
 	if !errors.Is(err, ErrInvalidJobID) {
