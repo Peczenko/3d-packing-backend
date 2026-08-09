@@ -29,7 +29,35 @@ const (
 	// settleTimeout bounds the settlement call that runs after a shutdown
 	// has already canceled the caller's context.
 	settleTimeout = 30 * time.Second
+
+	// maxEngineVersionBytes mirrors packing_jobs.engine_version VARCHAR(255).
+	// The backend's decoder and PackingJob.markRunning both bound the version
+	// only by "not blank", so a wider one is accepted all the way to the
+	// INSERT and rejected there — see validateProvenance.
+	maxEngineVersionBytes = 255
 )
+
+// isControlCharacter reports the characters a Postgres text column and a
+// one-line log message cannot carry. NUL is rejected by Postgres outright;
+// the rest of C0 and DEL are storable but turn a version into something no
+// column, log line or email can render.
+func isControlCharacter(r rune) bool {
+	return r < 0x20 || r == 0x7f
+}
+
+// stripControlCharacters makes a packer's stderr storable as
+// packing_jobs.failure_reason. Each control character becomes a space
+// rather than vanishing, so the words either side of a stripped newline do
+// not run together, and strings.Map replaces an invalid UTF-8 byte with
+// U+FFFD — Postgres rejects those as well.
+func stripControlCharacters(reason string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if isControlCharacter(r) {
+			return ' '
+		}
+		return r
+	}, reason))
+}
 
 // sha256Hex mirrors PackingJob.SHA_256. An event carrying anything else is
 // rejected by the backend's domain model, not by its decoder, so it is
@@ -256,7 +284,11 @@ func (p *Processor) reportStored(ctx context.Context, jobID string, stored Store
 // reportFailure records a packing job the packer rejected. That is a normal
 // terminal outcome, so the delivery is completed rather than retried.
 func (p *Processor) reportFailure(ctx context.Context, jobID string, engine EngineProvenance, reason string) (settlement, error) {
-	if strings.TrimSpace(reason) == "" {
+	// Stripped before the blank check, never after: a reason of nothing but
+	// control characters is non-blank going in and blank coming out, and
+	// PackingJob.fail rejects a blank one.
+	reason = stripControlCharacters(reason)
+	if reason == "" {
 		reason = unreportedFailure
 	}
 	if err := p.queue.SendEvent(ctx, failedEvent(jobID, engine, reason)); err != nil {
@@ -295,6 +327,18 @@ func validateStoredResult(stored StoredResult) error {
 func validateProvenance(engine EngineProvenance) error {
 	if strings.TrimSpace(engine.Version) == "" {
 		return errors.New("engine version is blank")
+	}
+	// Refused rather than truncated or flattened: a version is the packer's
+	// identity, and a job's provenance is worth less than nothing if it is a
+	// mangled version of what the packer actually said. Refusing abandons
+	// the delivery, which ends in the dispatch dead-letter queue where
+	// resolveStalledDispatch can still drive the job to a terminal state —
+	// the recovery path sending the event would have destroyed.
+	if i := strings.IndexFunc(engine.Version, isControlCharacter); i >= 0 {
+		return fmt.Errorf("engine version carries a control character at byte %d", i)
+	}
+	if len(engine.Version) > maxEngineVersionBytes {
+		return fmt.Errorf("engine version is %d bytes, over the %d packing_jobs.engine_version holds", len(engine.Version), maxEngineVersionBytes)
 	}
 	if !sha256Hex.MatchString(engine.Checksum) {
 		return fmt.Errorf("engine checksum %q is not a SHA-256 hex string", engine.Checksum)

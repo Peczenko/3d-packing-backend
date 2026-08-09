@@ -840,6 +840,12 @@ func invalidResults(base StoredResult) []invalidResult {
 	}
 	return []invalidResult{
 		broken("blank engine version", func(r *StoredResult) { r.Engine.Version = "   " }),
+		broken("engine version wider than the column", func(r *StoredResult) {
+			r.Engine.Version = strings.Repeat("v", maxEngineVersionBytes+1)
+		}),
+		broken("engine version carrying a control character", func(r *StoredResult) {
+			r.Engine.Version = "packer\x001.2.3"
+		}),
 		broken("truncated engine checksum", func(r *StoredResult) { r.Engine.Checksum = "abc123" }),
 		broken("non-hex engine checksum", func(r *StoredResult) { r.Engine.Checksum = strings.Repeat("z", 64) }),
 		broken("blank result file name", func(r *StoredResult) { r.Result.FileName = "" }),
@@ -898,6 +904,28 @@ func TestRunOnceRefusesToStartWithUnusableProvenance(t *testing.T) {
 	}{
 		{name: "blank version", engine: EngineProvenance{Version: " ", Checksum: testEngineSum}},
 		{name: "truncated checksum", engine: EngineProvenance{Version: testEngineVer, Checksum: "deadbeef"}},
+		// packing_jobs.engine_version is VARCHAR(255) and packing_jobs is
+		// UTF-8 text, so the three below are accepted by the codec and by
+		// PackingJob.markRunning and then rejected by Postgres — after the
+		// started event was already taken off the result queue. That is the
+		// one shape of rejection nothing recovers from: the save throws, the
+		// event is abandoned to the result dead-letter queue where
+		// replayIndependently leaves it unsettled, and the worker meanwhile
+		// completes the dispatch, so the job sits QUEUED with dispatched_at
+		// set — invisible to findUndispatched, to findRunning and to
+		// resolveStalledDispatch alike.
+		{name: "version wider than the column", engine: EngineProvenance{
+			Version:  strings.Repeat("v", maxEngineVersionBytes+1),
+			Checksum: testEngineSum,
+		}},
+		{name: "multi-line version banner", engine: EngineProvenance{
+			Version:  "packer 1.2.3\nbuilt with go1.26.5",
+			Checksum: testEngineSum,
+		}},
+		{name: "version carrying a NUL byte", engine: EngineProvenance{
+			Version:  "packer\x001.2.3",
+			Checksum: testEngineSum,
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
@@ -910,6 +938,73 @@ func TestRunOnceRefusesToStartWithUnusableProvenance(t *testing.T) {
 			assertCalls(t, calls, []string{"receive", "findResult", "download", "provenance", "abandon"})
 			assertNoCalls(t, calls, "send:started", "run", "complete")
 		})
+	}
+}
+
+// The guard above is a bound, not a ban: 255 bytes is exactly what the
+// column holds, so a version of that width has to go through. Without this
+// the same guard passes written as >= and silently rejects a legitimate
+// packer.
+func TestRunOnceAcceptsAVersionThatExactlyFillsTheColumn(t *testing.T) {
+	h := newHarness(t)
+	version := strings.Repeat("v", maxEngineVersionBytes)
+	h.engine.provenance = EngineProvenance{Version: version, Checksum: testEngineSum}
+
+	if err := h.run(); err != nil {
+		t.Fatalf("RunOnce rejected a %d-byte version the column holds: %v", maxEngineVersionBytes, err)
+	}
+	events := h.queue.sentEvents()
+	if len(events) == 0 || events[0].EngineVersion != version {
+		t.Fatalf("started event does not carry the %d-byte version: %+v", maxEngineVersionBytes, events)
+	}
+}
+
+// A packer's stderr is copied into the reason verbatim, and Postgres
+// rejects a NUL byte in a text column outright. A failed event carrying one
+// is accepted by the codec and by PackingJob.fail, then throws on save —
+// which wedges a RUNNING job exactly the way an over-long version wedges a
+// QUEUED one. Stripping rather than refusing, because unlike the engine
+// version a reason is prose: mangling it loses nothing, while refusing to
+// send it would abandon a delivery whose packing job genuinely failed.
+func TestRunOnceStripsControlCharactersFromTheFailureReason(t *testing.T) {
+	h := newHarness(t)
+	h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
+		return EngineResult{}, &EngineFailure{Reason: "packer exited with code 3: boom\x00\r\n  at frame\x1b[0m\t"}
+	}
+
+	if err := h.run(); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	events := h.queue.sentEvents()
+	reason := deref(events[len(events)-1].Reason)
+	// Five spaces: NUL, CR and LF each become one, and the two the packer
+	// itself indented with survive. Nothing is collapsed, so the assertion
+	// pins the mapping rather than a tidy-up nobody asked for.
+	if want := "packer exited with code 3: boom     at frame [0m"; reason != want {
+		t.Fatalf("reason = %q, want %q", reason, want)
+	}
+	if i := strings.IndexFunc(reason, isControlCharacter); i >= 0 {
+		t.Fatalf("reason keeps a control character at byte %d: %q", i, reason)
+	}
+}
+
+// Stripping has to run before the blank check, not after: a reason made of
+// nothing but control characters is non-blank on the way in and blank on
+// the way out, and PackingJob.fail rejects a blank one.
+func TestRunOnceSubstitutesAReasonThatStrippingEmpties(t *testing.T) {
+	h := newHarness(t)
+	h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
+		return EngineResult{}, &EngineFailure{Reason: "\x00\x01\x1b"}
+	}
+
+	if err := h.run(); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+
+	events := h.queue.sentEvents()
+	if reason := deref(events[len(events)-1].Reason); reason != unreportedFailure {
+		t.Fatalf("reason = %q, want %q", reason, unreportedFailure)
 	}
 }
 
