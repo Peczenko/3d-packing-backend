@@ -46,3 +46,6 @@ app/src/main/resources/application-local.properties
 
 # Isolated feature worktrees
 .worktrees/
+
+# PowerShell tooling stays local, never committed
+*.ps1
