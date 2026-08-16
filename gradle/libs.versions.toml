@@ -7,6 +7,8 @@ jooqDocker = "8.0.30"
 postgres = "42.7.11"
 firebaseAdmin = "9.9.0"
 archunit = "1.4.1"
+spotless = "8.9.0"
+checkstyle = "13.10.0"
 
 [libraries]
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
@@ -21,3 +23,4 @@ archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
 jooq-docker = { id = "dev.monosoul.jooq-docker", version.ref = "jooqDocker" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

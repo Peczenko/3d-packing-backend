@@ -36,6 +36,64 @@ services:
       timeout: 5s
       retries: 12
 
+  servicebus-sql:
+    # Also under "packing": packing-worker depends_on servicebus, and Compose
+    # rejects the whole project when a dependency's profile is not enabled, so
+    # `--profile packing` on its own has to be able to resolve the broker.
+    # The cost: the emulator is now in scope for `--profile packing ... --build`,
+    # which rebuilds its dockerfile_inline image, recreates the container, and
+    # wipes both queues — so a worker run started that way destroys the dispatch
+    # it was meant to handle. Add --no-deps when messages are already in flight.
+    profiles: ["messaging", "packing"]
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: packing-servicebus-sql
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SERVICE_BUS_SQL_PASSWORD:-PackingServiceBus1!}
+    volumes:
+      - servicebus-sql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q \"SELECT 1\" -b -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  servicebus:
+    profiles: ["messaging", "packing"]
+    image: packing-servicebus-emulator:local
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM mcr.microsoft.com/dotnet/aspnet:8.0.3-cbl-mariner2.0-amd64 AS health-tools
+        FROM mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+        COPY --from=health-tools /bin/sh /bin/sh
+        COPY --from=health-tools /usr/bin/curl /usr/bin/curl
+        COPY --from=health-tools /usr/lib /usr/lib
+    container_name: packing-servicebus
+    restart: unless-stopped
+    depends_on:
+      servicebus-sql:
+        condition: service_healthy
+    environment:
+      ACCEPT_EULA: "Y"
+      SQL_SERVER: servicebus-sql
+      MSSQL_SA_PASSWORD: ${SERVICE_BUS_SQL_PASSWORD:-PackingServiceBus1!}
+      EMULATOR_HTTP_PORT: 5300
+      SQL_WAIT_INTERVAL: 5
+    volumes:
+      - ./config/servicebus/config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+      - servicebus-logs:/home/app/EmulatorLogs
+    ports:
+      - "${SERVICE_BUS_AMQP_PORT:-5672}:5672"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:5300/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
   app:
     profiles: ["app"]
     build:
@@ -55,18 +113,57 @@ services:
       DB_NAME: ${DB_NAME:-packing}
       DB_USERNAME: ${DB_USERNAME:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-packing}
+      SPRING_DATASOURCE_USERNAME: ${DB_USERNAME:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-postgres}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-packing-local}
       FIREBASE_SERVICE_ACCOUNT_B64: ${FIREBASE_SERVICE_ACCOUNT_B64:-}
       FIREBASE_ADMIN_ENABLED: ${FIREBASE_ADMIN_ENABLED:-false}
       # Inside the Compose network the emulator answers to its service name, not localhost.
       AZURITE_HOST: azurite
       AZURITE_BLOB_PORT: 10000
+      SPRING_CLOUD_AZURE_STORAGE_BLOB_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
       ALERT_RECIPIENTS: ${ALERT_RECIPIENTS:-}
+      PACKING_MESSAGING_ENABLED: ${PACKING_MESSAGING_ENABLED:-false}
+      PACKING_MESSAGING_CONNECTION_STRING: ${SERVICE_BUS_CONNECTION_STRING:-}
     ports:
       - "${APP_PORT:-8080}:8080"
+
+  # One-shot by design: each container takes at most one dispatch and exits, so
+  # concurrency is `--scale packing-worker=5` and never a loop inside the binary.
+  # No container_name, because a named service cannot be scaled.
+  packing-worker:
+    profiles: ["packing"]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    image: packing-worker:local
+    restart: "no"
+    depends_on:
+      azurite:
+        condition: service_healthy
+      servicebus:
+        condition: service_healthy
+    environment:
+      # Go env names, deliberately not the app service's Spring ones.
+      # config.Load wants exactly one auth mode per dependency, so the two
+      # connection strings are set and SERVICE_BUS_NAMESPACE / STORAGE_ACCOUNT_URL
+      # stay unset — setting both, or neither, exits 2 at startup.
+      SERVICE_BUS_CONNECTION_STRING: Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
+      STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
+      PACKER_PATH: /usr/local/bin/packer
+      # Distroless has no shell, so /tmp is set explicitly rather than left to
+      # os.TempDir(): a work root the nonroot user cannot create into fails as an
+      # infrastructure error and abandons every message it touches.
+      PACKING_WORK_ROOT: /tmp
+      PACKING_RECEIVE_TIMEOUT: ${PACKING_RECEIVE_TIMEOUT:-60s}
+      PACKING_LOCK_RENEW_INTERVAL: ${PACKING_LOCK_RENEW_INTERVAL:-20s}
+      PACKING_DISPATCH_QUEUE: ${PACKING_DISPATCH_QUEUE:-packing-dispatch}
+      PACKING_RESULT_QUEUE: ${PACKING_RESULT_QUEUE:-packing-results}
 
   storage-ui:
     profiles: ["tools"]
@@ -97,4 +194,6 @@ services:
 volumes:
   postgres-data:
   azurite-data:
+  servicebus-sql-data:
+  servicebus-logs:
   rclone-cache:

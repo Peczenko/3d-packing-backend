@@ -31,6 +31,17 @@ dependencies {
     testImplementation libs.archunit.junit5
 }
 
+// ServiceBusEmulatorConfigTest locates config/servicebus/config.json itself by walking up from user.dir,
+// but Gradle has no way to know the test reads that file unless it is declared an input: without it,
+// Gradle marks this task UP-TO-DATE when only that file changed, and the regression guard stops running
+// at exactly the moment it would catch something. PathSensitivity.NONE keeps the file's absolute path out
+// of the cache key, since only its content matters.
+tasks.named('test') {
+    inputs.file(rootProject.file('config/servicebus/config.json'))
+            .withPropertyName('serviceBusEmulatorConfig')
+            .withPathSensitivity(PathSensitivity.NONE)
+}
+
 tasks.named('jar') {
     enabled = false
 }
