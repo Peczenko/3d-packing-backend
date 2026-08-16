@@ -10,7 +10,14 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
@@ -21,28 +28,28 @@ public class UserController {
 
     private final UserApplicationService users;
 
-    /**
-     * Returns the caller's profile, creating it on first call. Clients can treat this as
-     * "sign in to the backend" immediately after Firebase authentication — there is no
-     * separate registration step.
-     */
     @GetMapping("/me")
     public UserResponse getCurrentUser(@CurrentUser AuthenticatedUser caller) {
         return UserResponse.from(users.resolveCurrentUser(new ResolveCurrentUserCommand(
-                caller.firebaseUid(), caller.email(), caller.displayName())));
+                                                                                        caller.firebaseUid(),
+                                                                                        caller.email(),
+                                                                                        caller.displayName())));
     }
 
     @PatchMapping("/me")
     public UserResponse updateCurrentUser(@CurrentUser AuthenticatedUser caller,
                                           @Valid @RequestBody UpdateUserProfileRequest request) {
         return UserResponse.from(users.updateProfile(new UpdateUserProfileCommand(
-                caller.firebaseUid(), request.username(), request.displayName())));
+                                                                                  caller.firebaseUid(),
+                                                                                  request.username(),
+                                                                                  request.displayName())));
     }
 
     @DeleteMapping("/me")
     public ResponseEntity<Void> deleteCurrentUser(@CurrentUser AuthenticatedUser caller) {
         users.deleteAccount(caller.firebaseUid());
-        return ResponseEntity.noContent().build();
+        return ResponseEntity.noContent()
+                             .build();
     }
 
     @PutMapping("/{userId}/role")
@@ -50,6 +57,6 @@ public class UserController {
     public UserResponse assignRole(@PathVariable UUID userId,
                                    @Valid @RequestBody AssignUserRoleRequest request) {
         return UserResponse.from(users.assignRole(
-                new AssignUserRoleCommand(userId, request.role())));
+                                                  new AssignUserRoleCommand(userId, request.role())));
     }
 }

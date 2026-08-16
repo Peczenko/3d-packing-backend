@@ -36,25 +36,28 @@ class BrevoEmailSenderTest {
 
     private static final String BASE_URL = "https://api.brevo.test";
     private static final String SEND_URL = BASE_URL + "/v3/smtp/email";
-    private static final String API_KEY = "secret-key";
+    private static final String API_KEY  = "secret-key";
 
     private MockRestServiceServer server;
-    private BrevoEmailSender sender;
+    private BrevoEmailSender      sender;
 
     @BeforeEach
     void setUp() {
         ExternalApiClients clients = new ExternalApiClients(
-                RestClient.builder(),
-                requestFactoryBuilder(),
-                ClientHttpRequestFactorySettings.defaults(),
-                new ObjectMapper());
+                                                            RestClient.builder(),
+                                                            requestFactoryBuilder(),
+                                                            ClientHttpRequestFactorySettings.defaults(),
+                                                            new ObjectMapper());
         ExternalApi api = clients.create(
-                new ExternalApiSpec("brevo", URI.create(BASE_URL),
-                        Duration.ofSeconds(1), Duration.ofSeconds(1)),
-                builder -> {
-                    server = MockRestServiceServer.bindTo(builder).build();
-                    builder.defaultHeader("api-key", API_KEY);
-                });
+                                         new ExternalApiSpec("brevo",
+                                                             URI.create(BASE_URL),
+                                                             Duration.ofSeconds(1),
+                                                             Duration.ofSeconds(1)),
+                                         builder -> {
+                                             server = MockRestServiceServer.bindTo(builder)
+                                                                           .build();
+                                             builder.defaultHeader("api-key", API_KEY);
+                                         });
 
         sender = new BrevoEmailSender(api, properties());
     }
@@ -62,32 +65,32 @@ class BrevoEmailSenderTest {
     @Test
     void postsTheTransactionalPayloadWithEveryOptionalPartPopulated() {
         server.expect(requestTo(SEND_URL))
-                .andExpect(method(org.springframework.http.HttpMethod.POST))
-                .andExpect(header("api-key", API_KEY))
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(content().json("""
-                        {
-                          "sender": {"name": "3D Packing", "email": "noreply@3dpacking.dev"},
-                          "to": [{"email": "ops@example.com"}],
-                          "cc": [{"email": "cc@example.com"}],
-                          "bcc": [{"email": "bcc@example.com"}],
-                          "replyTo": {"email": "reply@example.com"},
-                          "subject": "Boom",
-                          "htmlContent": "<p>boom</p>",
-                          "textContent": "boom",
-                          "attachment": [{"name": "trace.txt", "content": "cmVwb3J0"}]
-                        }""", JsonCompareMode.STRICT))
-                .andRespond(withSuccess("{\"messageId\":\"<1@brevo>\"}", MediaType.APPLICATION_JSON));
+              .andExpect(method(org.springframework.http.HttpMethod.POST))
+              .andExpect(header("api-key", API_KEY))
+              .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+              .andExpect(content().json("""
+                  {
+                    "sender": {"name": "3D Packing", "email": "noreply@3dpacking.dev"},
+                    "to": [{"email": "ops@example.com"}],
+                    "cc": [{"email": "cc@example.com"}],
+                    "bcc": [{"email": "bcc@example.com"}],
+                    "replyTo": {"email": "reply@example.com"},
+                    "subject": "Boom",
+                    "htmlContent": "<p>boom</p>",
+                    "textContent": "boom",
+                    "attachment": [{"name": "trace.txt", "content": "cmVwb3J0"}]
+                  }""", JsonCompareMode.STRICT))
+              .andRespond(withSuccess("{\"messageId\":\"<1@brevo>\"}", MediaType.APPLICATION_JSON));
 
         sender.send(EmailMessage.to("ops@example.com")
-                .cc("cc@example.com")
-                .bcc("bcc@example.com")
-                .replyTo("reply@example.com")
-                .subject("Boom")
-                .html("<p>boom</p>")
-                .text("boom")
-                .attach("trace.txt", "report".getBytes(StandardCharsets.UTF_8))
-                .build());
+                                .cc("cc@example.com")
+                                .bcc("bcc@example.com")
+                                .replyTo("reply@example.com")
+                                .subject("Boom")
+                                .html("<p>boom</p>")
+                                .text("boom")
+                                .attach("trace.txt", "report".getBytes(StandardCharsets.UTF_8))
+                                .build());
 
         server.verify();
     }
@@ -95,16 +98,19 @@ class BrevoEmailSenderTest {
     @Test
     void omitsOptionalMembersEntirelyWhenTheyAreUnset() {
         server.expect(requestTo(SEND_URL))
-                .andExpect(content().json("""
-                        {
-                          "sender": {"name": "3D Packing", "email": "noreply@3dpacking.dev"},
-                          "to": [{"email": "ops@example.com"}],
-                          "subject": "Boom",
-                          "htmlContent": "<p>boom</p>"
-                        }""", JsonCompareMode.STRICT))
-                .andRespond(withSuccess());
+              .andExpect(content().json("""
+                  {
+                    "sender": {"name": "3D Packing", "email": "noreply@3dpacking.dev"},
+                    "to": [{"email": "ops@example.com"}],
+                    "subject": "Boom",
+                    "htmlContent": "<p>boom</p>"
+                  }""", JsonCompareMode.STRICT))
+              .andRespond(withSuccess());
 
-        sender.send(EmailMessage.to("ops@example.com").subject("Boom").html("<p>boom</p>").build());
+        sender.send(EmailMessage.to("ops@example.com")
+                                .subject("Boom")
+                                .html("<p>boom</p>")
+                                .build());
 
         server.verify();
     }
@@ -112,18 +118,22 @@ class BrevoEmailSenderTest {
     @Test
     void reportsARejectedKeyAsAnExternalServiceFailureWithoutLeakingTheKey() {
         server.expect(requestTo(SEND_URL))
-                .andRespond(withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body("{\"code\":\"unauthorized\",\"message\":\"Key not found\"}"));
+              .andRespond(withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED)
+                                                                                      .contentType(MediaType.APPLICATION_JSON)
+                                                                                      .body("{\"code\":\"unauthorized\",\"message\":\"Key not found\"}"));
 
         Throwable thrown = catchThrowable(() -> sender.send(
-                EmailMessage.to("ops@example.com").subject("Boom").html("<p>x</p>").build()));
+                                                            EmailMessage.to("ops@example.com")
+                                                                        .subject("Boom")
+                                                                        .html("<p>x</p>")
+                                                                        .build()));
 
         assertThat(thrown).isInstanceOf(ExternalHttpException.class);
         assertThat(((ExternalServiceException) thrown).service()).isEqualTo("brevo");
         assertThat(((ExternalHttpException) thrown).statusCode()).isEqualTo(401);
         assertThat(((ExternalHttpException) thrown).providerCode()).isEqualTo("unauthorized");
-        assertThat(thrown.getMessage()).contains("401", "unauthorized").doesNotContain(API_KEY);
+        assertThat(thrown.getMessage()).contains("401", "unauthorized")
+                                       .doesNotContain(API_KEY);
     }
 
     @Test
@@ -132,12 +142,12 @@ class BrevoEmailSenderTest {
         oversized[0] = 1;
 
         assertThatThrownBy(() -> sender.send(EmailMessage.to("ops@example.com")
-                .subject("Boom")
-                .html("<p>x</p>")
-                .attach("huge.bin", oversized)
-                .build()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("application's raw attachment safety limit");
+                                                         .subject("Boom")
+                                                         .html("<p>x</p>")
+                                                         .attach("huge.bin", oversized)
+                                                         .build()))
+                                                                   .isInstanceOf(IllegalArgumentException.class)
+                                                                   .hasMessageContaining("application's raw attachment safety limit");
 
         server.verify();
     }
@@ -145,28 +155,31 @@ class BrevoEmailSenderTest {
     @Test
     void refusesMoreThanNinetyNineRecipientsWhenAttachmentsArePresent() {
         var recipients = IntStream.range(0, 100)
-                .mapToObj(index -> "recipient-" + index + "@example.com")
-                .toList();
+                                  .mapToObj(index -> "recipient-" + index + "@example.com")
+                                  .toList();
 
         assertThatThrownBy(() -> sender.send(EmailMessage.to(recipients.toArray(String[]::new))
-                .subject("Boom")
-                .html("<p>x</p>")
-                .attach("trace.txt", "report".getBytes(StandardCharsets.UTF_8))
-                .build()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("at most 99 recipients");
+                                                         .subject("Boom")
+                                                         .html("<p>x</p>")
+                                                         .attach("trace.txt", "report".getBytes(StandardCharsets.UTF_8))
+                                                         .build()))
+                                                                   .isInstanceOf(IllegalArgumentException.class)
+                                                                   .hasMessageContaining("at most 99 recipients");
 
         server.verify();
     }
 
     private EmailProperties properties() {
-        return new EmailProperties("noreply@3dpacking.dev", "3D Packing",
-                new EmailProperties.Brevo(URI.create(BASE_URL), API_KEY,
-                        Duration.ofSeconds(1), Duration.ofSeconds(1)));
+        return new EmailProperties("noreply@3dpacking.dev",
+                                   "3D Packing",
+                                   new EmailProperties.Brevo(URI.create(BASE_URL),
+                                                             API_KEY,
+                                                             Duration.ofSeconds(1),
+                                                             Duration.ofSeconds(1)));
     }
 
     private ClientHttpRequestFactoryBuilder<?> requestFactoryBuilder() {
         return ClientHttpRequestFactoryBuilder.httpComponents()
-                .withHttpClientCustomizer(HttpClientBuilder::disableAutomaticRetries);
+                                              .withHttpClientCustomizer(HttpClientBuilder::disableAutomaticRetries);
     }
 }

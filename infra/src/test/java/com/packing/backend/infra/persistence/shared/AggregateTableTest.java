@@ -13,15 +13,19 @@ class AggregateTableTest {
     @Test
     void rejectsTheVersionColumnListedAsImmutable() {
         assertThatThrownBy(() -> new AggregateTable<>(
-                "User", USERS.VERSION, Set.of(USERS.FIREBASE_UID, USERS.VERSION)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("version");
+                                                      "User",
+                                                      USERS.VERSION,
+                                                      Set.of(USERS.FIREBASE_UID, USERS.VERSION)))
+                                                                                                 .isInstanceOf(IllegalArgumentException.class)
+                                                                                                 .hasMessageContaining("version");
     }
 
     @Test
     void acceptsANormalSpec() {
         AggregateTable<?> table = new AggregateTable<>(
-                "User", USERS.VERSION, Set.of(USERS.FIREBASE_UID, USERS.CREATED_AT));
+                                                       "User",
+                                                       USERS.VERSION,
+                                                       Set.of(USERS.FIREBASE_UID, USERS.CREATED_AT));
 
         assertThat(table.immutable()).containsExactlyInAnyOrder(USERS.FIREBASE_UID, USERS.CREATED_AT);
     }

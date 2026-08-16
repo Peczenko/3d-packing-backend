@@ -16,48 +16,53 @@ class UsernameTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"ab", "-leading", ".leading", "has space", "has@symbol", "hasümlaut"})
+    @ValueSource(strings = { "ab", "-leading", ".leading", "has space", "has@symbol", "hasümlaut" })
     void rejectsMalformedValues(String value) {
         assertThatThrownBy(() -> new Username(value))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                     .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
     void rejectsValuesLongerThanTheLimit() {
         assertThatThrownBy(() -> new Username("a".repeat(Username.MAX_LENGTH + 1)))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                                   .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
     void suggestionStripsIllegalCharacters() {
-        assertThat(Username.suggestionFrom("Ada Lovelace!").value()).isEqualTo("adalovelace");
+        assertThat(Username.suggestionFrom("Ada Lovelace!")
+                           .value()).isEqualTo("adalovelace");
     }
 
     @Test
     void suggestionStripsLeadingPunctuationBecauseTheFirstCharacterIsStricter() {
-        assertThat(Username.suggestionFrom("...ada").value()).isEqualTo("ada");
+        assertThat(Username.suggestionFrom("...ada")
+                           .value()).isEqualTo("ada");
     }
 
     @Test
     void suggestionPadsInputShorterThanTheMinimum() {
-        assertThat(Username.suggestionFrom("jo").value()).isEqualTo("jo0");
+        assertThat(Username.suggestionFrom("jo")
+                           .value()).isEqualTo("jo0");
     }
 
     @Test
     void suggestionTruncatesInputLongerThanTheMaximum() {
-        assertThat(Username.suggestionFrom("a".repeat(200)).value())
-                .hasSize(Username.MAX_LENGTH);
+        assertThat(Username.suggestionFrom("a".repeat(200))
+                           .value())
+                                    .hasSize(Username.MAX_LENGTH);
     }
 
     @Test
     void suggestionFailsWhenNothingUsableRemains() {
         assertThatThrownBy(() -> Username.suggestionFrom("!!!"))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
     void suffixIsAppended() {
-        assertThat(new Username("ada").withSuffix(2).value()).isEqualTo("ada2");
+        assertThat(new Username("ada").withSuffix(2)
+                                      .value()).isEqualTo("ada2");
     }
 
     @Test
@@ -66,6 +71,7 @@ class UsernameTest {
 
         Username suffixed = atLimit.withSuffix(12);
 
-        assertThat(suffixed.value()).hasSize(Username.MAX_LENGTH).endsWith("12");
+        assertThat(suffixed.value()).hasSize(Username.MAX_LENGTH)
+                                    .endsWith("12");
     }
 }

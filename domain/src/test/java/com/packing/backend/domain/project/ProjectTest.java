@@ -13,11 +13,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ProjectTest {
 
-    private static final Instant NOW = Instant.parse("2026-07-27T10:15:30Z");
-    private static final Instant LATER = NOW.plusSeconds(3600);
-    private static final UserId CREATOR = UserId.generate();
-    private static final UserId OTHER = UserId.generate();
-    private static final ProjectName NAME = new ProjectName("Chassis packing");
+    private static final Instant     NOW     = Instant.parse("2026-07-27T10:15:30Z");
+    private static final Instant     LATER   = NOW.plusSeconds(3600);
+    private static final UserId      CREATOR = UserId.generate();
+    private static final UserId      OTHER   = UserId.generate();
+    private static final ProjectName NAME    = new ProjectName("Chassis packing");
 
     private Project activeProject() {
         Project project = Project.create(NAME, CREATOR, NOW);
@@ -33,16 +33,17 @@ class ProjectTest {
         assertThat(project.createdBy()).isEqualTo(CREATOR);
         assertThat(project.version()).isEqualTo(Project.INITIAL_VERSION);
         assertThat(project.members()).singleElement()
-                .satisfies(member -> {
-                    assertThat(member.userId()).isEqualTo(CREATOR);
-                    assertThat(member.permission()).isEqualTo(ProjectPermission.OWNER);
-                    assertThat(member.addedBy()).isEqualTo(CREATOR);
-                });
+                                     .satisfies(member -> {
+                                         assertThat(member.userId()).isEqualTo(CREATOR);
+                                         assertThat(member.permission()).isEqualTo(ProjectPermission.OWNER);
+                                         assertThat(member.addedBy()).isEqualTo(CREATOR);
+                                     });
     }
 
     @Test
     void createRecordsNoEventBecauseNobodyNeedsWelcomingToTheirOwnProject() {
-        assertThat(Project.create(NAME, CREATOR, NOW).domainEvents()).isEmpty();
+        assertThat(Project.create(NAME, CREATOR, NOW)
+                          .domainEvents()).isEmpty();
     }
 
     @Test
@@ -53,14 +54,14 @@ class ProjectTest {
 
         assertThat(project.permissionOf(OTHER)).contains(ProjectPermission.WRITE);
         assertThat(project.domainEvents()).singleElement()
-                .isInstanceOfSatisfying(ProjectAccessGranted.class, event -> {
-                    assertThat(event.projectId()).isEqualTo(project.id());
-                    assertThat(event.projectName()).isEqualTo(NAME);
-                    assertThat(event.userId()).isEqualTo(OTHER);
-                    assertThat(event.permission()).isEqualTo(ProjectPermission.WRITE);
-                    assertThat(event.grantedBy()).isEqualTo(CREATOR);
-                    assertThat(event.occurredAt()).isEqualTo(LATER);
-                });
+                                          .isInstanceOfSatisfying(ProjectAccessGranted.class, event -> {
+                                              assertThat(event.projectId()).isEqualTo(project.id());
+                                              assertThat(event.projectName()).isEqualTo(NAME);
+                                              assertThat(event.userId()).isEqualTo(OTHER);
+                                              assertThat(event.permission()).isEqualTo(ProjectPermission.WRITE);
+                                              assertThat(event.grantedBy()).isEqualTo(CREATOR);
+                                              assertThat(event.occurredAt()).isEqualTo(LATER);
+                                          });
     }
 
     @Test
@@ -91,10 +92,9 @@ class ProjectTest {
         Project project = activeProject();
         project.grantAccess(OTHER, ProjectPermission.WRITE, CREATOR, LATER);
 
-        assertThatThrownBy(() ->
-                project.grantAccess(CREATOR, ProjectPermission.READ, CREATOR, LATER))
-                .isInstanceOf(ResourceConflictException.class)
-                .hasMessageContaining("at least one owner");
+        assertThatThrownBy(() -> project.grantAccess(CREATOR, ProjectPermission.READ, CREATOR, LATER))
+                                                                                                      .isInstanceOf(ResourceConflictException.class)
+                                                                                                      .hasMessageContaining("at least one owner");
         assertThat(project.permissionOf(CREATOR)).contains(ProjectPermission.OWNER);
     }
 
@@ -103,8 +103,8 @@ class ProjectTest {
         Project project = activeProject();
 
         assertThatThrownBy(() -> project.revokeAccess(CREATOR, LATER))
-                .isInstanceOf(ResourceConflictException.class)
-                .hasMessageContaining("at least one owner");
+                                                                      .isInstanceOf(ResourceConflictException.class)
+                                                                      .hasMessageContaining("at least one owner");
         assertThat(project.members()).hasSize(1);
     }
 
@@ -133,7 +133,7 @@ class ProjectTest {
         Project project = activeProject();
 
         assertThatThrownBy(() -> project.requireAccess(OTHER, ProjectPermission.READ))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                                                      .isInstanceOf(ProjectNotFoundException.class);
     }
 
     @Test
@@ -142,8 +142,8 @@ class ProjectTest {
         project.grantAccess(OTHER, ProjectPermission.READ, CREATOR, LATER);
 
         assertThatThrownBy(() -> project.requireAccess(OTHER, ProjectPermission.WRITE))
-                .isInstanceOf(PermissionDeniedException.class)
-                .hasMessageContaining("WRITE");
+                                                                                       .isInstanceOf(PermissionDeniedException.class)
+                                                                                       .hasMessageContaining("WRITE");
     }
 
     @Test
@@ -152,7 +152,7 @@ class ProjectTest {
         project.grantAccess(OTHER, ProjectPermission.OWNER, CREATOR, LATER);
 
         assertThat(project.requireAccess(OTHER, ProjectPermission.READ))
-                .isEqualTo(ProjectPermission.OWNER);
+                                                                        .isEqualTo(ProjectPermission.OWNER);
     }
 
     @Test
@@ -163,14 +163,13 @@ class ProjectTest {
 
         assertThat(project.status()).isEqualTo(ProjectStatus.DISABLED);
         assertThat(project.requireAccess(CREATOR, ProjectPermission.OWNER))
-                .isEqualTo(ProjectPermission.OWNER);
+                                                                           .isEqualTo(ProjectPermission.OWNER);
         assertThatThrownBy(() -> project.rename(new ProjectName("New"), LATER))
-                .isInstanceOf(ResourceConflictException.class);
-        assertThatThrownBy(() ->
-                project.grantAccess(OTHER, ProjectPermission.READ, CREATOR, LATER))
-                .isInstanceOf(ResourceConflictException.class);
+                                                                               .isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> project.grantAccess(OTHER, ProjectPermission.READ, CREATOR, LATER))
+                                                                                                    .isInstanceOf(ResourceConflictException.class);
         assertThatThrownBy(() -> project.revokeAccess(CREATOR, LATER))
-                .isInstanceOf(ResourceConflictException.class);
+                                                                      .isInstanceOf(ResourceConflictException.class);
     }
 
     @Test
@@ -241,8 +240,9 @@ class ProjectTest {
     void membersAreNotWritableThroughTheReturnedList() {
         Project project = activeProject();
 
-        assertThatThrownBy(() -> project.members().clear())
-                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> project.members()
+                                        .clear())
+                                                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -257,9 +257,17 @@ class ProjectTest {
     @Test
     void identityIsTheIdAlone() {
         Project project = activeProject();
-        Project sameId = Project.rehydrate(project.id(), new ProjectName("Different"), OTHER,
-                ProjectStatus.DISABLED, 9L, NOW, LATER, null, project.members());
+        Project sameId = Project.rehydrate(project.id(),
+                                           new ProjectName("Different"),
+                                           OTHER,
+                                           ProjectStatus.DISABLED,
+                                           9L,
+                                           NOW,
+                                           LATER,
+                                           null,
+                                           project.members());
 
-        assertThat(project).isEqualTo(sameId).hasSameHashCodeAs(sameId);
+        assertThat(project).isEqualTo(sameId)
+                           .hasSameHashCodeAs(sameId);
     }
 }

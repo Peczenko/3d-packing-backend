@@ -35,17 +35,19 @@ class UserDelegationBlobSasIssuerTest {
     @Mock
     private BlobServiceClient serviceClient;
     @Mock
-    private BlobClient blob;
+    private BlobClient        blob;
 
     private static BlobServiceSasSignatureValues values() {
         return new BlobServiceSasSignatureValues(
-                OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(5),
-                new BlobSasPermission().setReadPermission(true));
+                                                 OffsetDateTime.now(ZoneOffset.UTC)
+                                                               .plusMinutes(5),
+                                                 new BlobSasPermission().setReadPermission(true));
     }
 
     private static UserDelegationKey keyExpiringIn(long minutes) {
         return new UserDelegationKey()
-                .setSignedExpiry(OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(minutes));
+                                      .setSignedExpiry(OffsetDateTime.now(ZoneOffset.UTC)
+                                                                     .plusMinutes(minutes));
     }
 
     @Test

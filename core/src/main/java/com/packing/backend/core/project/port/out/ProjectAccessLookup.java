@@ -15,14 +15,14 @@ public interface ProjectAccessLookup {
     Optional<ProjectAccess> findAccess(FirebaseUid firebaseUid, ProjectId projectId);
 
     record ProjectAccess(UserId userId,
-                         ProjectId projectId,
-                         ProjectStatus status,
-                         ProjectPermission permission) {
+            ProjectId projectId,
+            ProjectStatus status,
+            ProjectPermission permission) {
 
         public ProjectAccess requireAtLeast(ProjectPermission required) {
             if (!permission.allows(required)) {
                 throw new PermissionDeniedException(
-                        "This action requires " + required + " permission on project " + projectId);
+                                                    "This action requires " + required + " permission on project " + projectId);
             }
             return this;
         }
@@ -30,8 +30,9 @@ public interface ProjectAccessLookup {
         public ProjectAccess requireWritable() {
             if (status != ProjectStatus.ACTIVE) {
                 throw new ResourceConflictException(
-                        "Project " + projectId + " is " + status.name().toLowerCase()
-                                + " and cannot be modified");
+                                                    "Project " + projectId + " is " + status.name()
+                                                                                            .toLowerCase()
+                                                            + " and cannot be modified");
             }
             return this;
         }

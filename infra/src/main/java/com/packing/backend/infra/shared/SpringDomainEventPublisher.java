@@ -8,18 +8,11 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collection;
 
-/**
- * Dispatches domain events through Spring's application event mechanism.
- *
- * <p>Because publication happens inside the use case's transaction, listeners can opt
- * into {@code @TransactionalEventListener} to run only after a successful commit.
- */
 @Component
 @RequiredArgsConstructor
 public class SpringDomainEventPublisher implements DomainEventPublisher {
 
     private final ApplicationEventPublisher delegate;
-
 
     @Override
     public void publishAll(Collection<? extends DomainEvent> events) {

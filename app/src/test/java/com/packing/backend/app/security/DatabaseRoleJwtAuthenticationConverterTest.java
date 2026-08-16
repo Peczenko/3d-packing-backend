@@ -24,42 +24,35 @@ class DatabaseRoleJwtAuthenticationConverterTest {
         return firebaseUid -> Optional.ofNullable(authorization);
     }
 
-    /**
-     * The claim deliberately says ADMIN in every test below. Anything that reads it would
-     * grant administrative access; the database is the only thing that may decide.
-     */
     private Jwt tokenClaimingAdmin() {
         return Jwt.withTokenValue("token")
-                .header("alg", "RS256")
-                .subject(UID)
-                .claim("roles", List.of("ADMIN"))
-                .build();
+                  .header("alg", "RS256")
+                  .subject(UID)
+                  .claim("roles", List.of("ADMIN"))
+                  .build();
     }
 
     private List<String> authoritiesFrom(UserAuthorization authorization) {
         return new DatabaseRoleJwtAuthenticationConverter(returning(authorization))
-                .convert(tokenClaimingAdmin())
-                .getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .toList();
+                                                                                   .convert(tokenClaimingAdmin())
+                                                                                   .getAuthorities()
+                                                                                   .stream()
+                                                                                   .map(GrantedAuthority::getAuthority)
+                                                                                   .toList();
     }
 
     @Test
     void grantsTheRoleStoredInTheDatabase() {
         assertThat(authoritiesFrom(
-                new UserAuthorization(UUID.randomUUID(), UserRole.ADMIN, UserStatus.ACTIVE)))
-                .containsExactly("ROLE_ADMIN");
+                                   new UserAuthorization(UUID.randomUUID(), UserRole.ADMIN, UserStatus.ACTIVE)))
+                                                                                                                .containsExactly("ROLE_ADMIN");
     }
 
-    /**
-     * The demotion case. Firebase revocation only invalidates refresh tokens, so this
-     * ID token still carries {@code roles: [ADMIN]} — and must grant nothing of the sort.
-     */
     @Test
     void ignoresAStaleAdminClaimWhenTheDatabaseSaysUser() {
         assertThat(authoritiesFrom(
-                new UserAuthorization(UUID.randomUUID(), UserRole.USER, UserStatus.ACTIVE)))
-                .containsExactly("ROLE_USER");
+                                   new UserAuthorization(UUID.randomUUID(), UserRole.USER, UserStatus.ACTIVE)))
+                                                                                                               .containsExactly("ROLE_USER");
     }
 
     @Test
@@ -70,28 +63,24 @@ class DatabaseRoleJwtAuthenticationConverterTest {
     @Test
     void rejectsADisabledAccount() {
         assertThatThrownBy(() -> authoritiesFrom(
-                new UserAuthorization(UUID.randomUUID(), UserRole.USER, UserStatus.DISABLED)))
-                .isInstanceOf(InvalidBearerTokenException.class)
-                .hasMessageContaining("disabled");
+                                                 new UserAuthorization(UUID.randomUUID(), UserRole.USER, UserStatus.DISABLED)))
+                                                                                                                               .isInstanceOf(InvalidBearerTokenException.class)
+                                                                                                                               .hasMessageContaining("disabled");
     }
 
-    /**
-     * The deletion case: the token remains cryptographically valid for up to an hour after
-     * the account is gone. The tombstone is what makes the deletion take effect now.
-     */
     @Test
     void rejectsATokenForADeletedAccount() {
         assertThatThrownBy(() -> authoritiesFrom(
-                new UserAuthorization(UUID.randomUUID(), UserRole.USER, UserStatus.DELETED)))
-                .isInstanceOf(InvalidBearerTokenException.class)
-                .hasMessageContaining("deleted");
+                                                 new UserAuthorization(UUID.randomUUID(), UserRole.USER, UserStatus.DELETED)))
+                                                                                                                              .isInstanceOf(InvalidBearerTokenException.class)
+                                                                                                                              .hasMessageContaining("deleted");
     }
 
     @Test
     void keepsTheTokenAsThePrincipal() {
         var authentication = new DatabaseRoleJwtAuthenticationConverter(
-                returning(new UserAuthorization(UUID.randomUUID(), UserRole.USER, UserStatus.ACTIVE)))
-                .convert(tokenClaimingAdmin());
+                                                                        returning(new UserAuthorization(UUID.randomUUID(), UserRole.USER, UserStatus.ACTIVE)))
+                                                                                                                                                              .convert(tokenClaimingAdmin());
 
         assertThat(authentication.getName()).isEqualTo(UID);
     }

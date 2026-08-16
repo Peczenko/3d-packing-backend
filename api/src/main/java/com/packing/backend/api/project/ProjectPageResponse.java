@@ -14,10 +14,13 @@ public record ProjectPageResponse(
 
     public static ProjectPageResponse from(Page<ProjectSummaryView> page) {
         return new ProjectPageResponse(
-                page.content().stream().map(ProjectSummaryResponse::from).toList(),
-                page.page(),
-                page.size(),
-                page.totalElements(),
-                page.totalPages());
+                                       page.content()
+                                           .stream()
+                                           .map(ProjectSummaryResponse::from)
+                                           .toList(),
+                                       page.page(),
+                                       page.size(),
+                                       page.totalElements(),
+                                       page.totalPages());
     }
 }

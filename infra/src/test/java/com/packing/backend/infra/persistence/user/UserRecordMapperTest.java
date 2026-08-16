@@ -19,10 +19,17 @@ class UserRecordMapperTest {
 
     @Test
     void roundTripsEveryColumn() {
-        User user = User.rehydrate(UserId.generate(), new FirebaseUid("uid-1"),
-                new Email("a@example.com"), new Username("alice"), "Alice",
-                UserRole.ADMIN, UserStatus.ACTIVE, 7L, NOW, NOW.plusSeconds(1),
-                NOW.plusSeconds(2));
+        User user = User.rehydrate(UserId.generate(),
+                                   new FirebaseUid("uid-1"),
+                                   new Email("a@example.com"),
+                                   new Username("alice"),
+                                   "Alice",
+                                   UserRole.ADMIN,
+                                   UserStatus.ACTIVE,
+                                   7L,
+                                   NOW,
+                                   NOW.plusSeconds(1),
+                                   NOW.plusSeconds(2));
 
         User result = UserRecordMapper.toDomain(UserRecordMapper.toRecord(user));
 
@@ -41,9 +48,17 @@ class UserRecordMapperTest {
 
     @Test
     void roundTripsANullLastLoginAt() {
-        User user = User.rehydrate(UserId.generate(), new FirebaseUid("uid-2"),
-                new Email("b@example.com"), new Username("bob"), null,
-                UserRole.USER, UserStatus.DELETED, 0L, NOW, NOW, null);
+        User user = User.rehydrate(UserId.generate(),
+                                   new FirebaseUid("uid-2"),
+                                   new Email("b@example.com"),
+                                   new Username("bob"),
+                                   null,
+                                   UserRole.USER,
+                                   UserStatus.DELETED,
+                                   0L,
+                                   NOW,
+                                   NOW,
+                                   null);
 
         User result = UserRecordMapper.toDomain(UserRecordMapper.toRecord(user));
 

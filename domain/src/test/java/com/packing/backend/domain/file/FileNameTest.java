@@ -13,9 +13,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class FileNameTest {
 
     private static final char CARRIAGE_RETURN = 0x0D;
-    private static final char LINE_FEED = 0x0A;
-    private static final char TAB = 0x09;
-    private static final char DELETE = 0x7F;
+    private static final char LINE_FEED       = 0x0A;
+    private static final char TAB             = 0x09;
+    private static final char DELETE          = 0x7F;
     private static final char COMBINING_ACUTE = 0x0301;
 
     @Test
@@ -28,7 +28,7 @@ class FileNameTest {
         assertThat(new FileName("../../etc/passwd.stl").value()).isEqualTo("passwd.stl");
         assertThat(new FileName("/var/lib/model.stl").value()).isEqualTo("model.stl");
         assertThat(new FileName("C:" + windows("windows") + windows("model.stl")).value())
-                .isEqualTo("model.stl");
+                                                                                          .isEqualTo("model.stl");
     }
 
     private static String windows(String segment) {
@@ -38,14 +38,14 @@ class FileNameTest {
     @Test
     void rejectsControlCharactersThatCouldInjectAHeader() {
         assertThatThrownBy(() -> new FileName("model" + CARRIAGE_RETURN + LINE_FEED + "X: y.stl"))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("control characters");
+                                                                                                  .isInstanceOf(DomainRuleViolationException.class)
+                                                                                                  .hasMessageContaining("control characters");
         assertThatThrownBy(() -> new FileName("model" + TAB + "part.stl"))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("control characters");
+                                                                          .isInstanceOf(DomainRuleViolationException.class)
+                                                                          .hasMessageContaining("control characters");
         assertThatThrownBy(() -> new FileName("model" + DELETE + "part.stl"))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("control characters");
+                                                                             .isInstanceOf(DomainRuleViolationException.class)
+                                                                             .hasMessageContaining("control characters");
     }
 
     @Test
@@ -60,17 +60,17 @@ class FileNameTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"model", "model.", ".stl", "."})
+    @ValueSource(strings = { "model", "model.", ".stl", "." })
     void rejectsANameWithoutAUsableExtension(String name) {
         assertThatThrownBy(() -> new FileName(name))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                    .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "   ", "/", "..", "./"})
+    @ValueSource(strings = { "", "   ", "/", "..", "./" })
     void rejectsBlankAndPathOnlyNames(String name) {
         assertThatThrownBy(() -> new FileName(name))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                    .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
@@ -78,8 +78,8 @@ class FileNameTest {
         String tooLong = "a".repeat(FileName.MAX_LENGTH) + ".stl";
 
         assertThatThrownBy(() -> new FileName(tooLong))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("at most");
+                                                       .isInstanceOf(DomainRuleViolationException.class)
+                                                       .hasMessageContaining("at most");
     }
 
     @Test
@@ -105,7 +105,7 @@ class FileNameTest {
         FileName name = new FileName("notes.txt");
 
         assertThatThrownBy(name::format)
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("Unsupported 3D model format");
+                                        .isInstanceOf(DomainRuleViolationException.class)
+                                        .hasMessageContaining("Unsupported 3D model format");
     }
 }

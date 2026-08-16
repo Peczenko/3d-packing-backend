@@ -6,8 +6,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record ProjectMemberView(UUID userId,
-                                String username,
-                                String displayName,
-                                ProjectPermission permission,
-                                Instant addedAt) {
+        String username,
+        String displayName,
+        ProjectPermission permission,
+        Instant addedAt) {
 }

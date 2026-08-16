@@ -14,8 +14,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ExternalApiErrorMapperTest {
 
-    private final ExternalApiErrorMapper mapper =
-            new ExternalApiErrorMapper("brevo", new ObjectMapper());
+    private final ExternalApiErrorMapper mapper = new ExternalApiErrorMapper("brevo", new ObjectMapper());
 
     @Test
     void returnsTheValueWhenTheCallSucceeds() {
@@ -29,10 +28,10 @@ class ExternalApiErrorMapperTest {
         };
 
         assertThatThrownBy(() -> mapper.translating(failing))
-                .isInstanceOf(ExternalServiceException.class)
-                .hasMessageContaining("brevo")
-                .hasMessageContaining("connect timed out")
-                .hasCauseInstanceOf(ResourceAccessException.class);
+                                                             .isInstanceOf(ExternalServiceException.class)
+                                                             .hasMessageContaining("brevo")
+                                                             .hasMessageContaining("connect timed out")
+                                                             .hasCauseInstanceOf(ResourceAccessException.class);
     }
 
     @Test
@@ -52,7 +51,7 @@ class ExternalApiErrorMapperTest {
         };
 
         assertThatThrownBy(() -> mapper.translating(failing))
-                .isInstanceOf(IllegalArgumentException.class);
+                                                             .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -71,6 +70,6 @@ class ExternalApiErrorMapperTest {
         };
 
         assertThatThrownBy(() -> mapper.translating(failing))
-                .isInstanceOf(ExternalServiceException.class);
+                                                             .isInstanceOf(ExternalServiceException.class);
     }
 }

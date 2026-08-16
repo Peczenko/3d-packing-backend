@@ -24,10 +24,19 @@ class FileRecordMapperTest {
         FileId id = FileId.generate();
         UserId owner = UserId.generate();
         ProjectId project = ProjectId.generate();
-        StoredFile file = StoredFile.rehydrate(id, owner, project, new FileName("part.stl"),
-                StorageKey.forFile(id), ModelFormat.STL, 2_048L,
-                Checksum.ofHex("a".repeat(64)), FileStatus.AVAILABLE, 4L,
-                NOW, NOW.plusSeconds(1), null);
+        StoredFile file = StoredFile.rehydrate(id,
+                                               owner,
+                                               project,
+                                               new FileName("part.stl"),
+                                               StorageKey.forFile(id),
+                                               ModelFormat.STL,
+                                               2_048L,
+                                               Checksum.ofHex("a".repeat(64)),
+                                               FileStatus.AVAILABLE,
+                                               4L,
+                                               NOW,
+                                               NOW.plusSeconds(1),
+                                               null);
 
         StoredFile result = FileRecordMapper.toDomain(FileRecordMapper.toRecord(file));
 
@@ -50,10 +59,19 @@ class FileRecordMapperTest {
     @Test
     void roundTripsADeletedFilesTombstone() {
         FileId id = FileId.generate();
-        StoredFile file = StoredFile.rehydrate(id, UserId.generate(), ProjectId.generate(),
-                new FileName("gone.stl"), StorageKey.forFile(id), ModelFormat.STL, 1L,
-                Checksum.ofHex("b".repeat(64)), FileStatus.DELETED, 2L,
-                NOW, NOW, NOW.plusSeconds(9));
+        StoredFile file = StoredFile.rehydrate(id,
+                                               UserId.generate(),
+                                               ProjectId.generate(),
+                                               new FileName("gone.stl"),
+                                               StorageKey.forFile(id),
+                                               ModelFormat.STL,
+                                               1L,
+                                               Checksum.ofHex("b".repeat(64)),
+                                               FileStatus.DELETED,
+                                               2L,
+                                               NOW,
+                                               NOW,
+                                               NOW.plusSeconds(9));
 
         StoredFile result = FileRecordMapper.toDomain(FileRecordMapper.toRecord(file));
 

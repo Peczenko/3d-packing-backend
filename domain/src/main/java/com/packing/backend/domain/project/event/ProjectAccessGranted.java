@@ -9,9 +9,9 @@ import com.packing.backend.domain.user.UserId;
 import java.time.Instant;
 
 public record ProjectAccessGranted(ProjectId projectId,
-                                   ProjectName projectName,
-                                   UserId userId,
-                                   ProjectPermission permission,
-                                   UserId grantedBy,
-                                   Instant occurredAt) implements DomainEvent {
+        ProjectName projectName,
+        UserId userId,
+        ProjectPermission permission,
+        UserId grantedBy,
+        Instant occurredAt) implements DomainEvent {
 }

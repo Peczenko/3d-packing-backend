@@ -8,13 +8,13 @@ import java.util.List;
 import java.util.UUID;
 
 public record ProjectView(UUID id,
-                          String name,
-                          ProjectStatus status,
-                          UUID createdBy,
-                          ProjectPermission myPermission,
-                          List<ProjectMemberView> members,
-                          Instant createdAt,
-                          Instant updatedAt) {
+        String name,
+        ProjectStatus status,
+        UUID createdBy,
+        ProjectPermission myPermission,
+        List<ProjectMemberView> members,
+        Instant createdAt,
+        Instant updatedAt) {
 
     public ProjectView {
         members = List.copyOf(members);

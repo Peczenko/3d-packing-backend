@@ -6,9 +6,9 @@ import com.packing.backend.domain.user.UserId;
 import java.time.Instant;
 
 public record ProjectMember(UserId userId,
-                            ProjectPermission permission,
-                            UserId addedBy,
-                            Instant addedAt) {
+        ProjectPermission permission,
+        UserId addedBy,
+        Instant addedAt) {
 
     public ProjectMember {
         if (userId == null) {

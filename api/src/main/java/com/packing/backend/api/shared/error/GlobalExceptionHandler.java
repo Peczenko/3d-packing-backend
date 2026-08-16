@@ -13,7 +13,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.*;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -31,7 +35,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
 
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -64,14 +67,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ConcurrentUpdateException.class)
     public ProblemDetail handleConcurrentUpdate(ConcurrentUpdateException e, HttpServletRequest request) {
-        return problem(HttpStatus.CONFLICT, "Conflicting update",
-                "The resource was modified by another request. Re-read it and try again.", request);
+        return problem(HttpStatus.CONFLICT,
+                       "Conflicting update",
+                       "The resource was modified by another request. Re-read it and try again.",
+                       request);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ProblemDetail handleAccessDenied(AccessDeniedException e, HttpServletRequest request) {
-        return problem(HttpStatus.FORBIDDEN, "Forbidden",
-                "You do not have permission to perform this action.", request);
+        return problem(HttpStatus.FORBIDDEN,
+                       "Forbidden",
+                       "You do not have permission to perform this action.",
+                       request);
     }
 
     @ExceptionHandler(ExternalServiceException.class)
@@ -79,22 +86,29 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         String traceId = newTraceId();
         log.error("[{}] Call to external service '{}' failed", traceId, e.service(), e);
         return serverError(
-                HttpStatus.SERVICE_UNAVAILABLE,
-                "Dependency unavailable",
-                "The '" + e.service() + "' service is currently unavailable. Please retry.",
-                traceId, e, request);
+                           HttpStatus.SERVICE_UNAVAILABLE,
+                           "Dependency unavailable",
+                           "The '" + e.service() + "' service is currently unavailable. Please retry.",
+                           traceId,
+                           e,
+                           request);
     }
 
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleUnexpected(Exception e, HttpServletRequest request) {
         String traceId = newTraceId();
         log.error("[{}] Unhandled exception for {} {}",
-                traceId, request.getMethod(), request.getRequestURI(), e);
+                  traceId,
+                  request.getMethod(),
+                  request.getRequestURI(),
+                  e);
         return serverError(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                "Internal server error",
-                "An unexpected error occurred.",
-                traceId, e, request);
+                           HttpStatus.INTERNAL_SERVER_ERROR,
+                           "Internal server error",
+                           "An unexpected error occurred.",
+                           traceId,
+                           e,
+                           request);
     }
 
     @Override
@@ -103,15 +117,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                                                   HttpStatusCode status,
                                                                   WebRequest request) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();
-        ex.getBindingResult().getFieldErrors()
-                .forEach(error -> fieldErrors.putIfAbsent(error.getField(), error.getDefaultMessage()));
+        ex.getBindingResult()
+          .getFieldErrors()
+          .forEach(error -> fieldErrors.putIfAbsent(error.getField(), error.getDefaultMessage()));
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.BAD_REQUEST, "One or more fields are invalid");
+                                                                 HttpStatus.BAD_REQUEST,
+                                                                 "One or more fields are invalid");
         problem.setTitle("Validation failed");
         problem.setProperty("errors", fieldErrors);
         problem.setProperty("path", pathOf(request));
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problem);
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                             .body(problem);
     }
 
     @Override
@@ -120,8 +137,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                                                              HttpHeaders headers,
                                                              HttpStatusCode statusCode,
                                                              WebRequest request) {
-        ResponseEntity<Object> response =
-                super.handleExceptionInternal(ex, body, headers, statusCode, request);
+        ResponseEntity<Object> response = super.handleExceptionInternal(ex, body, headers, statusCode, request);
         if (response != null && response.getBody() instanceof ProblemDetail problem) {
             problem.setProperty("path", pathOf(request));
         }
@@ -142,34 +158,37 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private ServerErrorReport reportOf(HttpStatus status, String traceId, Exception cause,
                                        HttpServletRequest request) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Authentication authentication = SecurityContextHolder.getContext()
+                                                             .getAuthentication();
         AuthenticatedUser caller = callerOf(authentication);
 
         return new ServerErrorReport(
-                traceId,
-                Instant.now(),
-                status.value(),
-                request.getMethod(),
-                fullPath(request),
-                uriTemplate(request),
-                clientIp(request),
-                request.getHeader(HttpHeaders.USER_AGENT),
-                caller == null ? null : caller.firebaseUid(),
-                caller == null ? null : caller.email(),
-                rolesOf(authentication),
-                cause);
+                                     traceId,
+                                     Instant.now(),
+                                     status.value(),
+                                     request.getMethod(),
+                                     fullPath(request),
+                                     uriTemplate(request),
+                                     clientIp(request),
+                                     request.getHeader(HttpHeaders.USER_AGENT),
+                                     caller == null ? null : caller.firebaseUid(),
+                                     caller == null ? null : caller.email(),
+                                     rolesOf(authentication),
+                                     cause);
     }
 
     private AuthenticatedUser callerOf(Authentication authentication) {
         return authentication != null && authentication.getPrincipal() instanceof Jwt jwt
-                ? AuthenticatedUser.from(jwt)
-                : null;
+                                                                                          ? AuthenticatedUser.from(jwt)
+                                                                                          : null;
     }
 
     private String rolesOf(Authentication authentication) {
-        return authentication == null ? null : authentication.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .collect(Collectors.joining(","));
+        return authentication == null ? null
+                                      : authentication.getAuthorities()
+                                                      .stream()
+                                                      .map(GrantedAuthority::getAuthority)
+                                                      .collect(Collectors.joining(","));
     }
 
     private String uriTemplate(HttpServletRequest request) {
@@ -191,7 +210,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private String newTraceId() {
-        return UUID.randomUUID().toString().substring(0, 8);
+        return UUID.randomUUID()
+                   .toString()
+                   .substring(0, 8);
     }
 
     private ProblemDetail problem(HttpStatus status, String title, String detail, HttpServletRequest request) {

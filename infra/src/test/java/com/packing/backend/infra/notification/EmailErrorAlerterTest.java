@@ -29,14 +29,16 @@ import static org.mockito.Mockito.when;
 
 class EmailErrorAlerterTest {
 
-    private static final Instant NOW = Instant.parse("2026-07-26T14:22:08Z");
-    private static final EmailMessage RENDERED =
-            EmailMessage.to("ops@example.com").subject("Boom").html("<p>boom</p>").build();
+    private static final Instant      NOW      = Instant.parse("2026-07-26T14:22:08Z");
+    private static final EmailMessage RENDERED = EmailMessage.to("ops@example.com")
+                                                             .subject("Boom")
+                                                             .html("<p>boom</p>")
+                                                             .build();
 
     private static final Executor DIRECT = Runnable::run;
 
-    private final EmailSender emailSender = mock(EmailSender.class);
-    private final ErrorEmailRenderer renderer = mock(ErrorEmailRenderer.class);
+    private final EmailSender        emailSender = mock(EmailSender.class);
+    private final ErrorEmailRenderer renderer    = mock(ErrorEmailRenderer.class);
 
     @Test
     void sendsTheRenderedAlert() {
@@ -59,7 +61,7 @@ class EmailErrorAlerterTest {
         ExternalServiceException brevoDown = new ExternalServiceException("brevo", "HTTP 503");
 
         alerter(List.of("ops@example.com")).alert(
-                report(503, new IllegalStateException("wrapped", brevoDown), "/api/v1/files"));
+                                                  report(503, new IllegalStateException("wrapped", brevoDown), "/api/v1/files"));
 
         verifyNoInteractions(renderer, emailSender);
     }
@@ -67,8 +69,7 @@ class EmailErrorAlerterTest {
     @Test
     void stillReportsAFailureOfAnyOtherExternalService() {
         when(renderer.render(any(), any(), any())).thenReturn(RENDERED);
-        ExternalServiceException storageDown =
-                new ExternalServiceException("azure-blob-storage", "HTTP 503");
+        ExternalServiceException storageDown = new ExternalServiceException("azure-blob-storage", "HTTP 503");
 
         alerter(List.of("ops@example.com")).alert(report(503, storageDown, "/api/v1/files"));
 
@@ -78,7 +79,8 @@ class EmailErrorAlerterTest {
     @Test
     void swallowsAFailureToSend() {
         when(renderer.render(any(), any(), any())).thenReturn(RENDERED);
-        doThrow(new ExternalServiceException("brevo", "HTTP 500")).when(emailSender).send(any());
+        doThrow(new ExternalServiceException("brevo", "HTTP 500")).when(emailSender)
+                                                                  .send(any());
 
         alerter(List.of("ops@example.com")).alert(report(500, boom(), "/api/v1/files"));
 
@@ -126,12 +128,13 @@ class EmailErrorAlerterTest {
             sendStarted.countDown();
             releaseSend.await();
             return null;
-        }).when(emailSender).send(any());
+        }).when(emailSender)
+          .send(any());
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
             alerter(List.of("ops@example.com"), executor)
-                    .alert(report(500, boom(), "/api/v1/files"));
+                                                         .alert(report(500, boom(), "/api/v1/files"));
 
             // Reaching here at all means alert() returned. The latch proves the send had
             // begun on another thread and is still blocked inside it.
@@ -147,12 +150,18 @@ class EmailErrorAlerterTest {
     }
 
     private EmailErrorAlerter alerter(List<String> recipients, Executor executor) {
-        AlertProperties properties =
-                new AlertProperties(recipients, Duration.ofMinutes(15), 20);
+        AlertProperties properties = new AlertProperties(recipients, Duration.ofMinutes(15), 20);
         AlertThrottle throttle = new AlertThrottle(
-                Clock.fixed(NOW, ZoneOffset.UTC), properties.cooldown(), properties.maxPerHour());
+                                                   Clock.fixed(NOW, ZoneOffset.UTC),
+                                                   properties.cooldown(),
+                                                   properties.maxPerHour());
         return new EmailErrorAlerter(
-                emailSender, properties, throttle, renderer, executor, "brevo");
+                                     emailSender,
+                                     properties,
+                                     throttle,
+                                     renderer,
+                                     executor,
+                                     "brevo");
     }
 
     private ServerErrorReport report(int status, Throwable cause, String uriTemplate) {
@@ -161,9 +170,18 @@ class EmailErrorAlerterTest {
 
     private ServerErrorReport report(int status, Throwable cause, String path, String uriTemplate) {
         return new ServerErrorReport(
-                "7f3a9c21", NOW, status, "POST", path, uriTemplate,
-                "203.0.113.9", "curl/8",
-                "firebase-uid-1", "user@example.com", "ROLE_USER", cause);
+                                     "7f3a9c21",
+                                     NOW,
+                                     status,
+                                     "POST",
+                                     path,
+                                     uriTemplate,
+                                     "203.0.113.9",
+                                     "curl/8",
+                                     "firebase-uid-1",
+                                     "user@example.com",
+                                     "ROLE_USER",
+                                     cause);
     }
 
     private RuntimeException boom() {

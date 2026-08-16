@@ -7,10 +7,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record ProjectSummaryView(UUID id,
-                                 String name,
-                                 ProjectStatus status,
-                                 ProjectPermission myPermission,
-                                 int memberCount,
-                                 Instant createdAt,
-                                 Instant updatedAt) {
+        String name,
+        ProjectStatus status,
+        ProjectPermission myPermission,
+        int memberCount,
+        Instant createdAt,
+        Instant updatedAt) {
 }

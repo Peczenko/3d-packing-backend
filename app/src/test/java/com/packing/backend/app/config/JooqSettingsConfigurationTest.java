@@ -12,12 +12,16 @@ class JooqSettingsConfigurationTest {
     void appliesTimeoutAndForbidsImplicitJoinPaths() {
         DefaultConfiguration configuration = new DefaultConfiguration();
 
-        new JooqSettingsConfiguration().jooqCustomizer().customize(configuration);
+        new JooqSettingsConfiguration().jooqCustomizer()
+                                       .customize(configuration);
 
-        assertThat(configuration.settings().getQueryTimeout()).isEqualTo(10);
-        assertThat(configuration.settings().getRenderImplicitJoinType())
-                .isEqualTo(RenderImplicitJoinType.THROW);
-        assertThat(configuration.settings().getRenderImplicitJoinToManyType())
-                .isEqualTo(RenderImplicitJoinType.THROW);
+        assertThat(configuration.settings()
+                                .getQueryTimeout()).isEqualTo(10);
+        assertThat(configuration.settings()
+                                .getRenderImplicitJoinType())
+                                                             .isEqualTo(RenderImplicitJoinType.THROW);
+        assertThat(configuration.settings()
+                                .getRenderImplicitJoinToManyType())
+                                                                   .isEqualTo(RenderImplicitJoinType.THROW);
     }
 }

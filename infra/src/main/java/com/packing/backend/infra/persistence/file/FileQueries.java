@@ -13,6 +13,6 @@ final class FileQueries {
 
     static Condition availableIn(ProjectId projectId) {
         return FILES.PROJECT_ID.eq(projectId)
-                .and(FILES.STATUS.eq(FileStatus.AVAILABLE));
+                               .and(FILES.STATUS.eq(FileStatus.AVAILABLE));
     }
 }

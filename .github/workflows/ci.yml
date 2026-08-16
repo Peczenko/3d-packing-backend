@@ -13,6 +13,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (runs Gradle; the JDK 25 toolchain is auto-provisioned)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Check formatting and lint
+        run: ./gradlew lint --no-daemon
+
+      - name: Upload Checkstyle reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkstyle-reports
+          path: '*/build/reports/checkstyle/*.html'
+          if-no-files-found: ignore
+
   build:
     name: Build & Test
     runs-on: ubuntu-latest
@@ -30,3 +56,35 @@ jobs:
 
       - name: Build and test
         run: ./gradlew build --no-daemon
+
+  worker:
+    name: Worker Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache-dependency-path: worker/go.sum
+
+      - name: Start Azurite
+        run: docker compose up --detach --wait azurite
+
+      - name: Test and vet
+        working-directory: worker
+        env:
+          STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;
+        run: |
+          go test -race ./...
+          go vet ./...
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would rewrite:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build the worker image
+        run: docker build -f worker/Dockerfile -t packing-worker:ci .

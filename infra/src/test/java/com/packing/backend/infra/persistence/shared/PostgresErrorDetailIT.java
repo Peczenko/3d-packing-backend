@@ -17,12 +17,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PostgresErrorDetailIT {
 
     @Container
-    private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine");
+    private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     private Connection connect(String extraParams) throws Exception {
         return DriverManager.getConnection(POSTGRES.getJdbcUrl() + extraParams,
-                POSTGRES.getUsername(), POSTGRES.getPassword());
+                                           POSTGRES.getUsername(),
+                                           POSTGRES.getPassword());
     }
 
     private void provoke(Connection connection) throws Exception {
@@ -39,8 +39,8 @@ class PostgresErrorDetailIT {
     void detailLeaksTheSubmittedValueByDefault() throws Exception {
         try (Connection connection = connect("")) {
             assertThatThrownBy(() -> provoke(connection))
-                    .isInstanceOf(PSQLException.class)
-                    .hasMessageContaining("secret-design.stl");
+                                                         .isInstanceOf(PSQLException.class)
+                                                         .hasMessageContaining("secret-design.stl");
         }
     }
 
@@ -48,11 +48,12 @@ class PostgresErrorDetailIT {
     void detailIsSuppressedButTheConstraintNameSurvives() throws Exception {
         try (Connection connection = connect("&logServerErrorDetail=false")) {
             assertThatThrownBy(() -> provoke(connection))
-                    .isInstanceOf(PSQLException.class)
-                    .hasMessageNotContaining("secret-design.stl")
-                    .satisfies(e -> assertThat(
-                            ((PSQLException) e).getServerErrorMessage().getConstraint())
-                            .isEqualTo("uq_leak_probe_secret"));
+                                                         .isInstanceOf(PSQLException.class)
+                                                         .hasMessageNotContaining("secret-design.stl")
+                                                         .satisfies(e -> assertThat(
+                                                                                    ((PSQLException) e).getServerErrorMessage()
+                                                                                                       .getConstraint())
+                                                                                                                        .isEqualTo("uq_leak_probe_secret"));
         }
     }
 }

@@ -21,36 +21,27 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-
 @Service
 @Transactional
 @RequiredArgsConstructor
 public class UserApplicationService implements LoadUserAuthorizationUseCase {
 
-    /**
-     * How many sequential suffixes to try before giving up on a readable username. Past
-     * this point the derived stem is clearly contested and a uid-derived name is better
-     * than {@code jsmith47}.
-     */
     private static final int MAX_USERNAME_SUFFIX_ATTEMPTS = 20;
 
-    private final UserRepository users;
+    private final UserRepository       users;
     private final DomainEventPublisher eventPublisher;
-    private final Clock clock;
+    private final Clock                clock;
 
     @Override
     @Transactional(readOnly = true)
     public Optional<UserAuthorization> loadAuthorization(String firebaseUid) {
         return users.findByFirebaseUid(new FirebaseUid(firebaseUid))
-                .map(user -> new UserAuthorization(user.id().value(), user.role(), user.status()));
+                    .map(user -> new UserAuthorization(user.id()
+                                                           .value(),
+                                                       user.role(),
+                                                       user.status()));
     }
 
-    /**
-     * Just-in-time provisioning. Firebase has already authenticated the caller, so a
-     * missing local profile means "first visit", not "unauthorised".
-     *
-     * <p>The email is refreshed on every call because Firebase, not this system, owns it.
-     */
     public UserView resolveCurrentUser(ResolveCurrentUserCommand command) {
         Instant now = clock.instant();
         FirebaseUid firebaseUid = new FirebaseUid(command.firebaseUid());
@@ -59,25 +50,25 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
         Optional<User> existing = users.findByFirebaseUid(firebaseUid);
         if (existing.isEmpty()) {
             User created = User.register(
-                    firebaseUid,
-                    email,
-                    allocateUsername(firebaseUid, email, command.displayName()),
-                    command.displayName(),
-                    now);
+                                         firebaseUid,
+                                         email,
+                                         allocateUsername(firebaseUid, email, command.displayName()),
+                                         command.displayName(),
+                                         now);
             created.recordLogin(now);
             return saveAndPublish(created);
         }
 
         User user = existing.get();
-        // Defence in depth: the security layer already rejects non-active identities, so
-        // reaching here means the two checks have drifted apart.
         if (!user.isActive()) {
             throw new DomainRuleViolationException(
-                    "Cannot sign in as a " + user.status().name().toLowerCase() + " user");
+                                                   "Cannot sign in as a " + user.status()
+                                                                                .name()
+                                                                                .toLowerCase()
+                                                           + " user");
         }
         user.changeEmail(email, now);
         user.recordLogin(now);
-        // Narrow write rather than save(): see UserRepository#recordSignIn.
         users.recordSignIn(user.id(), user.email(), user.updatedAt(), now);
         return UserView.from(user);
     }
@@ -87,10 +78,9 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
         User user = requireByFirebaseUid(new FirebaseUid(command.firebaseUid()));
 
         Username newUsername = new Username(command.username());
-        // Checked here rather than relying solely on the unique constraint so that the
-        // caller gets a precise error instead of a generic conflict. The constraint is
-        // still the authority under concurrency.
-        if (!user.username().equals(newUsername) && users.existsByUsername(newUsername)) {
+        if (!user.username()
+                 .equals(newUsername)
+                && users.existsByUsername(newUsername)) {
             throw new UsernameAlreadyTakenException(newUsername);
         }
 
@@ -98,14 +88,6 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
         return saveAndPublish(user);
     }
 
-    /**
-     * Anonymises the profile and marks it deleted. The Firebase identity is removed by the
-     * handler for {@code UserAccountDeleted} once this transaction commits.
-     *
-     * <p>The tombstone is what makes the deletion effective immediately: an ID token
-     * issued before it stays cryptographically valid for up to an hour, and the
-     * authorisation lookup rejects it on the strength of this row.
-     */
     public void deleteAccount(String firebaseUid) {
         Instant now = clock.instant();
         User user = requireByFirebaseUid(new FirebaseUid(firebaseUid));
@@ -116,11 +98,10 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
     public UserView assignRole(AssignUserRoleCommand command) {
         Instant now = clock.instant();
         UserId userId = new UserId(command.userId());
-        User user = users.findById(userId).orElseThrow(() -> UserNotFoundException.byId(userId));
+        User user = users.findById(userId)
+                         .orElseThrow(() -> UserNotFoundException.byId(userId));
 
         user.assignRole(command.role(), now);
-        // The Firebase custom claim is mirrored after commit by the UserRoleChanged
-        // handler. Authorisation reads the database, so the claim lagging is harmless.
         return saveAndPublish(user);
     }
 
@@ -132,17 +113,10 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
 
     private User requireByFirebaseUid(FirebaseUid firebaseUid) {
         return users.findByFirebaseUid(firebaseUid)
-                .filter(user -> !user.isDeleted())
-                .orElseThrow(() -> UserNotFoundException.byFirebaseUid(firebaseUid));
+                    .filter(user -> !user.isDeleted())
+                    .orElseThrow(() -> UserNotFoundException.byFirebaseUid(firebaseUid));
     }
 
-    /**
-     * Picks a free username for a user who never chose one.
-     *
-     * <p>Concurrent provisioning of the same stem can still race past the availability
-     * checks; the unique constraint on {@code users.username} is the real guard and
-     * surfaces as a conflict the client can retry.
-     */
     private Username allocateUsername(FirebaseUid firebaseUid, Email email, String displayName) {
         Username base = deriveUsernameStem(firebaseUid, email, displayName);
         if (!users.existsByUsername(base)) {
@@ -154,7 +128,6 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
                 return candidate;
             }
         }
-        // The Firebase uid is unique by construction, so this terminates the search.
         Username fromUid = Username.suggestionFrom(firebaseUid.value());
         if (users.existsByUsername(fromUid)) {
             throw new UsernameAlreadyTakenException(fromUid);
@@ -163,19 +136,17 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
     }
 
     private Username deriveUsernameStem(FirebaseUid firebaseUid, Email email, String displayName) {
-        for (String candidate : new String[]{email.localPart(), displayName, firebaseUid.value()}) {
+        for (String candidate : new String[] { email.localPart(), displayName, firebaseUid.value() }) {
             if (candidate == null || candidate.isBlank()) {
                 continue;
             }
             try {
                 return Username.suggestionFrom(candidate);
             } catch (RuntimeException ignored) {
-                // Nothing salvageable in this candidate (e.g. an all-CJK display name);
-                // fall through to the next one.
             }
         }
         throw new IllegalStateException(
-                "Could not derive a username for Firebase uid " + firebaseUid);
+                                        "Could not derive a username for Firebase uid " + firebaseUid);
     }
 
     public record ResolveCurrentUserCommand(String firebaseUid, String email, String displayName) {

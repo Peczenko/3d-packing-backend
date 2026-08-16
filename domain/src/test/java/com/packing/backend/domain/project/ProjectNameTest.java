@@ -21,17 +21,17 @@ class ProjectNameTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"", "   ", "\t"})
+    @ValueSource(strings = { "", "   ", "\t" })
     void rejectsBlankNames(String value) {
         assertThatThrownBy(() -> new ProjectName(value))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("blank");
+                                                        .isInstanceOf(DomainRuleViolationException.class)
+                                                        .hasMessageContaining("blank");
     }
 
     @Test
     void rejectsNull() {
         assertThatThrownBy(() -> new ProjectName(null))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                       .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
@@ -46,18 +46,18 @@ class ProjectNameTest {
         String tooLong = "x".repeat(ProjectName.MAX_LENGTH + 1);
 
         assertThatThrownBy(() -> new ProjectName(tooLong))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("at most");
+                                                          .isInstanceOf(DomainRuleViolationException.class)
+                                                          .hasMessageContaining("at most");
     }
 
     @ParameterizedTest
-    @ValueSource(chars = {0x00, 0x07, 0x1F, 0x7F})
+    @ValueSource(chars = { 0x00, 0x07, 0x1F, 0x7F })
     void rejectsControlCharacters(char control) {
         String name = "Chassis" + control + "packing";
 
         assertThatThrownBy(() -> new ProjectName(name))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("control characters");
+                                                       .isInstanceOf(DomainRuleViolationException.class)
+                                                       .hasMessageContaining("control characters");
     }
 
     @Test
@@ -65,6 +65,7 @@ class ProjectNameTest {
         String composed = "Ch" + (char) 0x00E1 + "ssis";
         String decomposed = "Cha" + (char) 0x0301 + "ssis";
 
-        assertThat(new ProjectName(decomposed).value()).isEqualTo(composed).hasSize(7);
+        assertThat(new ProjectName(decomposed).value()).isEqualTo(composed)
+                                                       .hasSize(7);
     }
 }

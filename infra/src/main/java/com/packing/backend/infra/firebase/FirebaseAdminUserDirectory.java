@@ -13,27 +13,19 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Firebase Admin SDK adapter. Firebase SDK types stop here — {@link FirebaseAuthException}
- * is translated into {@link ExternalServiceException} so that nothing above {@code :infra}
- * has to know Firebase exists.
- */
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 @Slf4j
 class FirebaseAdminUserDirectory implements FirebaseUserDirectory {
 
-    /**
-     * Custom claim name. Must match what the JWT authorities converter in {@code :app}
-     * reads out of the ID token.
-     */
     static final String ROLES_CLAIM = "roles";
 
     private final FirebaseAuth firebaseAuth;
 
     @Override
     public void assignRole(FirebaseUid uid, UserRole role) {
-        call("assign role " + role, uid,
-                () -> firebaseAuth.setCustomUserClaims(uid.value(), Map.of(ROLES_CLAIM, List.of(role.name()))));
+        call("assign role " + role,
+             uid,
+             () -> firebaseAuth.setCustomUserClaims(uid.value(), Map.of(ROLES_CLAIM, List.of(role.name()))));
     }
 
     @Override
@@ -41,11 +33,6 @@ class FirebaseAdminUserDirectory implements FirebaseUserDirectory {
         call("revoke refresh tokens for", uid, () -> firebaseAuth.revokeRefreshTokens(uid.value()));
     }
 
-    /**
-     * Deleting an identity Firebase no longer has is treated as success: the caller's goal
-     * — that the identity not exist — is already met, and failing here would roll back an
-     * otherwise complete account deletion.
-     */
     @Override
     public void delete(FirebaseUid uid) {
         try {
@@ -68,15 +55,16 @@ class FirebaseAdminUserDirectory implements FirebaseUserDirectory {
     }
 
     private ExternalServiceException asExternalServiceException(
-            String operation, FirebaseUid uid, FirebaseAuthException cause) {
+                                                                String operation, FirebaseUid uid, FirebaseAuthException cause) {
         return new ExternalServiceException(
-                "firebase",
-                "Failed to " + operation + " Firebase user " + uid + ": " + cause.getMessage(),
-                cause);
+                                            "firebase",
+                                            "Failed to " + operation + " Firebase user " + uid + ": " + cause.getMessage(),
+                                            cause);
     }
 
     @FunctionalInterface
     private interface FirebaseCall {
+
         void execute() throws FirebaseAuthException;
     }
 }

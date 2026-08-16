@@ -33,52 +33,66 @@ public class JooqProjectFinder implements ProjectFinder {
     @Override
     public Page<ProjectSummaryView> listForMember(UserId caller, PageRequest page) {
         return Paging.fetch(dsl,
-                dsl.select(PROJECTS.ID, PROJECTS.NAME, PROJECTS.STATUS,
-                                PROJECT_MEMBERS.PERMISSION, MEMBER_COUNT,
-                                PROJECTS.CREATED_AT, PROJECTS.UPDATED_AT)
-                        .from(PROJECTS)
-                        .join(PROJECT_MEMBERS).on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                        .where(memberIs(caller).and(notDeleted())),
-                List.of(PROJECTS.CREATED_AT.desc(), PROJECTS.ID.desc()),
-                page,
-                JooqProjectFinder::toSummary);
+                            dsl.select(PROJECTS.ID,
+                                       PROJECTS.NAME,
+                                       PROJECTS.STATUS,
+                                       PROJECT_MEMBERS.PERMISSION,
+                                       MEMBER_COUNT,
+                                       PROJECTS.CREATED_AT,
+                                       PROJECTS.UPDATED_AT)
+                               .from(PROJECTS)
+                               .join(PROJECT_MEMBERS)
+                               .on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
+                               .where(memberIs(caller).and(notDeleted())),
+                            List.of(PROJECTS.CREATED_AT.desc(), PROJECTS.ID.desc()),
+                            page,
+                            JooqProjectFinder::toSummary);
     }
 
     @Override
     public Optional<ProjectView> detailFor(UserId caller, ProjectId projectId) {
-        return dsl.select(PROJECTS.ID, PROJECTS.NAME, PROJECTS.STATUS, PROJECTS.CREATED_BY,
-                        PROJECT_MEMBERS.PERMISSION, MEMBER_VIEWS,
-                        PROJECTS.CREATED_AT, PROJECTS.UPDATED_AT)
-                .from(PROJECTS)
-                .join(PROJECT_MEMBERS).on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                .where(PROJECTS.ID.eq(projectId)
-                        .and(memberIs(caller))
-                        .and(notDeleted()))
-                .fetchOptional()
-                .map(JooqProjectFinder::toDetail);
+        return dsl.select(PROJECTS.ID,
+                          PROJECTS.NAME,
+                          PROJECTS.STATUS,
+                          PROJECTS.CREATED_BY,
+                          PROJECT_MEMBERS.PERMISSION,
+                          MEMBER_VIEWS,
+                          PROJECTS.CREATED_AT,
+                          PROJECTS.UPDATED_AT)
+                  .from(PROJECTS)
+                  .join(PROJECT_MEMBERS)
+                  .on(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
+                  .where(PROJECTS.ID.eq(projectId)
+                                    .and(memberIs(caller))
+                                    .and(notDeleted()))
+                  .fetchOptional()
+                  .map(JooqProjectFinder::toDetail);
     }
 
     private static ProjectSummaryView toSummary(Record row) {
         return new ProjectSummaryView(
-                row.get(PROJECTS.ID).value(),
-                row.get(PROJECTS.NAME),
-                row.get(PROJECTS.STATUS),
-                row.get(PROJECT_MEMBERS.PERMISSION),
-                row.get(MEMBER_COUNT),
-                row.get(PROJECTS.CREATED_AT),
-                row.get(PROJECTS.UPDATED_AT));
+                                      row.get(PROJECTS.ID)
+                                         .value(),
+                                      row.get(PROJECTS.NAME),
+                                      row.get(PROJECTS.STATUS),
+                                      row.get(PROJECT_MEMBERS.PERMISSION),
+                                      row.get(MEMBER_COUNT),
+                                      row.get(PROJECTS.CREATED_AT),
+                                      row.get(PROJECTS.UPDATED_AT));
     }
 
     private static ProjectView toDetail(Record row) {
         List<ProjectMemberView> members = row.get(MEMBER_VIEWS);
         return new ProjectView(
-                row.get(PROJECTS.ID).value(),
-                row.get(PROJECTS.NAME),
-                row.get(PROJECTS.STATUS),
-                row.get(PROJECTS.CREATED_BY).value(),
-                row.get(PROJECT_MEMBERS.PERMISSION),
-                members,
-                row.get(PROJECTS.CREATED_AT),
-                row.get(PROJECTS.UPDATED_AT));
+                               row.get(PROJECTS.ID)
+                                  .value(),
+                               row.get(PROJECTS.NAME),
+                               row.get(PROJECTS.STATUS),
+                               row.get(PROJECTS.CREATED_BY)
+                                  .value(),
+                               row.get(PROJECT_MEMBERS.PERMISSION),
+                               members,
+                               row.get(PROJECTS.CREATED_AT),
+                               row.get(PROJECTS.UPDATED_AT));
     }
 }

@@ -13,24 +13,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class StoredFileTest {
 
-    private static final Instant NOW = Instant.parse("2026-07-19T10:15:30Z");
-    private static final Instant LATER = NOW.plusSeconds(3600);
-    private static final UserId OWNER = UserId.generate();
-    private static final ProjectId PROJECT = ProjectId.generate();
-    private static final Checksum CHECKSUM =
-            Checksum.ofHex("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    private static final Instant   NOW      = Instant.parse("2026-07-19T10:15:30Z");
+    private static final Instant   LATER    = NOW.plusSeconds(3600);
+    private static final UserId    OWNER    = UserId.generate();
+    private static final ProjectId PROJECT  = ProjectId.generate();
+    private static final Checksum  CHECKSUM = Checksum.ofHex("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
     private StoredFile availableFile() {
-        return StoredFile.upload(FileId.generate(), OWNER, PROJECT, new FileName("bracket.stl"),
-                2_048L, CHECKSUM, NOW);
+        return StoredFile.upload(FileId.generate(),
+                                 OWNER,
+                                 PROJECT,
+                                 new FileName("bracket.stl"),
+                                 2_048L,
+                                 CHECKSUM,
+                                 NOW);
     }
 
     @Test
     void uploadStartsAvailableAndDerivesTheKeyFormatAndContentType() {
         FileId id = FileId.generate();
 
-        StoredFile file = StoredFile.upload(id, OWNER, PROJECT, new FileName("bracket.STL"),
-                2_048L, CHECKSUM, NOW);
+        StoredFile file = StoredFile.upload(id,
+                                            OWNER,
+                                            PROJECT,
+                                            new FileName("bracket.STL"),
+                                            2_048L,
+                                            CHECKSUM,
+                                            NOW);
 
         assertThat(file.status()).isEqualTo(FileStatus.AVAILABLE);
         assertThat(file.storageKey()).isEqualTo(StorageKey.forFile(id));
@@ -78,8 +87,8 @@ class StoredFileTest {
         StoredFile file = availableFile();
 
         assertThatThrownBy(() -> file.rename(new FileName("bracket.obj"), LATER))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("same format");
+                                                                                 .isInstanceOf(DomainRuleViolationException.class)
+                                                                                 .hasMessageContaining("same format");
         assertThat(file.name()).isEqualTo(new FileName("bracket.stl"));
     }
 
@@ -98,8 +107,8 @@ class StoredFileTest {
         file.delete(LATER);
 
         assertThatThrownBy(() -> file.rename(new FileName("chassis.stl"), LATER))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("deleted");
+                                                                                 .isInstanceOf(DomainRuleViolationException.class)
+                                                                                 .hasMessageContaining("deleted");
     }
 
     @Test
@@ -109,34 +118,54 @@ class StoredFileTest {
 
     @Test
     void uploadRejectsAnEmptyFile() {
-        assertThatThrownBy(() -> StoredFile.upload(FileId.generate(), OWNER, PROJECT,
-                new FileName("bracket.stl"), 0L, CHECKSUM, NOW))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("empty");
+        assertThatThrownBy(() -> StoredFile.upload(FileId.generate(),
+                                                   OWNER,
+                                                   PROJECT,
+                                                   new FileName("bracket.stl"),
+                                                   0L,
+                                                   CHECKSUM,
+                                                   NOW))
+                                                        .isInstanceOf(DomainRuleViolationException.class)
+                                                        .hasMessageContaining("empty");
     }
 
     @Test
     void uploadRejectsAFileOverTheLimit() {
-        assertThatThrownBy(() -> StoredFile.upload(FileId.generate(), OWNER, PROJECT,
-                new FileName("bracket.stl"), StoredFile.MAX_SIZE_BYTES + 1, CHECKSUM, NOW))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("at most");
+        assertThatThrownBy(() -> StoredFile.upload(FileId.generate(),
+                                                   OWNER,
+                                                   PROJECT,
+                                                   new FileName("bracket.stl"),
+                                                   StoredFile.MAX_SIZE_BYTES + 1,
+                                                   CHECKSUM,
+                                                   NOW))
+                                                        .isInstanceOf(DomainRuleViolationException.class)
+                                                        .hasMessageContaining("at most");
     }
 
     @Test
     void uploadAcceptsAFileExactlyAtTheLimit() {
-        StoredFile file = StoredFile.upload(FileId.generate(), OWNER, PROJECT,
-                new FileName("bracket.stl"), StoredFile.MAX_SIZE_BYTES, CHECKSUM, NOW);
+        StoredFile file = StoredFile.upload(FileId.generate(),
+                                            OWNER,
+                                            PROJECT,
+                                            new FileName("bracket.stl"),
+                                            StoredFile.MAX_SIZE_BYTES,
+                                            CHECKSUM,
+                                            NOW);
 
         assertThat(file.sizeBytes()).isEqualTo(StoredFile.MAX_SIZE_BYTES);
     }
 
     @Test
     void uploadRejectsAnUnsupportedFormat() {
-        assertThatThrownBy(() -> StoredFile.upload(FileId.generate(), OWNER, PROJECT,
-                new FileName("notes.txt"), 10L, CHECKSUM, NOW))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("Unsupported 3D model format");
+        assertThatThrownBy(() -> StoredFile.upload(FileId.generate(),
+                                                   OWNER,
+                                                   PROJECT,
+                                                   new FileName("notes.txt"),
+                                                   10L,
+                                                   CHECKSUM,
+                                                   NOW))
+                                                        .isInstanceOf(DomainRuleViolationException.class)
+                                                        .hasMessageContaining("Unsupported 3D model format");
     }
 
     @Test
@@ -150,12 +179,12 @@ class StoredFileTest {
         assertThat(file.deletedAt()).isEqualTo(LATER);
         assertThat(file.updatedAt()).isEqualTo(LATER);
         assertThat(file.domainEvents()).singleElement()
-                .isInstanceOfSatisfying(FileDeleted.class, event -> {
-                    assertThat(event.fileId()).isEqualTo(file.id());
-                    assertThat(event.storageKey()).isEqualTo(file.storageKey());
-                    assertThat(event.ownerId()).isEqualTo(OWNER);
-                    assertThat(event.occurredAt()).isEqualTo(LATER);
-                });
+                                       .isInstanceOfSatisfying(FileDeleted.class, event -> {
+                                           assertThat(event.fileId()).isEqualTo(file.id());
+                                           assertThat(event.storageKey()).isEqualTo(file.storageKey());
+                                           assertThat(event.ownerId()).isEqualTo(OWNER);
+                                           assertThat(event.occurredAt()).isEqualTo(LATER);
+                                       });
     }
 
     @Test
@@ -199,9 +228,19 @@ class StoredFileTest {
     void rehydrateRestoresStateWithoutRecordingEvents() {
         FileId id = FileId.generate();
 
-        StoredFile file = StoredFile.rehydrate(id, OWNER, PROJECT, new FileName("bracket.stl"),
-                StorageKey.forFile(id), ModelFormat.STL, 2_048L, CHECKSUM,
-                FileStatus.DELETED, 7L, NOW, LATER, LATER);
+        StoredFile file = StoredFile.rehydrate(id,
+                                               OWNER,
+                                               PROJECT,
+                                               new FileName("bracket.stl"),
+                                               StorageKey.forFile(id),
+                                               ModelFormat.STL,
+                                               2_048L,
+                                               CHECKSUM,
+                                               FileStatus.DELETED,
+                                               7L,
+                                               NOW,
+                                               LATER,
+                                               LATER);
 
         assertThat(file.version()).isEqualTo(7L);
         assertThat(file.isDeleted()).isTrue();
@@ -212,9 +251,15 @@ class StoredFileTest {
     void identityIsTheIdAlone() {
         FileId id = FileId.generate();
         StoredFile one = StoredFile.upload(id, OWNER, PROJECT, new FileName("a.stl"), 1L, CHECKSUM, NOW);
-        StoredFile other = StoredFile.upload(id, UserId.generate(), PROJECT, new FileName("b.obj"),
-                999L, CHECKSUM, LATER);
+        StoredFile other = StoredFile.upload(id,
+                                             UserId.generate(),
+                                             PROJECT,
+                                             new FileName("b.obj"),
+                                             999L,
+                                             CHECKSUM,
+                                             LATER);
 
-        assertThat(one).isEqualTo(other).hasSameHashCodeAs(other);
+        assertThat(one).isEqualTo(other)
+                       .hasSameHashCodeAs(other);
     }
 }

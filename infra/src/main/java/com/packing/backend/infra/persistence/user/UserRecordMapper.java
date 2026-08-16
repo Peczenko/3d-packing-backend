@@ -15,32 +15,37 @@ import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
 final class UserRecordMapper {
 
     static final AggregateTable<UsersRecord> TABLE = new AggregateTable<>(
-            "User", USERS.VERSION, Set.<Field<?>>of(USERS.FIREBASE_UID, USERS.CREATED_AT));
+                                                                          "User",
+                                                                          USERS.VERSION,
+                                                                          Set.<Field<?>>of(USERS.FIREBASE_UID, USERS.CREATED_AT));
 
     private UserRecordMapper() {
     }
 
     static User toDomain(UsersRecord record) {
         return User.rehydrate(
-                record.getId(),
-                new FirebaseUid(record.getFirebaseUid()),
-                new Email(record.getEmail()),
-                new Username(record.getUsername()),
-                record.getDisplayName(),
-                record.getRole(),
-                record.getStatus(),
-                record.getVersion(),
-                record.getCreatedAt(),
-                record.getUpdatedAt(),
-                record.getLastLoginAt());
+                              record.getId(),
+                              new FirebaseUid(record.getFirebaseUid()),
+                              new Email(record.getEmail()),
+                              new Username(record.getUsername()),
+                              record.getDisplayName(),
+                              record.getRole(),
+                              record.getStatus(),
+                              record.getVersion(),
+                              record.getCreatedAt(),
+                              record.getUpdatedAt(),
+                              record.getLastLoginAt());
     }
 
     static UsersRecord toRecord(User user) {
         UsersRecord record = new UsersRecord();
         record.setId(user.id());
-        record.setFirebaseUid(user.firebaseUid().value());
-        record.setEmail(user.email().value());
-        record.setUsername(user.username().value());
+        record.setFirebaseUid(user.firebaseUid()
+                                  .value());
+        record.setEmail(user.email()
+                            .value());
+        record.setUsername(user.username()
+                               .value());
         record.setDisplayName(user.displayName());
         record.setRole(user.role());
         record.setStatus(user.status());

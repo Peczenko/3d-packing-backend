@@ -10,31 +10,31 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ChecksumTest {
 
-    /** SHA-256 of the empty input. */
-    private static final String EMPTY_SHA256 =
-            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    // SHA-256 of the empty input.
+    private static final String EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     @Test
     void acceptsALowerCaseHexDigest() {
-        assertThat(Checksum.ofHex(EMPTY_SHA256).value()).isEqualTo(EMPTY_SHA256);
+        assertThat(Checksum.ofHex(EMPTY_SHA256)
+                           .value()).isEqualTo(EMPTY_SHA256);
     }
 
     @Test
     void normalisesUpperCaseToLowerSoStoredDigestsCompareEqual() {
         assertThat(Checksum.ofHex(EMPTY_SHA256.toUpperCase()))
-                .isEqualTo(Checksum.ofHex(EMPTY_SHA256));
+                                                              .isEqualTo(Checksum.ofHex(EMPTY_SHA256));
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"abc", "zz", " "})
+    @ValueSource(strings = { "abc", "zz", " " })
     void rejectsAnythingThatIsNotASha256Digest(String value) {
         assertThatThrownBy(() -> Checksum.ofHex(value))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                       .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
     void rejectsNonHexCharactersOfTheRightLength() {
         assertThatThrownBy(() -> Checksum.ofHex("g".repeat(Checksum.HEX_LENGTH)))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                                 .isInstanceOf(DomainRuleViolationException.class);
     }
 }

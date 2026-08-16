@@ -2,22 +2,22 @@ package com.packing.backend.core.shared;
 
 public final class ExternalHttpException extends ExternalServiceException {
 
-    private final int statusCode;
-    private final String method;
-    private final String path;
-    private final String providerCode;
-    private final String retryAfter;
+    private final int     statusCode;
+    private final String  method;
+    private final String  path;
+    private final String  providerCode;
+    private final String  retryAfter;
     private final boolean retryable;
 
     public ExternalHttpException(
-            String service,
-            int statusCode,
-            String method,
-            String path,
-            String providerCode,
-            String retryAfter,
-            boolean retryable,
-            String message) {
+                                 String service,
+                                 int statusCode,
+                                 String method,
+                                 String path,
+                                 String providerCode,
+                                 String retryAfter,
+                                 boolean retryable,
+                                 String message) {
         super(service, message);
         this.statusCode = statusCode;
         this.method = method;

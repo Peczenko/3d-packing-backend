@@ -17,10 +17,11 @@ public record AlertProperties(
         @Positive @DefaultValue("20") int maxPerHour) {
 
     public AlertProperties {
-        recipients = recipients == null ? List.of() : recipients.stream()
-                .map(String::strip)
-                .filter(recipient -> !recipient.isEmpty())
-                .toList();
+        recipients = recipients == null ? List.of()
+                                        : recipients.stream()
+                                                    .map(String::strip)
+                                                    .filter(recipient -> !recipient.isEmpty())
+                                                    .toList();
     }
 
     public boolean alertingEnabled() {

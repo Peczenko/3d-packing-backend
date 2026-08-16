@@ -17,15 +17,15 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 class EmailErrorAlerter implements ErrorAlerter, AutoCloseable {
 
-    private static final String APPLICATION_PACKAGE = "com.packing.backend";
-    private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(5);
+    private static final String   APPLICATION_PACKAGE = "com.packing.backend";
+    private static final Duration DRAIN_TIMEOUT       = Duration.ofSeconds(5);
 
-    private final EmailSender emailSender;
-    private final AlertProperties properties;
-    private final AlertThrottle throttle;
+    private final EmailSender        emailSender;
+    private final AlertProperties    properties;
+    private final AlertThrottle      throttle;
     private final ErrorEmailRenderer renderer;
-    private final Executor executor;
-    private final String mailServiceName;
+    private final Executor           executor;
+    private final String             mailServiceName;
 
     @Override
     public void alert(ServerErrorReport report) {
@@ -55,14 +55,16 @@ class EmailErrorAlerter implements ErrorAlerter, AutoCloseable {
 
     private boolean causedByMailProvider(ServerErrorReport report) {
         return Causes.firstOfType(report.cause(), ExternalServiceException.class)
-                .filter(external -> mailServiceName.equals(external.service()))
-                .isPresent();
+                     .filter(external -> mailServiceName.equals(external.service()))
+                     .isPresent();
     }
 
     private String fingerprint(ServerErrorReport report) {
         Throwable cause = report.cause();
         return report.status()
-                + ":" + (cause == null ? "none" : cause.getClass().getName())
+                + ":" + (cause == null ? "none"
+                                       : cause.getClass()
+                                              .getName())
                 + ":" + originFrame(cause)
                 + ":" + report.uriTemplate();
     }
@@ -78,7 +80,8 @@ class EmailErrorAlerter implements ErrorAlerter, AutoCloseable {
                 service.shutdownNow();
             }
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            Thread.currentThread()
+                  .interrupt();
             service.shutdownNow();
         }
     }
@@ -86,7 +89,8 @@ class EmailErrorAlerter implements ErrorAlerter, AutoCloseable {
     private String originFrame(Throwable cause) {
         for (Throwable current : Causes.chainOf(cause)) {
             for (StackTraceElement frame : current.getStackTrace()) {
-                if (frame.getClassName().startsWith(APPLICATION_PACKAGE)) {
+                if (frame.getClassName()
+                         .startsWith(APPLICATION_PACKAGE)) {
                     return frame.getClassName() + "." + frame.getMethodName()
                             + ":" + frame.getLineNumber();
                 }

@@ -20,14 +20,18 @@ public record FileView(
 
     public static FileView from(StoredFile file) {
         return new FileView(
-                file.id().value(),
-                file.projectId().value(),
-                file.name().value(),
-                file.format(),
-                file.contentType(),
-                file.sizeBytes(),
-                file.checksum().value(),
-                file.status(),
-                file.createdAt());
+                            file.id()
+                                .value(),
+                            file.projectId()
+                                .value(),
+                            file.name()
+                                .value(),
+                            file.format(),
+                            file.contentType(),
+                            file.sizeBytes(),
+                            file.checksum()
+                                .value(),
+                            file.status(),
+                            file.createdAt());
     }
 }

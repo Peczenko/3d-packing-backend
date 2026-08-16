@@ -40,9 +40,13 @@ class JooqUserRepositoryIT {
     }
 
     private User newUser(String uid, String email, String username) {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        return User.register(new FirebaseUid(uid), new Email(email), new Username(username),
-                "Display Name", now);
+        Instant now = Instant.now()
+                             .truncatedTo(ChronoUnit.MICROS);
+        return User.register(new FirebaseUid(uid),
+                             new Email(email),
+                             new Username(username),
+                             "Display Name",
+                             now);
     }
 
     @Test
@@ -67,8 +71,12 @@ class JooqUserRepositoryIT {
 
     @Test
     void aNullDisplayNameAndLoginTimeRoundTrip() {
-        User saved = User.register(new FirebaseUid("uid-2"), new Email("nulls@example.com"),
-                new Username("nulls"), null, Instant.now().truncatedTo(ChronoUnit.MICROS));
+        User saved = User.register(new FirebaseUid("uid-2"),
+                                   new Email("nulls@example.com"),
+                                   new Username("nulls"),
+                                   null,
+                                   Instant.now()
+                                          .truncatedTo(ChronoUnit.MICROS));
         repository().save(saved);
 
         assertThat(repository().findById(saved.id())).hasValueSatisfying(user -> {
@@ -82,7 +90,8 @@ class JooqUserRepositoryIT {
         User user = newUser("uid-3", "update@example.com", "before");
         repository().save(user);
 
-        Instant later = user.createdAt().plusSeconds(60);
+        Instant later = user.createdAt()
+                            .plusSeconds(60);
         user.changeProfile(new Username("after"), "Changed", later);
         user.assignRole(UserRole.ADMIN, later);
         repository().save(user);
@@ -94,7 +103,7 @@ class JooqUserRepositoryIT {
             assertThat(reloaded.createdAt()).isEqualTo(user.createdAt());
         });
         assertThat(dsl.fetchCount(
-                com.packing.backend.infra.persistence.jooq.tables.Users.USERS)).isEqualTo(1);
+                                  com.packing.backend.infra.persistence.jooq.tables.Users.USERS)).isEqualTo(1);
     }
 
     @Test
@@ -111,7 +120,7 @@ class JooqUserRepositoryIT {
         User clashing = newUser("uid-6", "second@example.com", "duplicate");
 
         assertThatThrownBy(() -> repository().save(clashing))
-                .isInstanceOf(UsernameAlreadyTakenException.class);
+                                                             .isInstanceOf(UsernameAlreadyTakenException.class);
     }
 
     @Test
@@ -120,7 +129,7 @@ class JooqUserRepositoryIT {
         User clashing = newUser("uid-8", "same@example.com", "usertwo");
 
         assertThatThrownBy(() -> repository().save(clashing))
-                .isInstanceOf(EmailAlreadyRegisteredException.class);
+                                                             .isInstanceOf(EmailAlreadyRegisteredException.class);
     }
 
     @Test
@@ -129,7 +138,7 @@ class JooqUserRepositoryIT {
         User clashing = newUser("uid-victim", "victim@example.com", "uq_users_email");
 
         assertThatThrownBy(() -> repository().save(clashing))
-                .isInstanceOf(UsernameAlreadyTakenException.class);
+                                                             .isInstanceOf(UsernameAlreadyTakenException.class);
     }
 
     @Test
@@ -137,13 +146,15 @@ class JooqUserRepositoryIT {
         User user = newUser("uid-rogue", "rogue@example.com", "rogue");
         repository().save(user);
 
-        dsl.update(USERS).set(untyped(USERS.ROLE), "SUPERUSER")
-                .where(USERS.ID.eq(user.id())).execute();
+        dsl.update(USERS)
+           .set(untyped(USERS.ROLE), "SUPERUSER")
+           .where(USERS.ID.eq(user.id()))
+           .execute();
 
         assertThatThrownBy(() -> repository().findById(user.id()))
-                .rootCause()
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("SUPERUSER");
+                                                                  .rootCause()
+                                                                  .isInstanceOf(IllegalArgumentException.class)
+                                                                  .hasMessageContaining("SUPERUSER");
     }
 
     @Test
@@ -156,14 +167,21 @@ class JooqUserRepositoryIT {
     void savingAdvancesTheStoredVersionAndKeepsTheAggregateInStep() {
         User user = newUser("uid-10", "version@example.com", "versioned");
         repository().save(user);
-        long afterInsert = repository().findById(user.id()).orElseThrow().version();
+        long afterInsert = repository().findById(user.id())
+                                       .orElseThrow()
+                                       .version();
 
         assertThat(user.version()).isEqualTo(afterInsert);
 
-        user.changeProfile(new Username("versioned2"), null, user.createdAt().plusSeconds(1));
+        user.changeProfile(new Username("versioned2"),
+                           null,
+                           user.createdAt()
+                               .plusSeconds(1));
         repository().save(user);
 
-        long afterUpdate = repository().findById(user.id()).orElseThrow().version();
+        long afterUpdate = repository().findById(user.id())
+                                       .orElseThrow()
+                                       .version();
         assertThat(afterUpdate).isEqualTo(afterInsert + 1);
         assertThat(user.version()).isEqualTo(afterUpdate);
     }
@@ -173,13 +191,17 @@ class JooqUserRepositoryIT {
         User user = newUser("uid-17", "repeatsave@example.com", "repeatsave");
 
         for (int i = 0; i < 3; i++) {
-            user.changeProfile(new Username("repeatsave" + i), null,
-                    user.createdAt().plusSeconds(i + 1L));
+            user.changeProfile(new Username("repeatsave" + i),
+                               null,
+                               user.createdAt()
+                                   .plusSeconds(i + 1L));
             assertThatCode(() -> repository().save(user)).doesNotThrowAnyException();
         }
 
-        assertThat(repository().findById(user.id()).orElseThrow().username())
-                .isEqualTo(new Username("repeatsave2"));
+        assertThat(repository().findById(user.id())
+                               .orElseThrow()
+                               .username())
+                                           .isEqualTo(new Username("repeatsave2"));
     }
 
     @Test
@@ -187,18 +209,23 @@ class JooqUserRepositoryIT {
         User user = newUser("uid-11", "stale@example.com", "stale");
         repository().save(user);
 
-        User readerOne = repository().findById(user.id()).orElseThrow();
-        User readerTwo = repository().findById(user.id()).orElseThrow();
-        Instant later = user.createdAt().plusSeconds(1);
+        User readerOne = repository().findById(user.id())
+                                     .orElseThrow();
+        User readerTwo = repository().findById(user.id())
+                                     .orElseThrow();
+        Instant later = user.createdAt()
+                            .plusSeconds(1);
 
         readerOne.assignRole(UserRole.ADMIN, later);
         repository().save(readerOne);
 
         readerTwo.changeProfile(new Username("stalewrite"), null, later);
         assertThatThrownBy(() -> repository().save(readerTwo))
-                .isInstanceOf(ConcurrentUpdateException.class);
+                                                              .isInstanceOf(ConcurrentUpdateException.class);
 
-        assertThat(repository().findById(user.id()).orElseThrow().role()).isEqualTo(UserRole.ADMIN);
+        assertThat(repository().findById(user.id())
+                               .orElseThrow()
+                               .role()).isEqualTo(UserRole.ADMIN);
     }
 
     @Test
@@ -206,9 +233,12 @@ class JooqUserRepositoryIT {
         User user = newUser("uid-12", "signin@example.com", "signin");
         user.assignRole(UserRole.ADMIN, user.createdAt());
         repository().save(user);
-        long versionAfterSave = repository().findById(user.id()).orElseThrow().version();
+        long versionAfterSave = repository().findById(user.id())
+                                            .orElseThrow()
+                                            .version();
 
-        Instant signInAt = user.createdAt().plusSeconds(600);
+        Instant signInAt = user.createdAt()
+                               .plusSeconds(600);
         repository().recordSignIn(user.id(), new Email("moved@example.com"), signInAt, signInAt);
 
         assertThat(repository().findById(user.id())).hasValueSatisfying(reloaded -> {
@@ -224,15 +254,20 @@ class JooqUserRepositoryIT {
     void repeatedSignInsNeverConflict() {
         User user = newUser("uid-13", "repeat@example.com", "repeat");
         repository().save(user);
-        long versionAfterSave = repository().findById(user.id()).orElseThrow().version();
+        long versionAfterSave = repository().findById(user.id())
+                                            .orElseThrow()
+                                            .version();
 
         for (int i = 1; i <= 3; i++) {
-            Instant at = user.createdAt().plusSeconds(i);
+            Instant at = user.createdAt()
+                             .plusSeconds(i);
             repository().recordSignIn(user.id(), user.email(), at, at);
         }
 
-        assertThat(repository().findById(user.id()).orElseThrow().version())
-                .isEqualTo(versionAfterSave);
+        assertThat(repository().findById(user.id())
+                               .orElseThrow()
+                               .version())
+                                          .isEqualTo(versionAfterSave);
     }
 
     @Test
@@ -240,22 +275,25 @@ class JooqUserRepositoryIT {
         User user = newUser("uid-14", "gone@example.com", "gone");
         repository().save(user);
 
-        user.delete(user.createdAt().plusSeconds(1));
+        user.delete(user.createdAt()
+                        .plusSeconds(1));
         repository().save(user);
 
         assertThat(repository().findByFirebaseUid(new FirebaseUid("uid-14")))
-                .hasValueSatisfying(tombstone -> {
-                    assertThat(tombstone.status()).isEqualTo(UserStatus.DELETED);
-                    assertThat(tombstone.email().value()).doesNotContain("gone@example.com");
-                    assertThat(tombstone.displayName()).isNull();
-                });
+                                                                             .hasValueSatisfying(tombstone -> {
+                                                                                 assertThat(tombstone.status()).isEqualTo(UserStatus.DELETED);
+                                                                                 assertThat(tombstone.email()
+                                                                                                     .value()).doesNotContain("gone@example.com");
+                                                                                 assertThat(tombstone.displayName()).isNull();
+                                                                             });
     }
 
     @Test
     void theOriginalEmailAndUsernameAreFreedAfterDeletion() {
         User user = newUser("uid-15", "reusable@example.com", "reusable");
         repository().save(user);
-        user.delete(user.createdAt().plusSeconds(1));
+        user.delete(user.createdAt()
+                        .plusSeconds(1));
         repository().save(user);
 
         User newcomer = newUser("uid-16", "reusable@example.com", "reusable");
