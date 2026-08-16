@@ -22,17 +22,6 @@ import (
 	"github.com/Peczenko/3d-packing-backend/worker/internal/pipeline"
 )
 
-// The six metadata names a result blob carries. Five of them are read back by
-// the Java side's AzurePackingJobArtifactStore.findResult, which fails the
-// download endpoint when one is missing, so they are a cross-language contract
-// exactly like the dispatch payload: renaming one here breaks the pipeline with
-// no compiler and no unit test on either side objecting. Java's lookup is
-// case-insensitive, and so is resultMetadataValue below, because Azure returns
-// metadata keys with HTTP header canonicalisation already applied.
-//
-// contractVersion is the one name Java does not read. It is written so a result
-// blob says which wire contract produced it, the same way every message on the
-// packing wire carries contracts.MessageVersion.
 const (
 	metaFileName        = "fileName"
 	metaContentType     = "contentType"
@@ -42,35 +31,18 @@ const (
 	metaContractVersion = "contractVersion"
 )
 
-// ErrResultVanished reports the one outcome a conditional create must never
-// paper over: the service refused the upload because a result already existed,
-// and the lookup that followed found none. Returning the caller's own metadata
-// there would claim authorship of bytes that are not in storage, and
-// synthesising a result would describe a blob nobody can download.
 var ErrResultVanished = errors.New("azureio: result conflicted on create but is not stored")
 
-// requestKey and resultKey are the layout the Java side writes and reads —
-// AzurePackingJobArtifactStore has the same two expressions. They take the job
-// id from the decoded dispatch payload and nothing else: a key derived from a
-// listing, a prefix scan or a message property would let a caller name a blob
-// belonging to another job.
 func requestKey(jobID string) string { return "packing-jobs/" + jobID + "/request.json" }
 
 func resultKey(jobID string) string { return "packing-jobs/" + jobID + "/result/output" }
 
-// BlobArtifacts stores one job's request and result under the container the
-// Java side already writes into. It never creates that container: the request
-// blob has to exist for a dispatch to have been sent at all, so a missing
-// container is a misconfiguration to surface rather than to repair.
 type BlobArtifacts struct {
 	container *container.Client
 }
 
 var _ pipeline.Artifacts = (*BlobArtifacts)(nil)
 
-// NewBlobClient picks the one authentication mode config.Load left set, the
-// same way NewServiceBusClient does. config.Load already guarantees exactly one
-// of the two is present, so neither is re-checked here.
 func NewBlobClient(cfg config.Config) (*azblob.Client, error) {
 	if cfg.StorageConnectionString != "" {
 		client, err := azblob.NewClientFromConnectionString(cfg.StorageConnectionString, nil)
@@ -97,18 +69,12 @@ func NewBlobArtifacts(client *azblob.Client, cfg config.Config) *BlobArtifacts {
 	return &BlobArtifacts{container: client.ServiceClient().NewContainerClient(cfg.StorageContainer)}
 }
 
-// DownloadRequest streams the request envelope to path. The bytes go straight
-// to disk because the caller re-reads them from there, and because a packing
-// spec is only as small as whoever submitted it.
 func (a *BlobArtifacts) DownloadRequest(ctx context.Context, jobID, path string) (err error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("azureio: create request file for job %s: %w", jobID, err)
 	}
 	defer func() {
-		// Joined rather than discarded: the caller decodes this file, and a
-		// write failure that only surfaces at close would otherwise hand the
-		// decoder a truncated envelope and read as a malformed request.
 		if closeErr := file.Close(); closeErr != nil {
 			err = errors.Join(err, fmt.Errorf("azureio: close request file for job %s: %w", jobID, closeErr))
 		}
@@ -120,22 +86,6 @@ func (a *BlobArtifacts) DownloadRequest(ctx context.Context, jobID, path string)
 	return nil
 }
 
-// FindResult reads the result blob's metadata and reports (nil, nil) when there
-// is none. Absence is exactly the two 404s — a missing blob and a missing
-// container — which is the same line the Java side draws from
-// getStatusCode() == 404, since both mean "no result for this job".
-//
-// Everything else is an error, and the width of that rule matters in both
-// directions. Narrowing it to BlobNotFound alone would turn a container that
-// has not been created yet into a redelivery loop; widening it to every failure
-// would let a rejected credential read as "not packed yet", which silently
-// skips the resend-from-storage path on every redelivery and leaves a finished
-// job RUNNING.
-//
-// What it finds is returned as it stands, including a blank a writer left out.
-// The processor validates every field against the Java domain model's rules and
-// refuses to send an event built from a bad one; a second check here would be a
-// second place for those rules to drift.
 func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline.StoredResult, error) {
 	properties, err := a.container.NewBlobClient(resultKey(jobID)).GetProperties(ctx, nil)
 	if err != nil {
@@ -149,9 +99,7 @@ func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline
 	if properties.ContentLength != nil {
 		size = *properties.ContentLength
 	}
-	// Size comes from the blob itself, never from metadata: it is the length of
-	// the bytes a download will actually serve, and the Java side reports the
-	// same number from the same place.
+
 	return &pipeline.StoredResult{
 		Engine: pipeline.EngineProvenance{
 			Version:  resultMetadataValue(properties.Metadata, metaEngineVersion),
@@ -166,39 +114,15 @@ func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline
 	}, nil
 }
 
-// CreateResult uploads path as the job's one result, and loses gracefully.
-//
-// The upload carries If-None-Match: *, so two deliveries of the same dispatch
-// cannot both write: the second is refused, and reports what the first stored
-// rather than what it computed itself. The two are not interchangeable — the
-// bytes a user downloads are the winner's, and so is the provenance that has to
-// describe them.
 func (a *BlobArtifacts) CreateResult(ctx context.Context, jobID, path string, result pipeline.StoredResult) (*pipeline.StoredResult, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("azureio: open result file for job %s: %w", jobID, err)
 	}
-	// Discarded, not joined: azcore wraps a request body in
-	// retryableRequestBody and closes it itself at the end of Do, so this
-	// deferred call is a second close and reports os.ErrClosed. It exists to
-	// release the descriptor on the paths that never reach the SDK.
 	defer func() { _ = file.Close() }()
 
-	// blockblob.Upload, not the Client.UploadFile helper: above 256 MiB
-	// UploadFile switches to staged blocks, and its getCommitBlockListOptions
-	// omits AccessConditions where getUploadBlockBlobOptions passes them
-	// through, so a large result would silently overwrite one already in
-	// storage. UploadStream chunks and does carry the condition, so it is a
-	// genuine alternative; a single conditional PUT is chosen because a packing
-	// result is kilobytes to megabytes, and it buys the condition on every size
-	// with no chunking to reason about. It streams the body off disk rather than
-	// buffering it. The generated client sends x-ms-version 2026-06-06, where
-	// Put Blob accepts 5000 MiB, and overrunning that is a loud 4xx — which a
-	// dropped condition is not.
 	_, err = a.container.NewBlockBlobClient(resultKey(jobID)).Upload(ctx, file, &blockblob.UploadOptions{
-		Metadata: resultMetadata(result),
-		// Set on the blob as well as in metadata so the SAS download URL the
-		// Java side issues serves the result with the type the packer named.
+		Metadata:    resultMetadata(result),
 		HTTPHeaders: &blob.HTTPHeaders{BlobContentType: to.Ptr(result.Result.ContentType)},
 		AccessConditions: &blob.AccessConditions{
 			ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: to.Ptr(azcore.ETagAny)},
@@ -207,10 +131,6 @@ func (a *BlobArtifacts) CreateResult(ctx context.Context, jobID, path string, re
 	if err == nil {
 		return &result, nil
 	}
-	// Both codes mean the same thing here. The service answers a rejected
-	// If-None-Match: * with BlobAlreadyExists on a fresh blob and
-	// ConditionNotMet on some paths; the Java side accepts 409 and 412 for the
-	// same reason.
 	if !bloberror.HasCode(err, bloberror.BlobAlreadyExists, bloberror.ConditionNotMet) {
 		return nil, fmt.Errorf("azureio: upload result for job %s: %w", jobID, err)
 	}
@@ -236,11 +156,6 @@ func resultMetadata(result pipeline.StoredResult) map[string]*string {
 	}
 }
 
-// resultMetadataValue matches names without regard to case. Azure sends
-// metadata as x-ms-meta-* response headers, and net/http canonicalises a header
-// name on the way in, so the map this reads has "Filename" where the writer
-// sent "fileName". The Java side compares case-insensitively for the same
-// reason, which is what lets either side write the name in its own casing.
 func resultMetadataValue(metadata map[string]*string, name string) string {
 	for key, value := range metadata {
 		if strings.EqualFold(key, name) && value != nil {

@@ -1,7 +1,3 @@
-// Package contracts implements the wire format shared with the Java
-// backend's PackingContractCodec. The fixtures under contracts/packing/v1
-// are the source of truth; contracts_test.go round-trips them byte for
-// byte.
 package contracts
 
 import (
@@ -13,9 +9,6 @@ import (
 	"strings"
 )
 
-// MessageVersion is the pinned version every message on the packing wire
-// carries, in both directions. It is exported so nothing outside this package
-// has to restate it: a second copy is a second thing to bump.
 const MessageVersion = 1
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -39,13 +32,6 @@ type RequestEnvelope struct {
 	Spec              json.RawMessage `json:"spec"`
 }
 
-// The five optional fields are pointers, not plain values with omitempty.
-// EncodeSucceeded/EncodeFailed always populate the fields their event type
-// owns, including an explicit zero (0, ""); only a nil pointer (the fields
-// a started event doesn't have) is omitted. A plain int64/string would be
-// unable to tell "0 result bytes" or "empty reason" apart from "absent",
-// and the committed Java decoder's requiredLong/requiredText treats a
-// missing key as a hard decode failure.
 type WorkerEvent struct {
 	MessageVersion    int     `json:"messageVersion"`
 	EventType         string  `json:"eventType"`
@@ -79,13 +65,7 @@ func DecodeDispatch(data []byte) (DispatchMessage, error) {
 	}
 	return DispatchMessage{
 		MessageVersion: *wire.MessageVersion,
-		// Lowercased, not echoed back: the pattern accepts either case, but
-		// Java's PackingJobId normalises through UUID.fromString, so the
-		// canonical form is what PackingResultProcessor matches the event's
-		// jobId against and what both blob keys are spelled with. Returning
-		// the casing that arrived would put a different id in the session id,
-		// in the event and in the keys than the one in the row.
-		JobID: strings.ToLower(*wire.JobID),
+		JobID:          strings.ToLower(*wire.JobID),
 	}, nil
 }
 

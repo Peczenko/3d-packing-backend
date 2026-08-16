@@ -9,12 +9,6 @@ import (
 	"time"
 )
 
-// Exit codes are asserted as literals throughout, never as the constants
-// they pin — an assertion written against exitInput would survive a
-// renumbering of the table it is meant to catch. Each scenario below uses a
-// distinct literal (0, 1, 2, or a caller-supplied override), so swapping any
-// two of them in the implementation fails a test.
-
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -198,9 +192,6 @@ func TestFakeExitCodeZeroIsIgnored(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"--spec", specPath, "--output", outputPath, "--time-limit-seconds", "10"}, &stdout, &stderr)
 
-	// This is the trap the plan calls out explicitly: exit 0 with no output
-	// file is an infrastructure error to the worker, so a _fakeExitCode of 0
-	// must behave as "no override" rather than a silent, empty success.
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0", code)
 	}
@@ -251,9 +242,6 @@ func TestSleepAtOrOverTheTimeLimitTimesOut(t *testing.T) {
 	dir := t.TempDir()
 	specPath := filepath.Join(dir, "spec.json")
 	outputPath := filepath.Join(dir, "out.json")
-	// The sleep asks for far more than the 1-second limit; the fake packer
-	// must cap itself at the limit rather than sleeping the full duration
-	// and waiting to be killed from outside.
 	writeFile(t, specPath, `{"_fakeSleepSeconds":5,"keep":"me"}`)
 
 	started := time.Now()

@@ -21,24 +21,16 @@ const (
 	testResultChecksum = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 
-// fakeReceiver and fakeSender stand in for the SDK types so every test here
-// runs with no broker. Each records what it was handed and answers with what
-// the test scripted; the guarded fields are read by the test goroutine after
-// the call under test returns, and by the renewal fake concurrently.
 type fakeReceiver struct {
 	mu sync.Mutex
 
-	messages   []*azservicebus.ReceivedMessage
-	receiveErr error
-	// blockReceive holds ReceiveMessages until its context ends, which is how
-	// a receive window that closes empty is simulated.
+	messages     []*azservicebus.ReceivedMessage
+	receiveErr   error
 	blockReceive bool
 	receiveCalls int
 	maxMessages  int
 
-	renewErr error
-	// blockRenew holds RenewMessageLock until its context ends, so a test can
-	// prove the context reaches the SDK call rather than being dropped.
+	renewErr     error
 	blockRenew   bool
 	renewed      []*azservicebus.ReceivedMessage
 	completed    []*azservicebus.ReceivedMessage
@@ -123,7 +115,6 @@ func (f *fakeSender) Close(context.Context) error {
 	return f.closeErr
 }
 
-// foreignDelivery is a pipeline.Delivery this adapter did not issue.
 type foreignDelivery struct{ body []byte }
 
 func (d foreignDelivery) Body() []byte { return d.body }
@@ -227,8 +218,6 @@ func TestMessageCarriesJsonContentType(t *testing.T) {
 	}
 }
 
-// The message id is what makes a resent started/succeeded pair idempotent
-// when the broker redelivers a dispatch the worker already handled.
 func TestMessageIDIsJobIDAndEventType(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -256,10 +245,6 @@ func TestMessageIDIsJobIDAndEventType(t *testing.T) {
 	}
 }
 
-// packing-results is session enabled, and the Java side rejects a message
-// whose session id is not the decoded event's job id: PackingResultProcessor
-// abandons it and PackingDeadLetterReconciler refuses to replay it, so every
-// event would be discarded after five deliveries with the job never terminal.
 func TestMessageSessionIDIsTheJobID(t *testing.T) {
 	for _, event := range []contracts.WorkerEvent{startedEvent(), succeededEvent(), failedEvent()} {
 		t.Run(event.EventType, func(t *testing.T) {
@@ -278,8 +263,6 @@ func TestMessageSessionIDIsTheJobID(t *testing.T) {
 	}
 }
 
-// Every field crosses into a Java domain model that rejects blanks, so the
-// adapter transports what it was handed and normalises nothing.
 func TestSendEventDoesNotNormaliseEventFields(t *testing.T) {
 	reason := "  leading and trailing  "
 	event := contracts.WorkerEvent{
@@ -318,9 +301,6 @@ func TestSendEventReportsSendFailureWithoutRetrying(t *testing.T) {
 	}
 }
 
-// The job id comes from the decoded body and nowhere else. Subject, session
-// and application properties are metadata a bug or an attacker controls; the
-// body is the contract, and Delivery exposes nothing else.
 func TestDispatchJobIDComesFromTheBodyNotTheMetadata(t *testing.T) {
 	const otherJobID = "00000000-0000-0000-0000-0000000000ff"
 	subject := otherJobID
@@ -363,7 +343,6 @@ func TestReceiveOneRequestsExactlyOneMessage(t *testing.T) {
 	}
 }
 
-// An empty window is the normal outcome of a one-shot worker, not a failure.
 func TestReceiveOneReportsNoMessageOnAnEmptySlice(t *testing.T) {
 	queue, receiver, _ := newTestQueue(time.Second)
 
@@ -374,15 +353,11 @@ func TestReceiveOneReportsNoMessageOnAnEmptySlice(t *testing.T) {
 	if delivery != nil {
 		t.Fatalf("ReceiveOne delivery = %#v, want an untyped nil interface", delivery)
 	}
-	// Checked on the empty path too, not just when a message is present: an
-	// internal poll loop here is exactly the retry the broker owns.
 	if receiver.receiveCalls != 1 {
 		t.Fatalf("receiveCalls = %d, want exactly 1 attempt", receiver.receiveCalls)
 	}
 }
 
-// The processor guards with `delivery == nil`. A (*serviceBusDelivery)(nil)
-// inside a non-nil interface defeats that guard and panics on Body().
 func TestReceiveOneReturnsAnUntypedNilDelivery(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -410,14 +385,6 @@ func TestReceiveOneReturnsAnUntypedNilDelivery(t *testing.T) {
 	}
 }
 
-// "The receive window closed empty" must stay distinguishable from "the
-// parent context was cancelled" and from a transport error: Task 6 maps the
-// three to different exit codes.
-// The five-second bound against a one-minute window is the second half of
-// this test: a receive whose context is not derived from the parent still
-// classifies correctly afterwards, but only once the whole window has closed.
-// Live that is a SIGTERM hanging for a full minute, past most container
-// grace periods.
 func TestReceiveOneDistinguishesParentCancellationFromAnEmptyWindow(t *testing.T) {
 	queue, receiver, _ := newTestQueue(time.Minute)
 	receiver.blockReceive = true
@@ -478,9 +445,6 @@ func TestRenewLockPassesTheReceivedMessageThrough(t *testing.T) {
 	}
 }
 
-// The processor's renewal goroutine cancels this context to stop renewing and
-// joins the goroutine before it settles. A RenewLock that drops the context
-// hangs a one-shot container holding an unsettled message.
 func TestRenewLockHonoursContextCancellation(t *testing.T) {
 	queue, receiver, _ := newTestQueue(time.Second)
 	receiver.blockRenew = true
@@ -574,8 +538,6 @@ func TestSettlementReportsBrokerFailures(t *testing.T) {
 	}
 }
 
-// A Delivery from somewhere else names no message this receiver can settle.
-// That must read as a clear error rather than a panic.
 func TestSettlementRejectsAForeignDelivery(t *testing.T) {
 	deliveries := map[string]pipeline.Delivery{
 		"foreign implementation": foreignDelivery{body: []byte(`{}`)},
@@ -625,20 +587,12 @@ func TestCloseReportsBothFailures(t *testing.T) {
 	}
 }
 
-// Peek lock is what the entire processor is built on, and the SDK exposes no
-// accessor for it, so the options value is asserted directly. Under
-// receive-and-delete every dispatch is settled at receive: Abandon and
-// Complete both fail, and a job whose packer failed or whose container was
-// evicted is lost permanently with the job stuck RUNNING.
 func TestDispatchReceiverUsesPeekLock(t *testing.T) {
 	if dispatchReceiverOptions.ReceiveMode != azservicebus.ReceiveModePeekLock {
 		t.Fatalf("ReceiveMode = %v, want ReceiveModePeekLock (%v)", dispatchReceiverOptions.ReceiveMode, azservicebus.ReceiveModePeekLock)
 	}
 }
 
-// SERVICE_BUS_NAMESPACE is the bare namespace, matching the Java side, which
-// appends the same suffix itself. config.Load already rejects one that is
-// already fully qualified, so the suffix is appended unconditionally.
 func TestServiceBusHostAppendsTheDomainSuffix(t *testing.T) {
 	if got := serviceBusHost("packing-production"); got != "packing-production.servicebus.windows.net" {
 		t.Fatalf("serviceBusHost = %q", got)

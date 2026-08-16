@@ -1,7 +1,3 @@
-// Package engine runs the external packer executable. The packer is a
-// replaceable binary owned elsewhere, so this package knows only its CLI
-// contract — `--version`, and `--spec/--output/--time-limit-seconds` — and
-// nothing about the spec it reads or the result it writes.
 package engine
 
 import (
@@ -23,22 +19,10 @@ import (
 )
 
 const (
-	// resultContentType is fixed: the result's format is the packer's
-	// business, and the worker only ever moves the bytes.
 	resultContentType = "application/octet-stream"
-
-	// terminateGrace is how long a canceled packer gets to shut down
-	// cleanly before os/exec kills it.
-	terminateGrace = 5 * time.Second
-
-	// maxStderrBytes bounds what a failure reason carries; a packer that
-	// logs progress to stderr can otherwise produce megabytes of it.
-	maxStderrBytes = 8 << 10
-
-	// maxVersionBytes bounds what Provenance reads from `--version` stdout;
-	// a packer that streams there instead of printing one short line and
-	// exiting must not be able to grow this without bound.
-	maxVersionBytes = 8 << 10
+	terminateGrace    = 5 * time.Second
+	maxStderrBytes    = 8 << 10
+	maxVersionBytes   = 8 << 10
 )
 
 var errBlankVersion = errors.New("engine: packer --version printed nothing")
@@ -46,10 +30,6 @@ var errBlankVersion = errors.New("engine: packer --version printed nothing")
 type Runner struct {
 	path string
 
-	// resolveOnce memoises the lookup so Provenance and Run share one
-	// answer. Both would otherwise call exec.LookPath independently — Run
-	// through exec.Command's own lookup for a bare name — and the invariant
-	// the checksum exists for is that the bytes hashed are the bytes run.
 	resolveOnce sync.Once
 	executable  string
 	resolveErr  error
@@ -92,10 +72,6 @@ func (r *Runner) Provenance(ctx context.Context) (pipeline.EngineProvenance, err
 
 	version := strings.TrimSuffix(stdout.String(), "\n")
 	if strings.TrimSpace(version) == "" {
-		// The backend rejects a blank engineVersion outright, so every
-		// lifecycle event for this job would fail to decode. Failing here
-		// abandons the delivery instead of running a packer whose result
-		// could never be recorded.
 		return pipeline.EngineProvenance{}, fmt.Errorf("engine: %s: %w", executable, errBlankVersion)
 	}
 
@@ -127,18 +103,12 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 	)
 	var stderr tailBuffer
 	cmd.Stderr = &stderr
-	// Ask first, kill second: the packer must get a chance to exit cleanly,
-	// and WaitDelay bounds how long that chance lasts. See terminate_unix.go
-	// and terminate_windows.go for what "ask" means on each platform.
 	cmd.Cancel = func() error { return terminate(cmd) }
 	cmd.WaitDelay = terminateGrace
 
 	if err := cmd.Run(); err != nil {
 		switch {
 		case ctx.Err() != nil:
-			// The caller withdrew the job (lost lock, shutdown). That is the
-			// worker's problem, not the packing job's, so it must not be an
-			// EngineFailure: the delivery has to be abandoned, not failed.
 			return pipeline.EngineResult{}, fmt.Errorf("engine: packing canceled: %w", ctx.Err())
 		case errors.Is(runCtx.Err(), context.DeadlineExceeded):
 			return pipeline.EngineResult{}, &pipeline.EngineFailure{Reason: timeoutReason(seconds)}
@@ -177,23 +147,14 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 	}, nil
 }
 
-// limitSeconds rounds up, so a sub-second runtime never reaches the packer
-// as `--time-limit-seconds 0` — a usage error the packer would reject and
-// the worker would then misreport as a genuine packing failure.
 func limitSeconds(runtime time.Duration) int64 {
 	return int64((runtime + time.Second - 1) / time.Second)
 }
 
-// timeoutReason formats the limit in seconds explicitly. Duration.String()
-// renders 60s as "1m0s" and 7200s as "2h0m0s", neither of which is the
-// figure the job was given.
 func timeoutReason(seconds int64) string {
 	return fmt.Sprintf("packing runtime limit of %ds exceeded", seconds)
 }
 
-// exitReason describes a packer that did not exit 0. A packer killed by a
-// signal — the OOM killer being the realistic case for a packing engine —
-// has no exit code, only -1, so the process state names the signal instead.
 func exitReason(code int, state string, stderr string) string {
 	reason := fmt.Sprintf("packer exited with code %d", code)
 	if code < 0 {
@@ -219,7 +180,6 @@ func checksumFile(path string) (string, error) {
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
-// tailBuffer retains only the last maxStderrBytes written to it.
 type tailBuffer struct {
 	data []byte
 }
@@ -241,12 +201,6 @@ func (b *tailBuffer) String() string {
 	return string(b.data)
 }
 
-// headBuffer retains only the first maxVersionBytes written to it. A
-// stderr log's most recent lines are the useful ones, which is why
-// tailBuffer keeps the tail; a `--version` stream is one short line at the
-// front, so keeping the head means a runaway packer yields a truncated but
-// still-real version prefix instead of the newest bytes of a stream that
-// never reached the version it printed at the start.
 type headBuffer struct {
 	data []byte
 }
