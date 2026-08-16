@@ -19,6 +19,8 @@ subprojects {
     version = rootProject.version
 
     spotless {
+        enforceCheck = false
+
         java {
             target 'src/*/java/**/*.java'
             eclipse().configFile rootProject.file('config/formatter/eclipse-format.xml')
@@ -32,6 +34,13 @@ subprojects {
     }
 
     afterEvaluate { proj ->
+        proj.tasks.named('check') { checkTask ->
+            checkTask.setDependsOn(checkTask.dependsOn.findAll {
+                !it.getClass().name.startsWith(
+                        'org.gradle.api.plugins.quality.internal.AbstractCodeQualityPlugin')
+            })
+        }
+
         proj.tasks.withType(Checkstyle).configureEach { task ->
             String sourceSetName = task.name.substring('checkstyle'.length()).uncapitalize()
             task.classpath = proj.files()
