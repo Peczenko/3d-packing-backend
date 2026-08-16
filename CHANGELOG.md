@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.0.0...v1.1.0) (2026-08-16)
+
+
+### Features
+
+* packing pipeline ([#39](https://github.com/Peczenko/3d-packing-backend/issues/39)) ([fea2483](https://github.com/Peczenko/3d-packing-backend/commit/fea248326f0b4ea6952b1f7d567baf2649ec750b))
+
+
+### Refactoring
+
+* apply new code style ([#40](https://github.com/Peczenko/3d-packing-backend/issues/40)) ([4adf51f](https://github.com/Peczenko/3d-packing-backend/commit/4adf51f251a7eb4a9c997418871ca9cbb54db333))
+
+
+### Chores & Dependencies
+
+* release v1.0.0 ([#37](https://github.com/Peczenko/3d-packing-backend/issues/37)) ([009ea11](https://github.com/Peczenko/3d-packing-backend/commit/009ea11f579dd3a1741efa5057262b397d1eed87))
+
 ## [1.0.0](https://github.com/Peczenko/3d-packing-backend/compare/v0.0.5...v1.0.0) (2026-07-31)
 
 
