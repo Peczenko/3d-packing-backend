@@ -35,11 +35,6 @@ const (
 	helperIgnoreTerm = "GO_HELPER_IGNORE_TERM"
 )
 
-// TestMain re-execs this test binary as a stand-in packer. The runner owns
-// the child's argv exactly — that is what TestRunPassesExactlyTheDocumentedArguments
-// asserts — so the helper cannot be selected with the usual
-// -test.run=TestHelperProcess argument and is dispatched from the
-// environment before the testing framework parses any flags.
 func TestMain(m *testing.M) {
 	if os.Getenv(helperEnabled) == "1" {
 		os.Exit(runHelper())
@@ -110,8 +105,6 @@ func helperExitCodeValue() int {
 	return code
 }
 
-// helperNoise builds deterministic stderr bytes ending in a newline, so a
-// test can recompute the exact tail the runner is expected to retain.
 func helperNoise(size int) []byte {
 	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
 	noise := make([]byte, size)
@@ -287,15 +280,6 @@ func TestProvenanceFailureIsInfrastructure(t *testing.T) {
 	})
 }
 
-// TestProvenanceBoundsVersionOutput guards against a packer that streams
-// instead of printing one short line and exiting on --version: Run's
-// stdout goes to os.DevNull, Run's stderr is capped by tailBuffer, and
-// exec.ExitError.Stderr is capped by os/exec itself, but nothing bounded
-// Provenance's own stdout read before headBuffer. It keeps the head, not
-// the tail: unlike a stderr log where the newest lines matter, a --version
-// stream is one line at the very front, so the head is the only part
-// worth keeping — this test's exact-prefix assertion fails against a
-// tail-retaining cap just as it fails against no cap at all.
 func TestProvenanceBoundsVersionOutput(t *testing.T) {
 	runner := testRunner(t)
 	noise := helperNoise(3 * maxVersionBytes)
@@ -316,11 +300,6 @@ func TestProvenanceBoundsVersionOutput(t *testing.T) {
 	}
 }
 
-// Provenance hashes the file exec.LookPath found. Run has to execute that
-// same file, or the checksum recorded against the job describes bytes that
-// were never run — which is the entire point of recording it. Changing PATH
-// between the two calls is the only way to tell a single shared resolution
-// apart from two independent lookups that happen to agree.
 func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the shim is a /bin/sh script; the production image is Linux, which is where this path runs")
@@ -341,8 +320,6 @@ func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
 		t.Fatalf("Provenance: %v", err)
 	}
 
-	// The packer is still exactly where Provenance found it; only the lookup
-	// that would find it again is gone.
 	t.Setenv("PATH", t.TempDir())
 
 	if _, err := runner.Run(context.Background(), testRequest(t, 60*time.Second)); err != nil {
@@ -416,19 +393,6 @@ func TestRunTimeoutIsAnEngineFailure(t *testing.T) {
 	}
 }
 
-// TestParentContextDeadlineIsNotAnEngineFailure guards the classification
-// order in Run: a parent deadline must be checked, and must win, before the
-// runtime-limit deadline is even considered. request.Runtime's own
-// context.WithTimeout is derived from ctx, so when the parent's shorter
-// deadline fires first, runCtx.Err() is ALSO context.DeadlineExceeded —
-// indistinguishable from a genuine runtime-limit timeout by that check
-// alone. If the two cases in Run's switch were swapped, this parent-caused
-// cancellation would be misreported as the packing job exceeding its
-// multi-minute runtime limit, so the worker would fail the job and
-// terminate the delivery instead of abandoning it for redelivery. The
-// existing cancellation tests use context.WithCancel, whose
-// context.Canceled never matches the DeadlineExceeded branch regardless of
-// order, so they cannot catch this; only a parent context.WithTimeout can.
 func TestParentContextDeadlineIsNotAnEngineFailure(t *testing.T) {
 	runner := testRunner(t)
 	request := testRequest(t, 5*time.Minute)
@@ -450,8 +414,6 @@ func TestParentContextDeadlineIsNotAnEngineFailure(t *testing.T) {
 	}
 }
 
-// Duration.String() renders 60s as "1m0s" and 7200s as "2h0m0s", so the
-// message the contract calls for cannot be built from the Duration.
 func TestTimeoutReasonFormatsSecondsNotADurationString(t *testing.T) {
 	for _, tc := range []struct {
 		runtime time.Duration
@@ -661,11 +623,6 @@ func TestRunKillsAChildThatIgnoresTermination(t *testing.T) {
 		if elapsed < terminateGrace-time.Second {
 			t.Fatalf("child was killed after %s, before the %s termination grace elapsed", elapsed, terminateGrace)
 		}
-		// Pinned to the literal 5-second budget, not the terminateGrace
-		// constant: the requirement is "wait at most five seconds" before
-		// killing, independent of whatever the constant currently reads. A
-		// canceled packer must not be able to hold a Service Bus lock for
-		// however long a future change happens to set terminateGrace to.
 		if want := 5 * time.Second; elapsed > want+2*time.Second {
 			t.Fatalf("child was killed after %s, want at most %s", elapsed, want)
 		}

@@ -18,13 +18,12 @@ public class JooqActiveUserLookup implements ActiveUserLookup {
 
     private final DSLContext dsl;
 
-
     @Override
     public Optional<UserId> findActiveUser(FirebaseUid firebaseUid) {
         return dsl.select(USERS.ID)
-                .from(USERS)
-                .where(USERS.FIREBASE_UID.eq(firebaseUid.value())
-                        .and(USERS.STATUS.eq(UserStatus.ACTIVE)))
-                .fetchOptional(USERS.ID);
+                  .from(USERS)
+                  .where(USERS.FIREBASE_UID.eq(firebaseUid.value())
+                                           .and(USERS.STATUS.eq(UserStatus.ACTIVE)))
+                  .fetchOptional(USERS.ID);
     }
 }

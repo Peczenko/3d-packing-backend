@@ -2,7 +2,7 @@ package com.packing.backend.domain.project;
 
 public enum ProjectPermission {
 
-    //See the project and download its files
+    // See the project and download its files
     READ,
 
     // Everything READ allows plus adding, renaming and deleting files

@@ -10,10 +10,13 @@ class LoggingEmailSender implements EmailSender {
     @Override
     public void send(EmailMessage message) {
         log.info("Email not sent (app.email.enabled=false). to={} subject='{}' "
-                        + "htmlChars={} attachments={}",
-                message.to(),
-                message.subject(),
-                message.htmlBody() == null ? 0 : message.htmlBody().length(),
-                message.attachments().size());
+                + "htmlChars={} attachments={}",
+                 message.to(),
+                 message.subject(),
+                 message.htmlBody() == null ? 0
+                                            : message.htmlBody()
+                                                     .length(),
+                 message.attachments()
+                        .size());
     }
 }

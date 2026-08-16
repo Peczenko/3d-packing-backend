@@ -53,21 +53,21 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PackingJobApplicationServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-08-01T10:15:30Z");
-    private static final String FIREBASE_UID = "firebase-1";
-    private static final ProjectId PROJECT_ID = ProjectId.generate();
-    private static final ProjectId OTHER_PROJECT_ID = ProjectId.generate();
-    private static final UserId USER_ID = UserId.generate();
-    private static final PageRequest PAGE = new PageRequest(0, 20);
+    private static final Instant     NOW              = Instant.parse("2026-08-01T10:15:30Z");
+    private static final String      FIREBASE_UID     = "firebase-1";
+    private static final ProjectId   PROJECT_ID       = ProjectId.generate();
+    private static final ProjectId   OTHER_PROJECT_ID = ProjectId.generate();
+    private static final UserId      USER_ID          = UserId.generate();
+    private static final PageRequest PAGE             = new PageRequest(0, 20);
 
     @Mock
-    private PackingJobRepository repository;
+    private PackingJobRepository    repository;
     @Mock
-    private PackingJobFinder finder;
+    private PackingJobFinder        finder;
     @Mock
-    private ProjectAccessLookup access;
+    private ProjectAccessLookup     access;
     @Mock
-    private DomainEventPublisher events;
+    private DomainEventPublisher    events;
     @Mock
     private PackingJobArtifactStore artifacts;
 
@@ -75,39 +75,53 @@ class PackingJobApplicationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new PackingJobApplicationService(repository, finder, access, events, artifacts,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new PackingJobApplicationService(repository,
+                                                   finder,
+                                                   access,
+                                                   events,
+                                                   artifacts,
+                                                   Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
     void createRequiresWritableProjectAndPublishesQueuedEventAfterSaving() {
         PackingJobView expected = view(UUID.randomUUID(), PROJECT_ID.value());
         when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(
-                Optional.of(projectAccess(ProjectPermission.WRITE)));
+                                                                                      Optional.of(projectAccess(ProjectPermission.WRITE)));
         when(finder.detailInProject(eq(PROJECT_ID), any())).thenReturn(Optional.of(expected));
 
         PackingJobView result = service.create(new CreatePackingJobCommand(
-                FIREBASE_UID, PROJECT_ID.value(), "{\"testField\":true}", 60));
+                                                                           FIREBASE_UID,
+                                                                           PROJECT_ID.value(),
+                                                                           "{\"testField\":true}",
+                                                                           60));
 
         InOrder order = inOrder(repository, events);
-        order.verify(repository).save(org.mockito.ArgumentMatchers.argThat(job ->
-                job.status() == PackingJobStatus.QUEUED
-                        && job.projectId().equals(PROJECT_ID)
-                        && job.requestedBy().equals(USER_ID)
-                        && job.createdAt().equals(NOW)));
-        order.verify(events).publishAll(org.mockito.ArgumentMatchers.argThat(published ->
-                published.size() == 1 && published.iterator().next() instanceof PackingJobQueued));
+        order.verify(repository)
+             .save(org.mockito.ArgumentMatchers.argThat(job -> job.status() == PackingJobStatus.QUEUED
+                     && job.projectId()
+                           .equals(PROJECT_ID)
+                     && job.requestedBy()
+                           .equals(USER_ID)
+                     && job.createdAt()
+                           .equals(NOW)));
+        order.verify(events)
+             .publishAll(org.mockito.ArgumentMatchers.argThat(published -> published.size() == 1 && published.iterator()
+                                                                                                             .next() instanceof PackingJobQueued));
         assertThat(result).isEqualTo(expected);
     }
 
     @Test
     void createRejectsReadOnlyProjectWithoutSavingOrPublishing() {
         when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(
-                Optional.of(projectAccess(ProjectPermission.READ)));
+                                                                                      Optional.of(projectAccess(ProjectPermission.READ)));
 
         assertThatThrownBy(() -> service.create(new CreatePackingJobCommand(
-                FIREBASE_UID, PROJECT_ID.value(), "{}", 60)))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                                            FIREBASE_UID,
+                                                                            PROJECT_ID.value(),
+                                                                            "{}",
+                                                                            60)))
+                                                                                 .isInstanceOf(PermissionDeniedException.class);
 
         verify(repository, never()).save(any());
         verify(events, never()).publishAll(any());
@@ -116,11 +130,17 @@ class PackingJobApplicationServiceTest {
     @Test
     void createIsRefusedWhileTheProjectIsDisabled() {
         when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(Optional.of(
-                new ProjectAccess(USER_ID, PROJECT_ID, ProjectStatus.DISABLED, ProjectPermission.WRITE)));
+                                                                                                  new ProjectAccess(USER_ID,
+                                                                                                                    PROJECT_ID,
+                                                                                                                    ProjectStatus.DISABLED,
+                                                                                                                    ProjectPermission.WRITE)));
 
         assertThatThrownBy(() -> service.create(new CreatePackingJobCommand(
-                FIREBASE_UID, PROJECT_ID.value(), "{}", 60)))
-                .isInstanceOf(ResourceConflictException.class);
+                                                                            FIREBASE_UID,
+                                                                            PROJECT_ID.value(),
+                                                                            "{}",
+                                                                            60)))
+                                                                                 .isInstanceOf(ResourceConflictException.class);
 
         verify(repository, never()).save(any());
         verify(events, never()).publishAll(any());
@@ -129,12 +149,16 @@ class PackingJobApplicationServiceTest {
     @Test
     void listRequiresReadPermissionAndOnlyQueriesTheRequestedProject() {
         Page<PackingJobView> expected = new Page<>(List.of(view(UUID.randomUUID(), PROJECT_ID.value())),
-                PAGE.page(), PAGE.size(), 1);
+                                                   PAGE.page(),
+                                                   PAGE.size(),
+                                                   1);
         givenReadAccess();
         when(finder.listInProject(PROJECT_ID, PAGE)).thenReturn(expected);
 
         Page<PackingJobView> result = service.list(new ListPackingJobsQuery(
-                FIREBASE_UID, PROJECT_ID.value(), PAGE));
+                                                                            FIREBASE_UID,
+                                                                            PROJECT_ID.value(),
+                                                                            PAGE));
 
         assertThat(result).isEqualTo(expected);
         verify(finder).listInProject(PROJECT_ID, PAGE);
@@ -147,13 +171,13 @@ class PackingJobApplicationServiceTest {
         PackingJobView expected = view(jobId, PROJECT_ID.value());
         givenReadAccess();
         when(finder.detailInProject(PROJECT_ID, new com.packing.backend.domain.packing.PackingJobId(jobId)))
-                .thenReturn(Optional.of(expected));
+                                                                                                            .thenReturn(Optional.of(expected));
 
         PackingJobView result = service.get(new PackingJobQuery(FIREBASE_UID, PROJECT_ID.value(), jobId));
 
         assertThat(result).isEqualTo(expected);
         verify(finder).detailInProject(PROJECT_ID,
-                new com.packing.backend.domain.packing.PackingJobId(jobId));
+                                       new com.packing.backend.domain.packing.PackingJobId(jobId));
     }
 
     @Test
@@ -161,11 +185,12 @@ class PackingJobApplicationServiceTest {
         UUID jobId = UUID.randomUUID();
         givenReadAccess();
         when(finder.detailInProject(PROJECT_ID, new com.packing.backend.domain.packing.PackingJobId(jobId)))
-                .thenReturn(Optional.empty());
+                                                                                                            .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.get(new PackingJobQuery(FIREBASE_UID,
-                PROJECT_ID.value(), jobId)))
-                .isInstanceOf(PackingJobNotFoundException.class);
+                                                                 PROJECT_ID.value(),
+                                                                 jobId)))
+                                                                         .isInstanceOf(PackingJobNotFoundException.class);
     }
 
     @Test
@@ -173,15 +198,16 @@ class PackingJobApplicationServiceTest {
         UUID jobId = UUID.randomUUID();
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED);
         PackingJobArtifactStore.TemporaryUrl expected = new PackingJobArtifactStore.TemporaryUrl(
-                URI.create("https://storage.example/result?sig=secret"), NOW.plus(Duration.ofMinutes(10)));
+                                                                                                 URI.create("https://storage.example/result?sig=secret"),
+                                                                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(jobId)))
-                .thenReturn(Optional.of(job));
+                                                                                             .thenReturn(Optional.of(job));
         when(artifacts.findResult(job.id())).thenReturn(Optional.of(resultArtifact()));
         when(artifacts.createResultDownloadUrl(job.id(), Duration.ofMinutes(10))).thenReturn(expected);
 
         PackingJobArtifactStore.TemporaryUrl result = service.prepareResultDownload(
-                new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId));
+                                                                                    new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId));
 
         assertThat(result).isEqualTo(expected);
         verify(artifacts).createResultDownloadUrl(job.id(), Duration.ofMinutes(10));
@@ -192,11 +218,11 @@ class PackingJobApplicationServiceTest {
         UUID jobId = UUID.randomUUID();
         givenReadAccess();
         when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(jobId)))
-                .thenReturn(Optional.of(job(jobId, OTHER_PROJECT_ID, PackingJobStatus.SUCCEEDED)));
+                                                                                             .thenReturn(Optional.of(job(jobId, OTHER_PROJECT_ID, PackingJobStatus.SUCCEEDED)));
 
         assertThatThrownBy(() -> service.prepareResultDownload(
-                new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
-                .isInstanceOf(PackingJobNotFoundException.class);
+                                                               new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                                                   .isInstanceOf(PackingJobNotFoundException.class);
 
         verify(artifacts, never()).findResult(any());
         verify(artifacts, never()).createResultDownloadUrl(any(), any());
@@ -207,11 +233,11 @@ class PackingJobApplicationServiceTest {
         UUID jobId = UUID.randomUUID();
         givenReadAccess();
         when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(jobId)))
-                .thenReturn(Optional.empty());
+                                                                                             .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.prepareResultDownload(
-                new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
-                .isInstanceOf(PackingJobNotFoundException.class);
+                                                               new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                                                   .isInstanceOf(PackingJobNotFoundException.class);
 
         verify(artifacts, never()).findResult(any());
         verify(artifacts, never()).createResultDownloadUrl(any(), any());
@@ -223,8 +249,8 @@ class PackingJobApplicationServiceTest {
         when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.prepareResultDownload(
-                new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                               new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                                                   .isInstanceOf(ProjectNotFoundException.class);
 
         verify(repository, never()).findById(any());
         verify(artifacts, never()).findResult(any());
@@ -236,11 +262,11 @@ class PackingJobApplicationServiceTest {
         UUID jobId = UUID.randomUUID();
         givenReadAccess();
         when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(jobId)))
-                .thenReturn(Optional.of(job(jobId, PROJECT_ID, PackingJobStatus.QUEUED)));
+                                                                                             .thenReturn(Optional.of(job(jobId, PROJECT_ID, PackingJobStatus.QUEUED)));
 
         assertThatThrownBy(() -> service.prepareResultDownload(
-                new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
-                .isInstanceOf(ResourceConflictException.class);
+                                                               new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                                                   .isInstanceOf(ResourceConflictException.class);
 
         verify(artifacts, never()).findResult(any());
         verify(artifacts, never()).createResultDownloadUrl(any(), any());
@@ -252,11 +278,11 @@ class PackingJobApplicationServiceTest {
             UUID jobId = UUID.randomUUID();
             givenReadAccess();
             when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(jobId)))
-                    .thenReturn(Optional.of(job(jobId, PROJECT_ID, status)));
+                                                                                                 .thenReturn(Optional.of(job(jobId, PROJECT_ID, status)));
 
             assertThatThrownBy(() -> service.prepareResultDownload(
-                    new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
-                    .isInstanceOf(ResourceConflictException.class);
+                                                                   new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                                                       .isInstanceOf(ResourceConflictException.class);
         }
 
         verify(artifacts, never()).findResult(any());
@@ -272,15 +298,15 @@ class PackingJobApplicationServiceTest {
         when(artifacts.findResult(job.id())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.prepareResultDownload(
-                new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
-                .isInstanceOf(ResourceNotFoundException.class);
+                                                               new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                                                   .isInstanceOf(ResourceNotFoundException.class);
 
         verify(artifacts, never()).createResultDownloadUrl(any(), any());
     }
 
     private void givenReadAccess() {
         when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(
-                Optional.of(projectAccess(ProjectPermission.READ)));
+                                                                                      Optional.of(projectAccess(ProjectPermission.READ)));
     }
 
     private static ProjectAccess projectAccess(ProjectPermission permission) {
@@ -288,19 +314,49 @@ class PackingJobApplicationServiceTest {
     }
 
     private static PackingJobView view(UUID id, UUID projectId) {
-        return new PackingJobView(id, projectId, PackingJobStatus.QUEUED, 60,
-                null, null, NOW, null, null, null, null, null, null, null);
+        return new PackingJobView(id,
+                                  projectId,
+                                  PackingJobStatus.QUEUED,
+                                  60,
+                                  null,
+                                  null,
+                                  NOW,
+                                  null,
+                                  null,
+                                  null,
+                                  null,
+                                  null,
+                                  null,
+                                  null);
     }
 
     private static PackingJob job(UUID id, ProjectId projectId, PackingJobStatus status) {
-        return PackingJob.rehydrate(new com.packing.backend.domain.packing.PackingJobId(id), projectId,
-                USER_ID, "{}", 60, status, "1.0.0", "a".repeat(64), null, null, NOW,
-                "result.bin", "application/octet-stream", "b".repeat(64), 12L,
-                status == PackingJobStatus.FAILED ? "packing failed" : null, 0, NOW);
+        return PackingJob.rehydrate(new com.packing.backend.domain.packing.PackingJobId(id),
+                                    projectId,
+                                    USER_ID,
+                                    "{}",
+                                    60,
+                                    status,
+                                    "1.0.0",
+                                    "a".repeat(64),
+                                    null,
+                                    null,
+                                    NOW,
+                                    "result.bin",
+                                    "application/octet-stream",
+                                    "b".repeat(64),
+                                    12L,
+                                    status == PackingJobStatus.FAILED ? "packing failed" : null,
+                                    0,
+                                    NOW);
     }
 
     private static PackingJobArtifactStore.ResultArtifact resultArtifact() {
-        return new PackingJobArtifactStore.ResultArtifact("result.bin", "application/octet-stream", 12L,
-                "b".repeat(64), "1.0.0", "a".repeat(64));
+        return new PackingJobArtifactStore.ResultArtifact("result.bin",
+                                                          "application/octet-stream",
+                                                          12L,
+                                                          "b".repeat(64),
+                                                          "1.0.0",
+                                                          "a".repeat(64));
     }
 }

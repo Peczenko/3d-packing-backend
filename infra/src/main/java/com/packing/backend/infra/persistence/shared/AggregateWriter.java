@@ -25,31 +25,34 @@ public class AggregateWriter {
         record.set(table.version(), expectedVersion + 1);
 
         Table<R> target = record.getTable();
-        List<TableField<R, ?>> primaryKey = target.getPrimaryKey().getFields();
+        List<TableField<R, ?>> primaryKey = target.getPrimaryKey()
+                                                  .getFields();
 
         Map<Field<?>, Object> insert = new LinkedHashMap<>();
         Map<Field<?>, Object> update = new LinkedHashMap<>();
         for (Field<?> field : record.fields()) {
             Object value = record.get(field);
             insert.put(field, value);
-            if (!primaryKey.contains(field) && !table.immutable().contains(field)) {
+            if (!primaryKey.contains(field) && !table.immutable()
+                                                     .contains(field)) {
                 update.put(field, value);
             }
         }
 
         int affected = dsl.insertInto(target)
-                .set(insert)
-                .onConflict(primaryKey)
-                .doUpdate()
-                .set(update)
-                .where(table.version().eq(expectedVersion))
-                .execute();
+                          .set(insert)
+                          .onConflict(primaryKey)
+                          .doUpdate()
+                          .set(update)
+                          .where(table.version()
+                                      .eq(expectedVersion))
+                          .execute();
 
         if (affected == 0) {
             throw new ConcurrentUpdateException(
-                    table.aggregateName() + " " + record.get(primaryKey.get(0))
-                            + " was modified by another transaction (expected version "
-                            + expectedVersion + "). Re-read and retry.");
+                                                table.aggregateName() + " " + record.get(primaryKey.get(0))
+                                                        + " was modified by another transaction (expected version "
+                                                        + expectedVersion + "). Re-read and retry.");
         }
     }
 }

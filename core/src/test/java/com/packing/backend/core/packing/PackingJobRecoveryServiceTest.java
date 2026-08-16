@@ -31,8 +31,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PackingJobRecoveryServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-08-01T12:00:00Z");
-    private static final String CHECKSUM = "a".repeat(64);
+    private static final Instant NOW      = Instant.parse("2026-08-01T12:00:00Z");
+    private static final String  CHECKSUM = "a".repeat(64);
 
     @Mock
     private PackingJobRepository jobs;
@@ -62,8 +62,13 @@ class PackingJobRecoveryServiceTest {
     @Test
     void exhaustedDispatchLeavesATerminalJobUnchanged() {
         PackingJob job = runningJob();
-        job.succeed("existing.bin", "application/octet-stream", 1, CHECKSUM,
-                "packer 0.1.0", CHECKSUM, NOW.minusSeconds(1));
+        job.succeed("existing.bin",
+                    "application/octet-stream",
+                    1,
+                    CHECKSUM,
+                    "packer 0.1.0",
+                    CHECKSUM,
+                    NOW.minusSeconds(1));
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
         assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.DELIVERY_EXHAUSTED)).isTrue();
@@ -118,8 +123,13 @@ class PackingJobRecoveryServiceTest {
     @Test
     void expiredDispatchIsResolvedOnceTheJobReachedATerminalStateByAnotherRoute() {
         PackingJob job = runningJob();
-        job.succeed("existing.bin", "application/octet-stream", 1, CHECKSUM,
-                "packer 0.1.0", CHECKSUM, NOW.minusSeconds(1));
+        job.succeed("existing.bin",
+                    "application/octet-stream",
+                    1,
+                    CHECKSUM,
+                    "packer 0.1.0",
+                    CHECKSUM,
+                    NOW.minusSeconds(1));
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
         assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.EXPIRED)).isTrue();
@@ -131,7 +141,7 @@ class PackingJobRecoveryServiceTest {
     @Test
     void looksUpNoResultArtifactInsideTheTransaction() {
         assertThat(PackingJobRecoveryService.class.getDeclaredFields())
-                .noneMatch(field -> PackingJobArtifactStore.class.isAssignableFrom(field.getType()));
+                                                                       .noneMatch(field -> PackingJobArtifactStore.class.isAssignableFrom(field.getType()));
     }
 
     @Test
@@ -194,8 +204,13 @@ class PackingJobRecoveryServiceTest {
     @Test
     void stalledResultLeavesATerminalJobUnchanged() {
         PackingJob job = runningJob();
-        job.succeed("existing.bin", "application/octet-stream", 1, CHECKSUM,
-                "packer 0.1.0", CHECKSUM, NOW.minusSeconds(1));
+        job.succeed("existing.bin",
+                    "application/octet-stream",
+                    1,
+                    CHECKSUM,
+                    "packer 0.1.0",
+                    CHECKSUM,
+                    NOW.minusSeconds(1));
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
         service.recoverStalledResult(job.id(), artifact());
@@ -211,7 +226,7 @@ class PackingJobRecoveryServiceTest {
         when(jobs.findById(unknown)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.resolveStalledDispatch(unknown, DispatchStall.DELIVERY_EXHAUSTED))
-                .isInstanceOf(PackingJobNotFoundException.class);
+                                                                                                           .isInstanceOf(PackingJobNotFoundException.class);
 
         verify(jobs, never()).save(org.mockito.ArgumentMatchers.any());
     }
@@ -227,8 +242,12 @@ class PackingJobRecoveryServiceTest {
     }
 
     private static PackingJob queuedJob(Instant createdAt) {
-        return PackingJob.queue(PackingJobId.generate(), ProjectId.generate(), UserId.generate(),
-                "{\"testField\":true}", 60, createdAt);
+        return PackingJob.queue(PackingJobId.generate(),
+                                ProjectId.generate(),
+                                UserId.generate(),
+                                "{\"testField\":true}",
+                                60,
+                                createdAt);
     }
 
     private static PackingJob runningJob() {
@@ -238,7 +257,11 @@ class PackingJobRecoveryServiceTest {
     }
 
     private static PackingJobArtifactStore.ResultArtifact artifact() {
-        return new PackingJobArtifactStore.ResultArtifact("result.bin", "application/octet-stream", 42,
-                CHECKSUM, "packer 0.2.0", CHECKSUM);
+        return new PackingJobArtifactStore.ResultArtifact("result.bin",
+                                                          "application/octet-stream",
+                                                          42,
+                                                          CHECKSUM,
+                                                          "packer 0.2.0",
+                                                          CHECKSUM);
     }
 }

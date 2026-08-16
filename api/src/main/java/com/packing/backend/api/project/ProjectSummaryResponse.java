@@ -16,12 +16,14 @@ public record ProjectSummaryResponse(
 
     public static ProjectSummaryResponse from(ProjectSummaryView view) {
         return new ProjectSummaryResponse(
-                view.id(),
-                view.name(),
-                view.status().name(),
-                view.myPermission().name(),
-                view.memberCount(),
-                view.createdAt(),
-                view.updatedAt());
+                                          view.id(),
+                                          view.name(),
+                                          view.status()
+                                              .name(),
+                                          view.myPermission()
+                                              .name(),
+                                          view.memberCount(),
+                                          view.createdAt(),
+                                          view.updatedAt());
     }
 }

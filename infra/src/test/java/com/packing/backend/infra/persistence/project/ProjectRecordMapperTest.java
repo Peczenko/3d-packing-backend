@@ -21,12 +21,19 @@ class ProjectRecordMapperTest {
     @Test
     void roundTripsEveryProjectColumn() {
         UserId creator = UserId.generate();
-        Project project = Project.rehydrate(ProjectId.generate(), new ProjectName("Chassis"),
-                creator, ProjectStatus.DISABLED, 3L, NOW, NOW.plusSeconds(1), null,
-                List.of(new ProjectMember(creator, ProjectPermission.OWNER, creator, NOW)));
+        Project project = Project.rehydrate(ProjectId.generate(),
+                                            new ProjectName("Chassis"),
+                                            creator,
+                                            ProjectStatus.DISABLED,
+                                            3L,
+                                            NOW,
+                                            NOW.plusSeconds(1),
+                                            null,
+                                            List.of(new ProjectMember(creator, ProjectPermission.OWNER, creator, NOW)));
 
         Project result = ProjectRecordMapper.toDomain(
-                ProjectRecordMapper.toRecord(project), project.members());
+                                                      ProjectRecordMapper.toRecord(project),
+                                                      project.members());
 
         assertThat(result.id()).isEqualTo(project.id());
         assertThat(result.name()).isEqualTo(new ProjectName("Chassis"));
@@ -46,7 +53,7 @@ class ProjectRecordMapperTest {
         ProjectMember member = new ProjectMember(user, ProjectPermission.WRITE, addedBy, NOW);
 
         ProjectMember result = ProjectRecordMapper.toDomain(
-                ProjectRecordMapper.toRecord(projectId, member));
+                                                            ProjectRecordMapper.toRecord(projectId, member));
 
         assertThat(result.userId()).isEqualTo(user);
         assertThat(result.permission()).isEqualTo(ProjectPermission.WRITE);
@@ -57,11 +64,19 @@ class ProjectRecordMapperTest {
     @Test
     void roundTripsADeletedProjectsTombstone() {
         UserId creator = UserId.generate();
-        Project project = Project.rehydrate(ProjectId.generate(), new ProjectName("Gone"),
-                creator, ProjectStatus.DELETED, 9L, NOW, NOW, NOW.plusSeconds(5), List.of());
+        Project project = Project.rehydrate(ProjectId.generate(),
+                                            new ProjectName("Gone"),
+                                            creator,
+                                            ProjectStatus.DELETED,
+                                            9L,
+                                            NOW,
+                                            NOW,
+                                            NOW.plusSeconds(5),
+                                            List.of());
 
         Project result = ProjectRecordMapper.toDomain(
-                ProjectRecordMapper.toRecord(project), List.of());
+                                                      ProjectRecordMapper.toRecord(project),
+                                                      List.of());
 
         assertThat(result.status()).isEqualTo(ProjectStatus.DELETED);
         assertThat(result.deletedAt()).isEqualTo(NOW.plusSeconds(5));

@@ -18,14 +18,16 @@ public record FileResponse(
 
     public static FileResponse from(FileView view) {
         return new FileResponse(
-                view.id(),
-                view.projectId(),
-                view.filename(),
-                view.format().name(),
-                view.contentType(),
-                view.sizeBytes(),
-                view.checksumSha256(),
-                view.status().name(),
-                view.createdAt());
+                                view.id(),
+                                view.projectId(),
+                                view.filename(),
+                                view.format()
+                                    .name(),
+                                view.contentType(),
+                                view.sizeBytes(),
+                                view.checksumSha256(),
+                                view.status()
+                                    .name(),
+                                view.createdAt());
     }
 }

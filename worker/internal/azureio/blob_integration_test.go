@@ -29,30 +29,16 @@ import (
 	"github.com/Peczenko/3d-packing-backend/worker/internal/pipeline"
 )
 
-// storageEnv is the variable config.Load reads for the local storage mode, so
-// the same value that configures the worker configures its test.
 const storageEnv = "STORAGE_CONNECTION_STRING"
 
-// ciEnv is set to "true" by GitHub Actions and by every other CI this could
-// run on. It is the difference between a developer without Docker, for whom
-// skipping is right, and an automated run that was supposed to provide the
-// emulator and did not.
 const ciEnv = "CI"
 
-// guardEnv stops the child process below from spawning one of its own, in
-// case the -test.run anchor is ever loosened.
 const guardEnv = "GO_BLOB_EMULATOR_GUARD"
 
-// requestFixture is the shared contract example the Java side round-trips too.
-// Seeding from it rather than from a literal here means a request this adapter
-// downloads is the request that side agrees to write.
 const requestFixture = "../../../contracts/packing/v1/request-envelope.example.json"
 
 const azuriteTimeout = 30 * time.Second
 
-// TestBlobArtifacts is one test with subtests rather than several top-level
-// tests so the skip below is stated exactly once. A run without Azurite has to
-// say so in a line nobody can mistake for a pass.
 func TestBlobArtifacts(t *testing.T) {
 	connectionString := os.Getenv(storageEnv)
 	if connectionString == "" {
@@ -72,9 +58,6 @@ func TestBlobArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read request fixture: %v", err)
 		}
-		// The key is spelled out rather than built with requestKey, so a change
-		// to requestKey fails here instead of moving the test with it. This is
-		// the layout AzurePackingJobArtifactStore.requestKey writes.
 		putBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/request.json", fixture, nil)
 
 		path := filepath.Join(t.TempDir(), "request.json")
@@ -128,16 +111,10 @@ func TestBlobArtifacts(t *testing.T) {
 		}
 	})
 
-	// The two subtests below pin the width of the absence rule from both sides.
-	// Narrowing it to BlobNotFound alone, or widening it to every error, are
-	// both one-token edits that the happy-path tests cannot see.
 	t.Run("reports no result when the container does not exist", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), azuriteTimeout)
 		defer cancel()
 
-		// Deliberately never created: before the Java side writes the first
-		// request, the container is not there, and that is still "no result for
-		// this job" rather than a failure worth a redelivery.
 		cfg := config.Config{
 			StorageConnectionString: connectionString,
 			StorageContainer:        "worker-blob-absent-" + randomHex(t, 8),
@@ -159,10 +136,6 @@ func TestBlobArtifacts(t *testing.T) {
 	t.Run("reports a rejected credential as an error, not as absence", func(t *testing.T) {
 		ctx, _, cfg := newAzuriteContainer(t, connectionString)
 
-		// A 403 is a transport failure the processor abandons the delivery for.
-		// Collapsing it into (nil, nil) would make an expired credential read as
-		// "not packed yet", so a redelivery would re-run the packer instead of
-		// resending the stored result, and the loss would be invisible.
 		cfg.StorageConnectionString = withWrongAccountKey(t, connectionString)
 		client, err := NewBlobClient(cfg)
 		if err != nil {
@@ -187,8 +160,6 @@ func TestBlobArtifacts(t *testing.T) {
 		jobID := newJobID(t)
 		body := []byte(`{"placements":[]}`)
 
-		// Metadata spelled as the Java side writes and reads it, and the key
-		// spelled as AzurePackingJobArtifactStore.resultKey derives it.
 		putBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/output", body, map[string]*string{
 			"fileName":             to.Ptr("output"),
 			"contentType":          to.Ptr("application/octet-stream"),
@@ -224,13 +195,7 @@ func TestBlobArtifacts(t *testing.T) {
 		artifacts := NewBlobArtifacts(client, cfg)
 		jobID := newJobID(t)
 		body := []byte(`{"placements":[{"id":"a"}]}`)
-		// NOT application/octet-stream. That is what Azure and Azurite store by
-		// default when no x-ms-blob-content-type is sent, so asserting it would
-		// pass with the BlobContentType header dropped entirely — the content
-		// type would be right by coincidence rather than because this adapter
-		// set it. engine/runner.go hardcodes octet-stream today, but the SAS
-		// download URL the Java side issues sets no rsct override, so the blob's
-		// own header is what a browser receives.
+
 		const contentType = "application/vnd.packing+json"
 		result := pipeline.StoredResult{
 			Engine: pipeline.EngineProvenance{Version: "packer 0.3.0", Checksum: strings.Repeat("c", 64)},
@@ -263,13 +228,7 @@ func TestBlobArtifacts(t *testing.T) {
 		if properties.ContentType == nil || *properties.ContentType != contentType {
 			t.Errorf("stored content type = %s, want %s", showString(properties.ContentType), contentType)
 		}
-		// The names are the cross-language contract; the values are what
-		// AzurePackingJobArtifactStore.findResult hands the download endpoint.
-		// Matched case-insensitively because Azure returns metadata as
-		// x-ms-meta-* headers and net/http canonicalises a header name on the
-		// way in — an exact-case assertion here would be asserting the SDK's
-		// canonicaliser, not the contract. The Java side compares
-		// case-insensitively for the same reason.
+
 		wantMetadata := map[string]string{
 			"fileName":             "output",
 			"contentType":          contentType,
@@ -293,10 +252,6 @@ func TestBlobArtifacts(t *testing.T) {
 		artifacts := NewBlobArtifacts(client, cfg)
 		jobID := newJobID(t)
 
-		// Deliberately different in every field, and different in length, so
-		// the bytes in storage can be matched back to the metadata both callers
-		// report. A loser that answered with its own metadata would describe a
-		// blob nobody can download.
 		candidates := []struct {
 			body   []byte
 			stored pipeline.StoredResult
@@ -379,16 +334,6 @@ func TestBlobArtifacts(t *testing.T) {
 	})
 }
 
-// TestBlobArtifactsRefusesToSkipUnderCI re-runs TestBlobArtifacts in a child
-// process shaped like a CI job that forgot its emulator: CI set, the
-// connection string cleared. The suite above is the only place both blob
-// keys, the six metadata names and the content-type header are spelled out,
-// and `go test` prints nothing for a skip without -v — so a workflow that
-// lost all eight subtests reported `ok`, and a renamed metadata constant
-// would have reached production green.
-//
-// A child process rather than a helper call because the rule being pinned is
-// the exit status of the run, which is the only thing CI reads.
 func TestBlobArtifactsRefusesToSkipUnderCI(t *testing.T) {
 	if os.Getenv(guardEnv) == "1" {
 		t.Skip("child process: TestBlobArtifacts is what this run is for")
@@ -421,8 +366,6 @@ func environmentWithout(name string) []string {
 	return kept
 }
 
-// newAzuriteContainer gives a subtest a container of its own, so nothing here
-// depends on the order subtests run in or on state a previous run left behind.
 func newAzuriteContainer(t *testing.T, connectionString string) (context.Context, *azblob.Client, config.Config) {
 	t.Helper()
 
@@ -442,9 +385,6 @@ func newAzuriteContainer(t *testing.T, connectionString string) (context.Context
 		t.Fatalf("create container %s (is Azurite running?): %v", cfg.StorageContainer, err)
 	}
 	t.Cleanup(func() {
-		// Its own context: the test's may already be spent, and only the
-		// container this test created is removed — never a volume, never the
-		// emulator's other data.
 		cleanupCtx, done := context.WithTimeout(context.Background(), azuriteTimeout)
 		defer done()
 		if _, err := client.DeleteContainer(cleanupCtx, cfg.StorageContainer, nil); err != nil {
@@ -502,10 +442,6 @@ func listBlobs(t *testing.T, ctx context.Context, client *azblob.Client, cfg con
 	return names
 }
 
-// withWrongAccountKey swaps the account key for another well-formed one, so the
-// request is signed and sent and the service is what rejects it. Anything that
-// failed client-side would prove nothing about how a service error is
-// classified.
 func withWrongAccountKey(t *testing.T, connectionString string) string {
 	t.Helper()
 
@@ -524,11 +460,6 @@ func withWrongAccountKey(t *testing.T, connectionString string) string {
 	return strings.Join(parts, ";")
 }
 
-// skipOrFail reports a missing prerequisite. On a developer's machine that is
-// a missing emulator and skipping is right. Under CI the emulator is the
-// workflow's job to start, so the same condition is a broken workflow — and
-// `go test` prints nothing for a skip without -v, which is how a run that
-// executed none of these assertions still printed `ok`.
 func skipOrFail(t *testing.T, reason string) {
 	t.Helper()
 	if os.Getenv(ciEnv) != "" {
@@ -546,9 +477,6 @@ func writeTempFile(t *testing.T, body []byte) string {
 	return path
 }
 
-// showString and showInt64 keep a failing assertion readable: the SDK models
-// these as pointers, and %v on one prints an address rather than the value the
-// assertion is about.
 func showString(value *string) string {
 	if value == nil {
 		return "<nil>"

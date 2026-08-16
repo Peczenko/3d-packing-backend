@@ -19,19 +19,22 @@ import java.time.Clock;
 @RequiredArgsConstructor
 public class PackingJobDispatchService {
 
-    private final PackingJobRepository jobs;
+    private final PackingJobRepository    jobs;
     private final PackingJobArtifactStore artifacts;
-    private final PackingDispatchSender dispatch;
-    private final Clock clock;
+    private final PackingDispatchSender   dispatch;
+    private final Clock                   clock;
 
     public void dispatch(PackingJobId id) {
-        PackingJob job = jobs.findById(id).orElseThrow(() -> PackingJobNotFoundException.byId(id));
+        PackingJob job = jobs.findById(id)
+                             .orElseThrow(() -> PackingJobNotFoundException.byId(id));
         if (job.dispatchedAt() != null || job.status() != PackingJobStatus.QUEUED) {
             return;
         }
 
-        artifacts.writeRequestIfAbsent(id, PackingRequestEnvelope.versionOne(
-                job.maxRuntimeSeconds(), job.specJson()));
+        artifacts.writeRequestIfAbsent(id,
+                                       PackingRequestEnvelope.versionOne(
+                                                                         job.maxRuntimeSeconds(),
+                                                                         job.specJson()));
         dispatch.send(PackingDispatchMessage.versionOne(id));
         if (job.markDispatched(clock.instant())) {
             jobs.save(job);

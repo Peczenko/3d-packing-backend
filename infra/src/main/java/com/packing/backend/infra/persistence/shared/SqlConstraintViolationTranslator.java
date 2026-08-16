@@ -10,13 +10,13 @@ import java.util.function.Supplier;
 
 public final class SqlConstraintViolationTranslator {
 
-    //PostgreSQL SQLSTATE for unique_violation
+    // PostgreSQL SQLSTATE for unique_violation
     private static final String UNIQUE_VIOLATION = "23505";
 
     private final Map<String, Supplier<? extends RuntimeException>> byConstraintName;
 
     public SqlConstraintViolationTranslator(
-            Map<String, Supplier<? extends RuntimeException>> byConstraintName) {
+                                            Map<String, Supplier<? extends RuntimeException>> byConstraintName) {
         this.byConstraintName = Map.copyOf(byConstraintName);
     }
 
@@ -38,12 +38,12 @@ public final class SqlConstraintViolationTranslator {
 
     private RuntimeException translate(DataIntegrityViolationException e) {
         return Causes.firstOfType(e, PSQLException.class)
-                .filter(sql -> UNIQUE_VIOLATION.equals(sql.getSQLState()))
-                .map(PSQLException::getServerErrorMessage)
-                .map(ServerErrorMessage::getConstraint)
-                .map(byConstraintName::get)
-                .map(Supplier::get)
-                .map(RuntimeException.class::cast)
-                .orElse(null);
+                     .filter(sql -> UNIQUE_VIOLATION.equals(sql.getSQLState()))
+                     .map(PSQLException::getServerErrorMessage)
+                     .map(ServerErrorMessage::getConstraint)
+                     .map(byConstraintName::get)
+                     .map(Supplier::get)
+                     .map(RuntimeException.class::cast)
+                     .orElse(null);
     }
 }

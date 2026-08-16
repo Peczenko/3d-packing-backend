@@ -14,10 +14,13 @@ public record PackingJobPageResponse(
 
     public static PackingJobPageResponse from(Page<PackingJobView> page) {
         return new PackingJobPageResponse(
-                page.content().stream().map(PackingJobResponse::from).toList(),
-                page.page(),
-                page.size(),
-                page.totalElements(),
-                page.totalPages());
+                                          page.content()
+                                              .stream()
+                                              .map(PackingJobResponse::from)
+                                              .toList(),
+                                          page.page(),
+                                          page.size(),
+                                          page.totalElements(),
+                                          page.totalPages());
     }
 }

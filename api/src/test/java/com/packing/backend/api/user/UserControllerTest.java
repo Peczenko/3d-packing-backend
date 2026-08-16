@@ -65,19 +65,28 @@ class UserControllerTest {
 
     private void authenticateAs(String role) {
         Jwt jwt = Jwt.withTokenValue("token")
-                .header("alg", "RS256")
-                .subject(UID)
-                .claim("email", "ada@example.com")
-                .claim("name", "Ada Lovelace")
-                .claim("email_verified", true)
-                .build();
-        SecurityContextHolder.getContext().setAuthentication(
-                new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_" + role))));
+                     .header("alg", "RS256")
+                     .subject(UID)
+                     .claim("email", "ada@example.com")
+                     .claim("name", "Ada Lovelace")
+                     .claim("email_verified", true)
+                     .build();
+        SecurityContextHolder.getContext()
+                             .setAuthentication(
+                                                new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_" + role))));
     }
 
     private UserView view() {
-        return new UserView(UUID.randomUUID(), UID, "ada@example.com", "ada", "Ada Lovelace",
-                UserRole.USER, UserStatus.ACTIVE, Instant.now(), Instant.now(), Instant.now());
+        return new UserView(UUID.randomUUID(),
+                            UID,
+                            "ada@example.com",
+                            "ada",
+                            "Ada Lovelace",
+                            UserRole.USER,
+                            UserStatus.ACTIVE,
+                            Instant.now(),
+                            Instant.now(),
+                            Instant.now());
     }
 
     @Test
@@ -86,12 +95,12 @@ class UserControllerTest {
         when(users.resolveCurrentUser(any())).thenReturn(view());
 
         mockMvc.perform(get("/api/v1/users/me"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value("ada"))
-                .andExpect(jsonPath("$.email").value("ada@example.com"))
-                .andExpect(jsonPath("$.role").value("USER"))
-                // The Firebase uid is an internal linkage detail, not part of the contract.
-                .andExpect(jsonPath("$.firebaseUid").doesNotExist());
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.username").value("ada"))
+               .andExpect(jsonPath("$.email").value("ada@example.com"))
+               .andExpect(jsonPath("$.role").value("USER"))
+               // The Firebase uid is an internal linkage detail, not part of the contract.
+               .andExpect(jsonPath("$.firebaseUid").doesNotExist());
     }
 
     @Test
@@ -99,11 +108,14 @@ class UserControllerTest {
         authenticateAs("USER");
         when(users.resolveCurrentUser(any())).thenReturn(view());
 
-        mockMvc.perform(get("/api/v1/users/me")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/users/me"))
+               .andExpect(status().isOk());
 
         verify(users).resolveCurrentUser(
-                new ResolveCurrentUserCommand(
-                        UID, "ada@example.com", "Ada Lovelace"));
+                                         new ResolveCurrentUserCommand(
+                                                                       UID,
+                                                                       "ada@example.com",
+                                                                       "Ada Lovelace"));
     }
 
     @Test
@@ -112,12 +124,12 @@ class UserControllerTest {
         when(users.updateProfile(any())).thenReturn(view());
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"ada.l\",\"displayName\":\"Ada L.\"}"))
-                .andExpect(status().isOk());
+                                                 .contentType(MediaType.APPLICATION_JSON)
+                                                 .content("{\"username\":\"ada.l\",\"displayName\":\"Ada L.\"}"))
+               .andExpect(status().isOk());
 
         verify(users).updateProfile(
-                new UpdateUserProfileCommand(UID, "ada.l", "Ada L."));
+                                    new UpdateUserProfileCommand(UID, "ada.l", "Ada L."));
     }
 
     @Test
@@ -125,31 +137,32 @@ class UserControllerTest {
         authenticateAs("USER");
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"ab\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.title").value("Validation failed"))
-                .andExpect(jsonPath("$.errors.username").exists());
+                                                 .contentType(MediaType.APPLICATION_JSON)
+                                                 .content("{\"username\":\"ab\"}"))
+               .andExpect(status().isBadRequest())
+               .andExpect(jsonPath("$.title").value("Validation failed"))
+               .andExpect(jsonPath("$.errors.username").exists());
     }
 
     @Test
     void aTakenUsernameIsReportedAsAConflict() throws Exception {
         authenticateAs("USER");
         when(users.updateProfile(any()))
-                .thenThrow(new UsernameAlreadyTakenException(new Username("taken")));
+                                        .thenThrow(new UsernameAlreadyTakenException(new Username("taken")));
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"taken\"}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.title").value("Conflict"));
+                                                 .contentType(MediaType.APPLICATION_JSON)
+                                                 .content("{\"username\":\"taken\"}"))
+               .andExpect(status().isConflict())
+               .andExpect(jsonPath("$.title").value("Conflict"));
     }
 
     @Test
     void deleteMeReturnsNoContent() throws Exception {
         authenticateAs("USER");
 
-        mockMvc.perform(delete("/api/v1/users/me")).andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/users/me"))
+               .andExpect(status().isNoContent());
 
         verify(users).deleteAccount(UID);
     }
@@ -161,12 +174,12 @@ class UserControllerTest {
         UUID target = UUID.randomUUID();
 
         mockMvc.perform(put("/api/v1/users/{id}/role", target)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"role\":\"ADMIN\"}"))
-                .andExpect(status().isOk());
+                                                              .contentType(MediaType.APPLICATION_JSON)
+                                                              .content("{\"role\":\"ADMIN\"}"))
+               .andExpect(status().isOk());
 
         verify(users).assignRole(
-                new AssignUserRoleCommand(target, UserRole.ADMIN));
+                                 new AssignUserRoleCommand(target, UserRole.ADMIN));
     }
 
     @Test
@@ -174,10 +187,10 @@ class UserControllerTest {
         authenticateAs("USER");
 
         mockMvc.perform(put("/api/v1/users/{id}/role", UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"role\":\"ADMIN\"}"))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.title").value("Forbidden"));
+                                                                         .contentType(MediaType.APPLICATION_JSON)
+                                                                         .content("{\"role\":\"ADMIN\"}"))
+               .andExpect(status().isForbidden())
+               .andExpect(jsonPath("$.title").value("Forbidden"));
     }
 
     // --- framework client errors ---------------------------------------------------
@@ -191,9 +204,9 @@ class UserControllerTest {
         authenticateAs("USER");
 
         mockMvc.perform(patch("/api/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\": "))
-                .andExpect(status().isBadRequest());
+                                                 .contentType(MediaType.APPLICATION_JSON)
+                                                 .content("{\"username\": "))
+               .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -201,9 +214,9 @@ class UserControllerTest {
         authenticateAs("ADMIN");
 
         mockMvc.perform(put("/api/v1/users/{id}/role", "not-a-uuid")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"role\":\"ADMIN\"}"))
-                .andExpect(status().isBadRequest());
+                                                                    .contentType(MediaType.APPLICATION_JSON)
+                                                                    .content("{\"role\":\"ADMIN\"}"))
+               .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -211,9 +224,9 @@ class UserControllerTest {
         authenticateAs("ADMIN");
 
         mockMvc.perform(put("/api/v1/users/{id}/role", UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"role\":\"SUPERUSER\"}"))
-                .andExpect(status().isBadRequest());
+                                                                         .contentType(MediaType.APPLICATION_JSON)
+                                                                         .content("{\"role\":\"SUPERUSER\"}"))
+               .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -221,18 +234,19 @@ class UserControllerTest {
         authenticateAs("USER");
 
         mockMvc.perform(put("/api/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isMethodNotAllowed());
+                                               .contentType(MediaType.APPLICATION_JSON)
+                                               .content("{}"))
+               .andExpect(status().isMethodNotAllowed());
     }
 
     @Test
     void aNonJwtPrincipalIsAConfigurationErrorNotABadRequest() throws Exception {
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken("someone", "n/a", List.of()));
+        SecurityContextHolder.getContext()
+                             .setAuthentication(
+                                                new UsernamePasswordAuthenticationToken("someone", "n/a", List.of()));
         when(users.resolveCurrentUser(any())).thenReturn(view());
 
         mockMvc.perform(get("/api/v1/users/me"))
-                .andExpect(status().isInternalServerError());
+               .andExpect(status().isInternalServerError());
     }
 }

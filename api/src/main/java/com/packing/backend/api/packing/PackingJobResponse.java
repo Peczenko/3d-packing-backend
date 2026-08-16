@@ -23,19 +23,20 @@ public record PackingJobResponse(
 
     public static PackingJobResponse from(PackingJobView view) {
         return new PackingJobResponse(
-                view.id(),
-                view.projectId(),
-                view.status().name(),
-                view.maxRuntimeSeconds(),
-                view.engineVersion(),
-                view.engineChecksum(),
-                view.createdAt(),
-                view.startedAt(),
-                view.finishedAt(),
-                view.failureReason(),
-                view.resultFileName(),
-                view.resultContentType(),
-                view.resultSizeBytes(),
-                view.resultChecksum());
+                                      view.id(),
+                                      view.projectId(),
+                                      view.status()
+                                          .name(),
+                                      view.maxRuntimeSeconds(),
+                                      view.engineVersion(),
+                                      view.engineChecksum(),
+                                      view.createdAt(),
+                                      view.startedAt(),
+                                      view.finishedAt(),
+                                      view.failureReason(),
+                                      view.resultFileName(),
+                                      view.resultContentType(),
+                                      view.resultSizeBytes(),
+                                      view.resultChecksum());
     }
 }

@@ -14,8 +14,9 @@ class StorageKeyTest {
 
     @Test
     void derivesTheKeyFromTheIdAlone() {
-        assertThat(StorageKey.forFile(ID).value())
-                .isEqualTo("files/11111111-1111-1111-1111-111111111111");
+        assertThat(StorageKey.forFile(ID)
+                             .value())
+                                      .isEqualTo("files/11111111-1111-1111-1111-111111111111");
     }
 
     @Test
@@ -26,23 +27,23 @@ class StorageKeyTest {
     @Test
     void rejectsAKeyOutsideTheFilesPrefix() {
         assertThatThrownBy(() -> new StorageKey("other/" + ID.value()))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining(StorageKey.PREFIX);
+                                                                       .isInstanceOf(DomainRuleViolationException.class)
+                                                                       .hasMessageContaining(StorageKey.PREFIX);
     }
 
     @Test
     void rejectsTraversal() {
         assertThatThrownBy(() -> new StorageKey("files/../secrets"))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("..");
+                                                                    .isInstanceOf(DomainRuleViolationException.class)
+                                                                    .hasMessageContaining("..");
     }
 
     @Test
     void rejectsBlankAndOversizedKeys() {
         assertThatThrownBy(() -> new StorageKey("  "))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                      .isInstanceOf(DomainRuleViolationException.class);
         assertThatThrownBy(() -> new StorageKey(StorageKey.PREFIX + "a".repeat(StorageKey.MAX_LENGTH)))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("at most");
+                                                                                                       .isInstanceOf(DomainRuleViolationException.class)
+                                                                                                       .hasMessageContaining("at most");
     }
 }

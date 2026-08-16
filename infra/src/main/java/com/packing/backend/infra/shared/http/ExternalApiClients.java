@@ -15,13 +15,14 @@ import java.util.function.Consumer;
 @RequiredArgsConstructor
 public class ExternalApiClients {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClient.Builder                 restClientBuilder;
     private final ClientHttpRequestFactoryBuilder<?> requestFactoryBuilder;
-    private final ClientHttpRequestFactorySettings requestFactorySettings;
-    private final ObjectMapper objectMapper;
+    private final ClientHttpRequestFactorySettings   requestFactorySettings;
+    private final ObjectMapper                       objectMapper;
 
     public ExternalApi create(ExternalApiSpec spec) {
-        return create(spec, builder -> { });
+        return create(spec, builder -> {
+        });
     }
 
     public ExternalApi create(ExternalApiSpec spec, Consumer<RestClient.Builder> customizer) {
@@ -30,11 +31,11 @@ public class ExternalApiClients {
         ExternalApiErrorMapper errors = new ExternalApiErrorMapper(spec.serviceName(), objectMapper);
 
         RestClient.Builder builder = restClientBuilder.clone()
-                .baseUrl(spec.baseUrl())
-                .requestFactory(requestFactoryBuilder.build(requestFactorySettings
-                        .withConnectTimeout(spec.connectTimeout())
-                        .withReadTimeout(spec.readTimeout())))
-                .defaultStatusHandler(HttpStatusCode::isError, errors::raise);
+                                                      .baseUrl(spec.baseUrl())
+                                                      .requestFactory(requestFactoryBuilder.build(requestFactorySettings
+                                                                                                                        .withConnectTimeout(spec.connectTimeout())
+                                                                                                                        .withReadTimeout(spec.readTimeout())))
+                                                      .defaultStatusHandler(HttpStatusCode::isError, errors::raise);
 
         customizer.accept(builder);
         return new ExternalApi(builder.build(), errors);

@@ -51,9 +51,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 class ProjectFileControllerTest {
 
-    private static final String UID = "firebase-uid-1";
-    private static final UUID PROJECT = UUID.randomUUID();
-    private static final byte[] BYTES = "solid cube".getBytes(StandardCharsets.UTF_8);
+    private static final String UID     = "firebase-uid-1";
+    private static final UUID   PROJECT = UUID.randomUUID();
+    private static final byte[] BYTES   = "solid cube".getBytes(StandardCharsets.UTF_8);
 
     @Autowired
     private MockMvc mockMvc;
@@ -71,20 +71,27 @@ class ProjectFileControllerTest {
 
     private void authenticate() {
         Jwt jwt = Jwt.withTokenValue("token")
-                .header("alg", "RS256")
-                .subject(UID)
-                .claim("email", "ada@example.com")
-                .claim("name", "Ada Lovelace")
-                .claim("email_verified", true)
-                .build();
-        SecurityContextHolder.getContext().setAuthentication(
-                new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_USER"))));
+                     .header("alg", "RS256")
+                     .subject(UID)
+                     .claim("email", "ada@example.com")
+                     .claim("name", "Ada Lovelace")
+                     .claim("email_verified", true)
+                     .build();
+        SecurityContextHolder.getContext()
+                             .setAuthentication(
+                                                new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_USER"))));
     }
 
     private static FileView view(UUID id) {
-        return new FileView(id, PROJECT, "bracket.stl", ModelFormat.STL, "model/stl", BYTES.length,
-                "d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971",
-                FileStatus.AVAILABLE, Instant.parse("2026-07-19T10:15:30Z"));
+        return new FileView(id,
+                            PROJECT,
+                            "bracket.stl",
+                            ModelFormat.STL,
+                            "model/stl",
+                            BYTES.length,
+                            "d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971",
+                            FileStatus.AVAILABLE,
+                            Instant.parse("2026-07-19T10:15:30Z"));
     }
 
     private static MockMultipartFile part(byte[] content) {
@@ -98,61 +105,64 @@ class ProjectFileControllerTest {
         when(files.upload(any())).thenReturn(view(id));
 
         mockMvc.perform(multipart("/api/v1/projects/{projectId}/files", PROJECT).file(part(BYTES)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(id.toString()))
-                .andExpect(jsonPath("$.filename").value("bracket.stl"))
-                .andExpect(jsonPath("$.format").value("STL"))
-                .andExpect(jsonPath("$.contentType").value("model/stl"))
-                .andExpect(jsonPath("$.status").value("AVAILABLE"));
+               .andExpect(status().isCreated())
+               .andExpect(jsonPath("$.id").value(id.toString()))
+               .andExpect(jsonPath("$.filename").value("bracket.stl"))
+               .andExpect(jsonPath("$.format").value("STL"))
+               .andExpect(jsonPath("$.contentType").value("model/stl"))
+               .andExpect(jsonPath("$.status").value("AVAILABLE"));
     }
 
     @Test
     void uploadPassesTheCallersUidAndTheOriginalFilename() throws Exception {
         authenticate();
         when(files.upload(any())).thenReturn(view(UUID.randomUUID()));
-        ArgumentCaptor<UploadFileCommand> command =
-                ArgumentCaptor.forClass(UploadFileCommand.class);
+        ArgumentCaptor<UploadFileCommand> command = ArgumentCaptor.forClass(UploadFileCommand.class);
 
         mockMvc.perform(multipart("/api/v1/projects/{projectId}/files", PROJECT).file(part(BYTES)))
-                .andExpect(status().isCreated());
+               .andExpect(status().isCreated());
 
         verify(files).upload(command.capture());
-        assertThat(command.getValue().firebaseUid()).isEqualTo(UID);
-        assertThat(command.getValue().projectId()).isEqualTo(PROJECT);
-        assertThat(command.getValue().originalFilename()).isEqualTo("bracket.stl");
-        assertThat(command.getValue().declaredSizeBytes()).isEqualTo(BYTES.length);
+        assertThat(command.getValue()
+                          .firebaseUid()).isEqualTo(UID);
+        assertThat(command.getValue()
+                          .projectId()).isEqualTo(PROJECT);
+        assertThat(command.getValue()
+                          .originalFilename()).isEqualTo("bracket.stl");
+        assertThat(command.getValue()
+                          .declaredSizeBytes()).isEqualTo(BYTES.length);
     }
 
     @Test
     void aCallerWithoutAccessToTheProjectGets404NotForbidden() throws Exception {
         authenticate();
         when(files.listFiles(any()))
-                .thenThrow(ProjectNotFoundException.byId(new ProjectId(PROJECT)));
+                                    .thenThrow(ProjectNotFoundException.byId(new ProjectId(PROJECT)));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.title").value("Resource not found"));
+               .andExpect(status().isNotFound())
+               .andExpect(jsonPath("$.title").value("Resource not found"));
     }
 
     @Test
     void aReadOnlyMemberUploadingGets403() throws Exception {
         authenticate();
         when(files.upload(any()))
-                .thenThrow(new PermissionDeniedException("This action requires WRITE permission"));
+                                 .thenThrow(new PermissionDeniedException("This action requires WRITE permission"));
 
         mockMvc.perform(multipart("/api/v1/projects/{projectId}/files", PROJECT).file(part(BYTES)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.title").value("Forbidden"));
+               .andExpect(status().isForbidden())
+               .andExpect(jsonPath("$.title").value("Forbidden"));
     }
 
     @Test
     void uploadingToADisabledProjectGets409() throws Exception {
         authenticate();
         when(files.upload(any()))
-                .thenThrow(new ResourceConflictException("Project is disabled"));
+                                 .thenThrow(new ResourceConflictException("Project is disabled"));
 
         mockMvc.perform(multipart("/api/v1/projects/{projectId}/files", PROJECT).file(part(BYTES)))
-                .andExpect(status().isConflict());
+               .andExpect(status().isConflict());
     }
 
     @Test
@@ -162,17 +172,19 @@ class ProjectFileControllerTest {
         when(files.renameFile(any())).thenReturn(view(id));
 
         mockMvc.perform(patch("/api/v1/projects/{projectId}/files/{id}", PROJECT, id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"chassis.stl\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(id.toString()));
+                                                                                     .contentType(MediaType.APPLICATION_JSON)
+                                                                                     .content("{\"name\":\"chassis.stl\"}"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.id").value(id.toString()));
 
-        ArgumentCaptor<RenameFileCommand> command =
-                ArgumentCaptor.forClass(RenameFileCommand.class);
+        ArgumentCaptor<RenameFileCommand> command = ArgumentCaptor.forClass(RenameFileCommand.class);
         verify(files).renameFile(command.capture());
-        assertThat(command.getValue().projectId()).isEqualTo(PROJECT);
-        assertThat(command.getValue().fileId()).isEqualTo(id);
-        assertThat(command.getValue().name()).isEqualTo("chassis.stl");
+        assertThat(command.getValue()
+                          .projectId()).isEqualTo(PROJECT);
+        assertThat(command.getValue()
+                          .fileId()).isEqualTo(id);
+        assertThat(command.getValue()
+                          .name()).isEqualTo("chassis.stl");
     }
 
     @Test
@@ -180,35 +192,35 @@ class ProjectFileControllerTest {
         authenticate();
 
         mockMvc.perform(patch("/api/v1/projects/{projectId}/files/{id}", PROJECT, UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"  \"}"))
-                .andExpect(status().isBadRequest());
+                                                                                                    .contentType(MediaType.APPLICATION_JSON)
+                                                                                                    .content("{\"name\":\"  \"}"))
+               .andExpect(status().isBadRequest());
     }
 
     @Test
     void renameToADifferentFormatIs422() throws Exception {
         authenticate();
         when(files.renameFile(any())).thenThrow(new DomainRuleViolationException(
-                "the extension must keep the same format"));
+                                                                                 "the extension must keep the same format"));
 
         mockMvc.perform(patch("/api/v1/projects/{projectId}/files/{id}", PROJECT, UUID.randomUUID())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"chassis.obj\"}"))
-                .andExpect(status().isUnprocessableEntity());
+                                                                                                    .contentType(MediaType.APPLICATION_JSON)
+                                                                                                    .content("{\"name\":\"chassis.obj\"}"))
+               .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
     void theContentSourceCanBeOpenedTwiceAndYieldsTheSameBytes() throws Exception {
         authenticate();
         when(files.upload(any())).thenReturn(view(UUID.randomUUID()));
-        ArgumentCaptor<UploadFileCommand> command =
-                ArgumentCaptor.forClass(UploadFileCommand.class);
+        ArgumentCaptor<UploadFileCommand> command = ArgumentCaptor.forClass(UploadFileCommand.class);
 
         mockMvc.perform(multipart("/api/v1/projects/{projectId}/files", PROJECT).file(part(BYTES)))
-                .andExpect(status().isCreated());
+               .andExpect(status().isCreated());
 
         verify(files).upload(command.capture());
-        ContentSource source = command.getValue().content();
+        ContentSource source = command.getValue()
+                                      .content();
         try (InputStream first = source.open(); InputStream second = source.open()) {
             assertThat(first.readAllBytes()).isEqualTo(BYTES);
             assertThat(second.readAllBytes()).isEqualTo(BYTES);
@@ -220,47 +232,51 @@ class ProjectFileControllerTest {
         authenticate();
 
         mockMvc.perform(multipart("/api/v1/projects/{projectId}/files", PROJECT).file(part(new byte[0])))
-                .andExpect(status().isUnprocessableEntity());
+               .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
     void uploadSurfacesAnUnsupportedFormatAs422() throws Exception {
         authenticate();
         when(files.upload(any()))
-                .thenThrow(new DomainRuleViolationException("Unsupported 3D model format 'txt'"));
+                                 .thenThrow(new DomainRuleViolationException("Unsupported 3D model format 'txt'"));
 
         mockMvc.perform(multipart("/api/v1/projects/{projectId}/files", PROJECT).file(part(BYTES)))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.title").value("Request rejected"));
+               .andExpect(status().isUnprocessableEntity())
+               .andExpect(jsonPath("$.title").value("Request rejected"));
     }
 
     @Test
     void listReturnsAPageOfTheCallersFiles() throws Exception {
         authenticate();
         when(files.listFiles(any()))
-                .thenReturn(new Page<>(List.of(view(UUID.randomUUID())), 0, 20, 1L));
+                                    .thenReturn(new Page<>(List.of(view(UUID.randomUUID())), 0, 20, 1L));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.length()").value(1))
-                .andExpect(jsonPath("$.page").value(0))
-                .andExpect(jsonPath("$.size").value(20))
-                .andExpect(jsonPath("$.totalElements").value(1))
-                .andExpect(jsonPath("$.totalPages").value(1));
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.content.length()").value(1))
+               .andExpect(jsonPath("$.page").value(0))
+               .andExpect(jsonPath("$.size").value(20))
+               .andExpect(jsonPath("$.totalElements").value(1))
+               .andExpect(jsonPath("$.totalPages").value(1));
     }
 
     @Test
     void listDefaultsToTheFirstPage() throws Exception {
         authenticate();
         when(files.listFiles(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
-        ArgumentCaptor<ListFilesCommand> command =
-                ArgumentCaptor.forClass(ListFilesCommand.class);
+        ArgumentCaptor<ListFilesCommand> command = ArgumentCaptor.forClass(ListFilesCommand.class);
 
-        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT))
+               .andExpect(status().isOk());
 
         verify(files).listFiles(command.capture());
-        assertThat(command.getValue().page().page()).isZero();
-        assertThat(command.getValue().page().size()).isEqualTo(20);
+        assertThat(command.getValue()
+                          .page()
+                          .page()).isZero();
+        assertThat(command.getValue()
+                          .page()
+                          .size()).isEqualTo(20);
     }
 
     @Test
@@ -268,7 +284,7 @@ class ProjectFileControllerTest {
         authenticate();
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("size", "101"))
-                .andExpect(status().isBadRequest());
+               .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -276,7 +292,7 @@ class ProjectFileControllerTest {
         authenticate();
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("page", "-1"))
-                .andExpect(status().isBadRequest());
+               .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -284,27 +300,27 @@ class ProjectFileControllerTest {
         authenticate();
         UUID id = UUID.randomUUID();
         when(files.prepareDownload(any())).thenReturn(
-                new BinaryStorage.TemporaryUrl(
-                        URI.create("https://acct.blob.core.windows.net/models/files/x?sig=y"),
-                        Instant.parse("2026-07-19T10:20:30Z")));
+                                                      new BinaryStorage.TemporaryUrl(
+                                                                                     URI.create("https://acct.blob.core.windows.net/models/files/x?sig=y"),
+                                                                                     Instant.parse("2026-07-19T10:20:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/files/{id}/content", PROJECT, id))
-                .andExpect(status().isFound())
-                .andExpect(header().string("Location",
-                        "https://acct.blob.core.windows.net/models/files/x?sig=y"))
-                .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(header().string("Pragma", "no-cache"));
+               .andExpect(status().isFound())
+               .andExpect(header().string("Location",
+                                          "https://acct.blob.core.windows.net/models/files/x?sig=y"))
+               .andExpect(header().string("Cache-Control", "no-store"))
+               .andExpect(header().string("Pragma", "no-cache"));
     }
 
     @Test
     void downloadOfAnUnreachableFileIs404() throws Exception {
         authenticate();
         when(files.prepareDownload(any()))
-                .thenThrow(new StoredFileNotFoundException("No file with id x"));
+                                          .thenThrow(new StoredFileNotFoundException("No file with id x"));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/files/{id}/content", PROJECT, UUID.randomUUID()))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.title").value("Resource not found"));
+               .andExpect(status().isNotFound())
+               .andExpect(jsonPath("$.title").value("Resource not found"));
     }
 
     @Test
@@ -312,7 +328,7 @@ class ProjectFileControllerTest {
         authenticate();
 
         mockMvc.perform(get("/api/v1/projects/" + PROJECT + "/files/not-a-uuid/content"))
-                .andExpect(status().isBadRequest());
+               .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -321,23 +337,26 @@ class ProjectFileControllerTest {
         UUID id = UUID.randomUUID();
 
         mockMvc.perform(delete("/api/v1/projects/{projectId}/files/{id}", PROJECT, id))
-                .andExpect(status().isNoContent());
+               .andExpect(status().isNoContent());
 
-        ArgumentCaptor<DeleteFileCommand> command =
-                ArgumentCaptor.forClass(DeleteFileCommand.class);
+        ArgumentCaptor<DeleteFileCommand> command = ArgumentCaptor.forClass(DeleteFileCommand.class);
         verify(files).deleteFile(command.capture());
-        assertThat(command.getValue().firebaseUid()).isEqualTo(UID);
-        assertThat(command.getValue().projectId()).isEqualTo(PROJECT);
-        assertThat(command.getValue().fileId()).isEqualTo(id);
+        assertThat(command.getValue()
+                          .firebaseUid()).isEqualTo(UID);
+        assertThat(command.getValue()
+                          .projectId()).isEqualTo(PROJECT);
+        assertThat(command.getValue()
+                          .fileId()).isEqualTo(id);
     }
 
     @Test
     void deleteOfAnUnreachableFileIs404() throws Exception {
         authenticate();
         org.mockito.Mockito.doThrow(new StoredFileNotFoundException("No file with id x"))
-                .when(files).deleteFile(any());
+                           .when(files)
+                           .deleteFile(any());
 
         mockMvc.perform(delete("/api/v1/projects/{projectId}/files/{id}", PROJECT, UUID.randomUUID()))
-                .andExpect(status().isNotFound());
+               .andExpect(status().isNotFound());
     }
 }

@@ -1,7 +1,3 @@
-// Package config loads the packing worker's configuration from environment
-// variables. DispatchQueue and ResultQueue default to the values below but
-// can be overridden, mirroring the Java side's packing.messaging.*-queue
-// properties.
 package config
 
 import (
@@ -19,13 +15,7 @@ const (
 	defaultPackerPath        = "/usr/local/bin/packer"
 	defaultReceiveTimeout    = time.Minute
 	defaultLockRenewInterval = 20 * time.Second
-
-	// serviceBusDomainSuffix is what a fully qualified Service Bus host
-	// carries and a bare namespace must not. SERVICE_BUS_NAMESPACE is the
-	// bare namespace (e.g. "packing-production"); the client derives the
-	// fully qualified host by appending this suffix itself, the same
-	// convention the Java side's PackingMessagingProfileConfig uses.
-	serviceBusDomainSuffix = ".servicebus.windows.net"
+	serviceBusDomainSuffix   = ".servicebus.windows.net"
 )
 
 var (
@@ -108,16 +98,10 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// isInvalidAuthPair reports whether neither or both of two mutually
-// exclusive auth settings are present.
 func isInvalidAuthPair(a, b string) bool {
 	return (a != "") == (b != "")
 }
 
-// parsePositiveDuration parses v and rejects zero or negative results, so a
-// misconfigured PACKING_LOCK_RENEW_INTERVAL=0s fails at startup instead of
-// panicking a later time.NewTicker, and a non-positive receive timeout
-// fails loudly instead of yielding an already-expired context.
 func parsePositiveDuration(v string) (time.Duration, error) {
 	d, err := time.ParseDuration(v)
 	if err != nil {

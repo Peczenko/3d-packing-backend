@@ -11,8 +11,8 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 public class BlobStorageConfig {
 
-    private static final String PREFIX = "app.storage";
-    private static final String ENABLED = "enabled";
+    private static final String PREFIX   = "app.storage";
+    private static final String ENABLED  = "enabled";
     private static final String SAS_MODE = "sas-mode";
 
     @Bean
@@ -38,7 +38,9 @@ public class BlobStorageConfig {
                                                                 BlobStorageProperties properties,
                                                                 PackingContractCodec codec) {
         return new AzurePackingJobArtifactStore(
-                serviceClient.getBlobContainerClient(properties.containerName()), sasIssuer, codec);
+                                                serviceClient.getBlobContainerClient(properties.containerName()),
+                                                sasIssuer,
+                                                codec);
     }
 
     @Bean

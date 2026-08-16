@@ -26,7 +26,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-
 @WebMvcTest(controllers = TestErrorController.class)
 @AutoConfigureMockMvc(addFilters = false)
 class GlobalExceptionHandlerTest {
@@ -47,10 +46,10 @@ class GlobalExceptionHandlerTest {
     @Test
     void reportsAnUnexpectedFailureAsAFiveHundredCarryingATraceId() throws Exception {
         mockMvc.perform(get("/test-errors/unexpected"))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.title").value("Internal server error"))
-                .andExpect(jsonPath("$.detail").value("An unexpected error occurred."))
-                .andExpect(jsonPath("$.traceId").isNotEmpty());
+               .andExpect(status().isInternalServerError())
+               .andExpect(jsonPath("$.title").value("Internal server error"))
+               .andExpect(jsonPath("$.detail").value("An unexpected error occurred."))
+               .andExpect(jsonPath("$.traceId").isNotEmpty());
     }
 
     @Test
@@ -58,7 +57,7 @@ class GlobalExceptionHandlerTest {
         authenticate();
 
         mockMvc.perform(get("/test-errors/unexpected?verbose=true"))
-                .andExpect(status().isInternalServerError());
+               .andExpect(status().isInternalServerError());
 
         ServerErrorReport report = capturedReport();
         assertThat(report.status()).isEqualTo(500);
@@ -76,7 +75,7 @@ class GlobalExceptionHandlerTest {
     @Test
     void reportsTheHandlerTemplateRatherThanTheConcretePath() throws Exception {
         mockMvc.perform(get("/test-errors/unexpected/8c1f"))
-                .andExpect(status().isInternalServerError());
+               .andExpect(status().isInternalServerError());
 
         ServerErrorReport report = capturedReport();
         assertThat(report.path()).isEqualTo("/test-errors/unexpected/8c1f");
@@ -86,8 +85,8 @@ class GlobalExceptionHandlerTest {
     @Test
     void alertsOnADependencyFailureAndStillReturnsFiveOhThree() throws Exception {
         mockMvc.perform(get("/test-errors/dependency"))
-                .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.traceId").isNotEmpty());
+               .andExpect(status().isServiceUnavailable())
+               .andExpect(jsonPath("$.traceId").isNotEmpty());
 
         assertThat(capturedReport().status()).isEqualTo(503);
     }
@@ -95,8 +94,8 @@ class GlobalExceptionHandlerTest {
     @Test
     void doesNotAlertOnANotFound() throws Exception {
         mockMvc.perform(get("/test-errors/missing"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.traceId").doesNotExist());
+               .andExpect(status().isNotFound())
+               .andExpect(jsonPath("$.traceId").doesNotExist());
 
         verifyNoInteractions(alerter);
     }
@@ -104,8 +103,8 @@ class GlobalExceptionHandlerTest {
     @Test
     void doesNotAlertOnARejectedRequest() throws Exception {
         mockMvc.perform(get("/test-errors/rejected"))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.traceId").doesNotExist());
+               .andExpect(status().isUnprocessableEntity())
+               .andExpect(jsonPath("$.traceId").doesNotExist());
 
         verifyNoInteractions(alerter);
     }
@@ -113,18 +112,19 @@ class GlobalExceptionHandlerTest {
     @Test
     void doesNotAlertOnAnUnknownRoute() throws Exception {
         mockMvc.perform(get("/test-errors/no-such-thing"))
-                .andExpect(status().isNotFound());
+               .andExpect(status().isNotFound());
 
         verifyNoInteractions(alerter);
     }
 
     @Test
     void stillAnswersWhenAlertingItselfFails() throws Exception {
-        doThrow(new IllegalStateException("alerting is broken")).when(alerter).alert(any());
+        doThrow(new IllegalStateException("alerting is broken")).when(alerter)
+                                                                .alert(any());
 
         mockMvc.perform(get("/test-errors/unexpected"))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.title").value("Internal server error"));
+               .andExpect(status().isInternalServerError())
+               .andExpect(jsonPath("$.title").value("Internal server error"));
     }
 
     private ServerErrorReport capturedReport() {
@@ -135,12 +135,14 @@ class GlobalExceptionHandlerTest {
 
     private void authenticate() {
         Jwt jwt = Jwt.withTokenValue("token")
-                .header("alg", "RS256")
-                .subject(UID)
-                .claim("email", "user@example.com")
-                .claim("email_verified", true)
-                .build();
-        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(
-                jwt, List.of(new SimpleGrantedAuthority("ROLE_USER"))));
+                     .header("alg", "RS256")
+                     .subject(UID)
+                     .claim("email", "user@example.com")
+                     .claim("email_verified", true)
+                     .build();
+        SecurityContextHolder.getContext()
+                             .setAuthentication(new JwtAuthenticationToken(
+                                                                           jwt,
+                                                                           List.of(new SimpleGrantedAuthority("ROLE_USER"))));
     }
 }

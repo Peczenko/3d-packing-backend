@@ -14,7 +14,7 @@ import java.time.Clock;
 public class PackingWorkerEventService {
 
     private final PackingJobRepository jobs;
-    private final Clock clock;
+    private final Clock                clock;
 
     public PackingWorkerEventService(PackingJobRepository jobs, Clock clock) {
         this.jobs = jobs;
@@ -23,16 +23,25 @@ public class PackingWorkerEventService {
 
     public void apply(PackingWorkerEvent event) {
         PackingJob job = jobs.findById(event.jobId())
-                .orElseThrow(() -> PackingJobNotFoundException.byId(event.jobId()));
+                             .orElseThrow(() -> PackingJobNotFoundException.byId(event.jobId()));
         boolean changed = switch (event) {
             case PackingWorkerEvent.Started started -> job.markRunning(
-                    started.engineVersion(), started.engineChecksum(), clock.instant());
+                                                                       started.engineVersion(),
+                                                                       started.engineChecksum(),
+                                                                       clock.instant());
             case PackingWorkerEvent.Succeeded succeeded -> job.succeed(
-                    succeeded.resultFileName(), succeeded.resultContentType(),
-                    succeeded.resultSizeBytes(), succeeded.resultChecksum(),
-                    succeeded.engineVersion(), succeeded.engineChecksum(), clock.instant());
+                                                                       succeeded.resultFileName(),
+                                                                       succeeded.resultContentType(),
+                                                                       succeeded.resultSizeBytes(),
+                                                                       succeeded.resultChecksum(),
+                                                                       succeeded.engineVersion(),
+                                                                       succeeded.engineChecksum(),
+                                                                       clock.instant());
             case PackingWorkerEvent.Failed failed -> job.fail(
-                    failed.reason(), failed.engineVersion(), failed.engineChecksum(), clock.instant());
+                                                              failed.reason(),
+                                                              failed.engineVersion(),
+                                                              failed.engineChecksum(),
+                                                              clock.instant());
         };
         if (changed) {
             jobs.save(job);

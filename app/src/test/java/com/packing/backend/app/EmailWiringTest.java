@@ -26,7 +26,8 @@ class EmailWiringTest {
 
     @Test
     void wiresTheBrevoSenderAndTheAlerterWhenMailIsEnabled() {
-        assertThat(emailSender.getClass().getSimpleName()).isEqualTo("BrevoEmailSender");
+        assertThat(emailSender.getClass()
+                              .getSimpleName()).isEqualTo("BrevoEmailSender");
         assertThat(alerter).isNotNull();
     }
 }

@@ -29,9 +29,13 @@ class JooqActiveUserLookupIT {
     }
 
     private User persistedUser(String uid) {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        User user = User.register(new FirebaseUid(uid), new Email(uid + "@example.com"),
-                new Username(uid), "Display", now);
+        Instant now = Instant.now()
+                             .truncatedTo(ChronoUnit.MICROS);
+        User user = User.register(new FirebaseUid(uid),
+                                  new Email(uid + "@example.com"),
+                                  new Username(uid),
+                                  "Display",
+                                  now);
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         return user;
     }
@@ -41,7 +45,7 @@ class JooqActiveUserLookupIT {
         User user = persistedUser("uid-active");
 
         assertThat(lookup().findActiveUser(new FirebaseUid("uid-active")))
-                .hasValue(user.id());
+                                                                          .hasValue(user.id());
     }
 
     @Test
@@ -52,7 +56,8 @@ class JooqActiveUserLookupIT {
     @Test
     void isEmptyForADisabledUser() {
         User user = persistedUser("uid-disabled");
-        user.disable(Instant.now().truncatedTo(ChronoUnit.MICROS));
+        user.disable(Instant.now()
+                            .truncatedTo(ChronoUnit.MICROS));
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
 
         assertThat(lookup().findActiveUser(new FirebaseUid("uid-disabled"))).isEmpty();
@@ -61,7 +66,8 @@ class JooqActiveUserLookupIT {
     @Test
     void isEmptyForADeletedUser() {
         User user = persistedUser("uid-deleted");
-        user.delete(Instant.now().truncatedTo(ChronoUnit.MICROS));
+        user.delete(Instant.now()
+                           .truncatedTo(ChronoUnit.MICROS));
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
 
         assertThat(lookup().findActiveUser(new FirebaseUid("uid-deleted"))).isEmpty();

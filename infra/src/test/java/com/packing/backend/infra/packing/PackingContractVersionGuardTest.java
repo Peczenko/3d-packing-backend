@@ -21,9 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class PackingContractVersionGuardTest {
 
-    private static final PackingJobId JOB_ID =
-            new PackingJobId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
-    private static final Pattern VERSION_DIRECTORY = Pattern.compile("v(\\d+)");
+    private static final PackingJobId JOB_ID            = new PackingJobId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+    private static final Pattern      VERSION_DIRECTORY = Pattern.compile("v(\\d+)");
 
     private final PackingContractCodec codec = new PackingContractCodec(new ObjectMapper());
 
@@ -32,18 +31,19 @@ class PackingContractVersionGuardTest {
         List<Integer> declared = discoverContractVersions();
 
         List<Integer> accepted = declared.stream()
-                .filter(this::codecAcceptsVersion)
-                .collect(Collectors.toList());
+                                         .filter(this::codecAcceptsVersion)
+                                         .collect(Collectors.toList());
 
         assertThat(accepted)
-                .as("versions decodeDispatch accepts, out of the declared contract directories %s", declared)
-                .isEqualTo(declared);
+                            .as("versions decodeDispatch accepts, out of the declared contract directories %s", declared)
+                            .isEqualTo(declared);
 
         int beyondNewest = declared.get(declared.size() - 1) + 1;
         assertThat(codecAcceptsVersion(beyondNewest))
-                .as("decodeDispatch accepted version %d, which has no contracts/packing/v%d directory",
-                        beyondNewest, beyondNewest)
-                .isFalse();
+                                                     .as("decodeDispatch accepted version %d, which has no contracts/packing/v%d directory",
+                                                         beyondNewest,
+                                                         beyondNewest)
+                                                     .isFalse();
     }
 
     @Test
@@ -52,15 +52,15 @@ class PackingContractVersionGuardTest {
         int newest = declared.get(declared.size() - 1);
 
         List<Integer> emitting = declared.stream()
-                .filter(this::codecEmitsVersion)
-                .collect(Collectors.toList());
+                                         .filter(this::codecEmitsVersion)
+                                         .collect(Collectors.toList());
 
         assertThat(emitting)
-                .as("versions encodeDispatch will emit, out of the declared contract directories %s", declared)
-                .containsExactly(newest);
+                            .as("versions encodeDispatch will emit, out of the declared contract directories %s", declared)
+                            .containsExactly(newest);
         assertThat(codecAcceptsVersion(newest))
-                .as("codec must accept the version it emits")
-                .isTrue();
+                                               .as("codec must accept the version it emits")
+                                               .isTrue();
     }
 
     private boolean codecAcceptsVersion(int version) {
@@ -87,7 +87,8 @@ class PackingContractVersionGuardTest {
         List<Integer> versions = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(contractsDir, Files::isDirectory)) {
             for (Path dir : stream) {
-                Matcher matcher = VERSION_DIRECTORY.matcher(dir.getFileName().toString());
+                Matcher matcher = VERSION_DIRECTORY.matcher(dir.getFileName()
+                                                               .toString());
                 if (matcher.matches()) {
                     versions.add(Integer.parseInt(matcher.group(1)));
                 }

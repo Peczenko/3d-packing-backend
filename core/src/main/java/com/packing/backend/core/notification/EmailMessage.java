@@ -35,7 +35,8 @@ public record EmailMessage(
         if (recipients == null || recipients.isEmpty()) {
             throw new IllegalArgumentException("Email must have at least one recipient");
         }
-        if (recipients.stream().anyMatch(EmailMessage::isBlank)) {
+        if (recipients.stream()
+                      .anyMatch(EmailMessage::isBlank)) {
             throw new IllegalArgumentException("Email recipients must not be blank");
         }
         return List.copyOf(recipients);
@@ -51,14 +52,14 @@ public record EmailMessage(
 
     public static final class Builder {
 
-        private final List<String> to = new ArrayList<>();
-        private final List<String> cc = new ArrayList<>();
-        private final List<String> bcc = new ArrayList<>();
+        private final List<String>          to          = new ArrayList<>();
+        private final List<String>          cc          = new ArrayList<>();
+        private final List<String>          bcc         = new ArrayList<>();
         private final List<EmailAttachment> attachments = new ArrayList<>();
-        private String replyTo;
-        private String subject;
-        private String htmlBody;
-        private String textBody;
+        private String                      replyTo;
+        private String                      subject;
+        private String                      htmlBody;
+        private String                      textBody;
 
         public Builder to(String... recipients) {
             return addAll(to, recipients);

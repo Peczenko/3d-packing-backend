@@ -26,15 +26,15 @@ class EmailTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"no-at-sign", "@example.com", "ada@", "ada@localhost", "ada @example.com"})
+    @ValueSource(strings = { "no-at-sign", "@example.com", "ada@", "ada@localhost", "ada @example.com" })
     void rejectsMalformedAddresses(String value) {
         assertThatThrownBy(() -> new Email(value))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                  .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
     void rejectsBlankValues() {
         assertThatThrownBy(() -> new Email("   "))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                  .isInstanceOf(DomainRuleViolationException.class);
     }
 }

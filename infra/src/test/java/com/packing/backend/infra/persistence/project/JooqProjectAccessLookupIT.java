@@ -30,14 +30,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(TestcontainersConfiguration.class)
 class JooqProjectAccessLookupIT {
 
-    private static final FirebaseUid OWNER_UID = new FirebaseUid("uid-owner");
+    private static final FirebaseUid OWNER_UID    = new FirebaseUid("uid-owner");
     private static final FirebaseUid OUTSIDER_UID = new FirebaseUid("uid-outsider");
 
     @Autowired
     private DSLContext dsl;
 
-    private User owner;
-    private User outsider;
+    private User    owner;
+    private User    outsider;
     private Project project;
 
     private JooqProjectAccessLookup lookup() {
@@ -45,7 +45,8 @@ class JooqProjectAccessLookupIT {
     }
 
     private static Instant now() {
-        return Instant.now().truncatedTo(ChronoUnit.MICROS);
+        return Instant.now()
+                      .truncatedTo(ChronoUnit.MICROS);
     }
 
     @BeforeEach
@@ -57,8 +58,11 @@ class JooqProjectAccessLookupIT {
     }
 
     private User persistUser(FirebaseUid uid, String username) {
-        User user = User.register(uid, new Email(username + "@example.com"),
-                new Username(username), username, now());
+        User user = User.register(uid,
+                                  new Email(username + "@example.com"),
+                                  new Username(username),
+                                  username,
+                                  now());
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         return user;
     }
@@ -81,19 +85,17 @@ class JooqProjectAccessLookupIT {
         new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(project);
 
         assertThat(lookup().findAccess(OUTSIDER_UID, project.id()))
-                .hasValueSatisfying(found ->
-                        assertThat(found.permission()).isEqualTo(ProjectPermission.READ));
+                                                                   .hasValueSatisfying(found -> assertThat(found.permission()).isEqualTo(ProjectPermission.READ));
     }
 
-    //DISABLED is a read-only archive, not a hidden project
+    // DISABLED is a read-only archive, not a hidden project
     @Test
     void resolvesADisabledProjectSoThatReadsKeepWorking() {
         project.disable(now());
         new JooqProjectRepository(dsl, new AggregateWriter(dsl)).save(project);
 
         assertThat(lookup().findAccess(OWNER_UID, project.id()))
-                .hasValueSatisfying(found ->
-                        assertThat(found.status()).isEqualTo(ProjectStatus.DISABLED));
+                                                                .hasValueSatisfying(found -> assertThat(found.status()).isEqualTo(ProjectStatus.DISABLED));
     }
 
     @Test

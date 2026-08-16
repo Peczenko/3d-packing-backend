@@ -48,15 +48,15 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PackingDeadLetterReconcilerTest {
 
-    private static final String CHECKSUM = "a".repeat(64);
-    private static final Instant NOW = Instant.parse("2026-08-01T12:00:00Z");
+    private static final String  CHECKSUM = "a".repeat(64);
+    private static final Instant NOW      = Instant.parse("2026-08-01T12:00:00Z");
 
     @Mock
-    private ServiceBusReceiverClient dispatchReceiver;
+    private ServiceBusReceiverClient  dispatchReceiver;
     @Mock
-    private ServiceBusReceiverClient resultReceiver;
+    private ServiceBusReceiverClient  resultReceiver;
     @Mock
-    private PackingJobArtifactStore artifacts;
+    private PackingJobArtifactStore   artifacts;
     @Mock
     private PackingJobRecoveryService recovery;
     @Mock
@@ -66,13 +66,18 @@ class PackingDeadLetterReconcilerTest {
     @Mock
     private ServiceBusReceivedMessage resultMessage;
 
-    private final PackingContractCodec codec = new PackingContractCodec(new ObjectMapper());
+    private final PackingContractCodec  codec = new PackingContractCodec(new ObjectMapper());
     private PackingDeadLetterReconciler reconciler;
 
     @BeforeEach
     void setUp() {
         reconciler = new PackingDeadLetterReconciler(
-                dispatchReceiver, resultReceiver, codec, artifacts, recovery, workerEvents);
+                                                     dispatchReceiver,
+                                                     resultReceiver,
+                                                     codec,
+                                                     artifacts,
+                                                     recovery,
+                                                     workerEvents);
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of()));
         when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of()));
     }
@@ -86,30 +91,44 @@ class PackingDeadLetterReconcilerTest {
         when(dispatchMessage.getDeadLetterReason()).thenReturn("MaxDeliveryCountExceeded");
         when(artifacts.findResult(dispatchId)).thenReturn(Optional.empty());
         when(recovery.resolveStalledDispatch(dispatchId, DispatchStall.DELIVERY_EXHAUSTED)).thenReturn(true);
-        when(resultMessage.getSessionId()).thenReturn(event.jobId().toString());
+        when(resultMessage.getSessionId()).thenReturn(event.jobId()
+                                                           .toString());
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of(dispatchMessage)));
         when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of(resultMessage)));
 
         reconciler.reconcilePeriodically();
 
         InOrder order = inOrder(artifacts, recovery, workerEvents, dispatchReceiver, resultReceiver);
-        order.verify(workerEvents).apply(event);
-        order.verify(resultReceiver).complete(resultMessage);
-        order.verify(artifacts).findResult(dispatchId);
-        order.verify(recovery).resolveStalledDispatch(dispatchId, DispatchStall.DELIVERY_EXHAUSTED);
-        order.verify(dispatchReceiver).complete(dispatchMessage);
+        order.verify(workerEvents)
+             .apply(event);
+        order.verify(resultReceiver)
+             .complete(resultMessage);
+        order.verify(artifacts)
+             .findResult(dispatchId);
+        order.verify(recovery)
+             .resolveStalledDispatch(dispatchId, DispatchStall.DELIVERY_EXHAUSTED);
+        order.verify(dispatchReceiver)
+             .complete(dispatchMessage);
     }
 
     @Test
     void aStartedEventReplayedFirstKeepsATtlExpiredDispatchFromFailingTheJobItAlreadyStarted() {
         PackingJobId jobId = PackingJobId.generate();
-        PackingJob job = PackingJob.queue(jobId, ProjectId.generate(), UserId.generate(),
-                "{\"testField\":true}", 5_400, NOW.minusSeconds(3_700));
+        PackingJob job = PackingJob.queue(jobId,
+                                          ProjectId.generate(),
+                                          UserId.generate(),
+                                          "{\"testField\":true}",
+                                          5_400,
+                                          NOW.minusSeconds(3_700));
         InMemoryPackingJobRepository jobs = new InMemoryPackingJobRepository(job);
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         PackingDeadLetterReconciler reconcilerUnderTest = new PackingDeadLetterReconciler(
-                dispatchReceiver, resultReceiver, codec, artifacts,
-                new PackingJobRecoveryService(jobs, clock), new PackingWorkerEventService(jobs, clock));
+                                                                                          dispatchReceiver,
+                                                                                          resultReceiver,
+                                                                                          codec,
+                                                                                          artifacts,
+                                                                                          new PackingJobRecoveryService(jobs, clock),
+                                                                                          new PackingWorkerEventService(jobs, clock));
 
         PackingWorkerEvent started = new PackingWorkerEvent.Started(1, jobId, "packer 0.1.0", CHECKSUM);
         received(dispatchMessage, codec.encodeDispatch(PackingDispatchMessage.versionOne(jobId)));
@@ -118,13 +137,14 @@ class PackingDeadLetterReconcilerTest {
         when(resultMessage.getSessionId()).thenReturn(jobId.toString());
         when(artifacts.findResult(jobId)).thenReturn(Optional.empty());
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+                                                                         .thenReturn(IterableStream.of(List.of(dispatchMessage)));
         when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(resultMessage)));
+                                                                       .thenReturn(IterableStream.of(List.of(resultMessage)));
 
         reconcilerUnderTest.reconcilePeriodically();
 
-        assertThat(jobs.current().status()).isEqualTo(PackingJobStatus.RUNNING);
+        assertThat(jobs.current()
+                       .status()).isEqualTo(PackingJobStatus.RUNNING);
         verify(dispatchReceiver, never()).complete(dispatchMessage);
         verify(dispatchReceiver, never()).abandon(dispatchMessage);
         verify(resultReceiver).complete(resultMessage);
@@ -134,11 +154,16 @@ class PackingDeadLetterReconcilerTest {
     void recoversAStoredResultInsteadOfFailingTheDeadLetteredDispatch() {
         PackingJobId jobId = PackingJobId.generate();
         PackingJobArtifactStore.ResultArtifact result = new PackingJobArtifactStore.ResultArtifact(
-                "result.bin", "application/octet-stream", 42, CHECKSUM, "packer 0.1.0", CHECKSUM);
+                                                                                                   "result.bin",
+                                                                                                   "application/octet-stream",
+                                                                                                   42,
+                                                                                                   CHECKSUM,
+                                                                                                   "packer 0.1.0",
+                                                                                                   CHECKSUM);
         received(dispatchMessage, codec.encodeDispatch(PackingDispatchMessage.versionOne(jobId)));
         when(artifacts.findResult(jobId)).thenReturn(Optional.of(result));
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+                                                                         .thenReturn(IterableStream.of(List.of(dispatchMessage)));
 
         reconciler.reconcilePeriodically();
 
@@ -156,7 +181,7 @@ class PackingDeadLetterReconcilerTest {
         when(artifacts.findResult(jobId)).thenReturn(Optional.empty());
         when(recovery.resolveStalledDispatch(jobId, DispatchStall.EXPIRED)).thenReturn(false);
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+                                                                         .thenReturn(IterableStream.of(List.of(dispatchMessage)));
 
         reconciler.reconcilePeriodically();
 
@@ -172,7 +197,7 @@ class PackingDeadLetterReconcilerTest {
         when(artifacts.findResult(jobId)).thenReturn(Optional.empty());
         when(recovery.resolveStalledDispatch(jobId, DispatchStall.EXPIRED)).thenReturn(true);
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+                                                                         .thenReturn(IterableStream.of(List.of(dispatchMessage)));
 
         reconciler.reconcilePeriodically();
 
@@ -187,7 +212,7 @@ class PackingDeadLetterReconcilerTest {
         when(artifacts.findResult(jobId)).thenReturn(Optional.empty());
         when(recovery.resolveStalledDispatch(jobId, DispatchStall.EXPIRED)).thenReturn(false);
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+                                                                         .thenReturn(IterableStream.of(List.of(dispatchMessage)));
 
         reconciler.reconcilePeriodically();
 
@@ -203,7 +228,7 @@ class PackingDeadLetterReconcilerTest {
         when(artifacts.findResult(jobId)).thenReturn(Optional.empty());
         when(recovery.resolveStalledDispatch(jobId, DispatchStall.EXPIRED)).thenReturn(false);
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+                                                                         .thenReturn(IterableStream.of(List.of(dispatchMessage)));
 
         reconciler.reconcilePeriodically();
 
@@ -218,7 +243,7 @@ class PackingDeadLetterReconcilerTest {
         when(dispatchMessage.getMessageId()).thenReturn("dispatch-result-lookup");
         when(artifacts.findResult(jobId)).thenThrow(new IllegalStateException("blob storage unavailable"));
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(dispatchMessage)));
+                                                                         .thenReturn(IterableStream.of(List.of(dispatchMessage)));
 
         reconciler.reconcilePeriodically();
 
@@ -231,10 +256,11 @@ class PackingDeadLetterReconcilerTest {
     void leavesAResultWithAMismatchedSessionUnsettledWithoutApplyingIt() {
         PackingWorkerEvent event = new PackingWorkerEvent.Started(1, PackingJobId.generate(), "packer 0.1.0", CHECKSUM);
         received(resultMessage, codec.encodeWorkerEvent(event));
-        when(resultMessage.getSessionId()).thenReturn(PackingJobId.generate().toString());
+        when(resultMessage.getSessionId()).thenReturn(PackingJobId.generate()
+                                                                  .toString());
         when(resultMessage.getMessageId()).thenReturn("result-session-mismatch");
         when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(resultMessage)));
+                                                                       .thenReturn(IterableStream.of(List.of(resultMessage)));
 
         reconciler.reconcilePeriodically();
 
@@ -257,9 +283,10 @@ class PackingDeadLetterReconcilerTest {
         when(artifacts.findResult(nextId)).thenReturn(Optional.empty());
         when(recovery.resolveStalledDispatch(nextId, DispatchStall.DELIVERY_EXHAUSTED)).thenReturn(true);
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1)))
-                .thenReturn(IterableStream.of(List.of(dispatchMessage, nextMessage)));
+                                                                         .thenReturn(IterableStream.of(List.of(dispatchMessage, nextMessage)));
         doThrow(new IllegalStateException("database unavailable"))
-                .when(recovery).resolveStalledDispatch(failedId, DispatchStall.DELIVERY_EXHAUSTED);
+                                                                  .when(recovery)
+                                                                  .resolveStalledDispatch(failedId, DispatchStall.DELIVERY_EXHAUSTED);
 
         reconciler.reconcilePeriodically();
 
@@ -275,7 +302,8 @@ class PackingDeadLetterReconcilerTest {
         when(dispatchMessage.getMessageId()).thenReturn("dispatch-malformed");
         PackingWorkerEvent event = new PackingWorkerEvent.Started(1, PackingJobId.generate(), "packer 0.1.0", CHECKSUM);
         received(resultMessage, codec.encodeWorkerEvent(event));
-        when(resultMessage.getSessionId()).thenReturn(event.jobId().toString());
+        when(resultMessage.getSessionId()).thenReturn(event.jobId()
+                                                           .toString());
         when(dispatchReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of(dispatchMessage)));
         when(resultReceiver.receiveMessages(20, Duration.ofSeconds(1))).thenReturn(IterableStream.of(List.of(resultMessage)));
 
@@ -293,9 +321,11 @@ class PackingDeadLetterReconcilerTest {
         reconciler.reconcileOnStartup();
 
         Method startup = PackingDeadLetterReconciler.class.getDeclaredMethod("reconcileOnStartup");
-        assertThat(startup.getAnnotation(EventListener.class).value()).containsExactly(ApplicationReadyEvent.class);
+        assertThat(startup.getAnnotation(EventListener.class)
+                          .value()).containsExactly(ApplicationReadyEvent.class);
         Method scheduled = PackingDeadLetterReconciler.class.getDeclaredMethod("reconcilePeriodically");
-        assertThat(scheduled.getAnnotation(Scheduled.class).fixedDelayString()).isEqualTo("PT1M");
+        assertThat(scheduled.getAnnotation(Scheduled.class)
+                            .fixedDelayString()).isEqualTo("PT1M");
         verify(dispatchReceiver).receiveMessages(20, Duration.ofSeconds(1));
         verify(resultReceiver).receiveMessages(20, Duration.ofSeconds(1));
     }
@@ -320,7 +350,8 @@ class PackingDeadLetterReconcilerTest {
 
         @Override
         public Optional<PackingJob> findById(PackingJobId id) {
-            return job.id().equals(id) ? Optional.of(job) : Optional.empty();
+            return job.id()
+                      .equals(id) ? Optional.of(job) : Optional.empty();
         }
 
         PackingJob current() {

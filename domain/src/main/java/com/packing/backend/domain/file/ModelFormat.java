@@ -10,11 +10,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-/**
- * The client's declared {@code Content-Type} is ignored: browsers send
- * {@code application/octet-stream} for {@code .stl}/{@code .step} far more often than a
- * real model media type, so the file extension is the only signal trusted here.
- */
 public enum ModelFormat {
 
     STL("model/stl", "stl"),
@@ -26,7 +21,7 @@ public enum ModelFormat {
     GLB("model/gltf-binary", "glb");
 
     private static final Map<String, ModelFormat> BY_EXTENSION;
-    private static final Set<String> ALL_EXTENSIONS;
+    private static final Set<String>              ALL_EXTENSIONS;
 
     static {
         Map<String, ModelFormat> byExtension = new LinkedHashMap<>();
@@ -39,7 +34,7 @@ public enum ModelFormat {
         ALL_EXTENSIONS = Collections.unmodifiableSet(new TreeSet<>(byExtension.keySet()));
     }
 
-    private final String contentType;
+    private final String      contentType;
     private final Set<String> extensions;
 
     ModelFormat(String contentType, String... extensions) {
@@ -51,11 +46,12 @@ public enum ModelFormat {
         if (extension == null || extension.isBlank()) {
             throw new DomainRuleViolationException("File extension must not be blank");
         }
-        ModelFormat format = BY_EXTENSION.get(extension.trim().toLowerCase(Locale.ROOT));
+        ModelFormat format = BY_EXTENSION.get(extension.trim()
+                                                       .toLowerCase(Locale.ROOT));
         if (format == null) {
             throw new DomainRuleViolationException(
-                    "Unsupported 3D model format '" + extension + "'. Supported formats: "
-                            + String.join(", ", ALL_EXTENSIONS));
+                                                   "Unsupported 3D model format '" + extension + "'. Supported formats: "
+                                                           + String.join(", ", ALL_EXTENSIONS));
         }
         return format;
     }

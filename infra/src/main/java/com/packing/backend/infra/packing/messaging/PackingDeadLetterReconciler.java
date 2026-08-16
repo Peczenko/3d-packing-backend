@@ -22,14 +22,14 @@ import java.util.Optional;
 @Slf4j
 class PackingDeadLetterReconciler {
 
-    private static final int BATCH_SIZE = 20;
-    private static final Duration RECEIVE_WAIT = Duration.ofSeconds(1);
-    private static final String DELIVERY_EXHAUSTED = "MaxDeliveryCountExceeded";
+    private static final int      BATCH_SIZE         = 20;
+    private static final Duration RECEIVE_WAIT       = Duration.ofSeconds(1);
+    private static final String   DELIVERY_EXHAUSTED = "MaxDeliveryCountExceeded";
 
-    private final ServiceBusReceiverClient dispatchReceiver;
-    private final ServiceBusReceiverClient resultReceiver;
-    private final PackingContractCodec codec;
-    private final PackingJobArtifactStore artifacts;
+    private final ServiceBusReceiverClient  dispatchReceiver;
+    private final ServiceBusReceiverClient  resultReceiver;
+    private final PackingContractCodec      codec;
+    private final PackingJobArtifactStore   artifacts;
     private final PackingJobRecoveryService recovery;
     private final PackingWorkerEventService workerEvents;
 
@@ -44,10 +44,6 @@ class PackingDeadLetterReconciler {
     }
 
     private void reconcileBatch() {
-        // Replay lifecycle events first so a job's status is as fresh as possible when a dispatch
-        // dead-letter is judged: a started/succeeded/failed event moving the job out of QUEUED can
-        // change whether that dispatch deserves a fail, and this order also settles genuine
-        // terminal-job dispatch dead-letters a pass earlier.
         reconcileQueue(resultReceiver, this::replayResult);
         reconcileQueue(dispatchReceiver, this::replayDispatch);
     }
@@ -71,7 +67,8 @@ class PackingDeadLetterReconciler {
             }
         } catch (DomainRuleViolationException malformed) {
             log.warn("Packing dead-letter message {} is malformed and was left for inspection",
-                    message.getMessageId(), malformed);
+                     message.getMessageId(),
+                     malformed);
         } catch (RuntimeException failure) {
             log.warn("Packing dead-letter message {} replay failed", message.getMessageId(), failure);
             abandon(receiver, message);
@@ -79,7 +76,9 @@ class PackingDeadLetterReconciler {
     }
 
     private boolean replayDispatch(ServiceBusReceivedMessage message) {
-        PackingJobId jobId = codec.decodeDispatch(message.getBody().toString()).jobId();
+        PackingJobId jobId = codec.decodeDispatch(message.getBody()
+                                                         .toString())
+                                  .jobId();
         Optional<PackingJobArtifactStore.ResultArtifact> stored = artifacts.findResult(jobId);
         if (stored.isPresent()) {
             recovery.recoverStalledResult(jobId, stored.get());
@@ -93,16 +92,15 @@ class PackingDeadLetterReconciler {
         return false;
     }
 
-    // Only delivery exhaustion proves the peek-lock is free. Every other reason, expiry included,
-    // leaves open that a worker is still packing, so the evidence is kept for a later pass.
     private PackingJobRecoveryService.DispatchStall stallOf(ServiceBusReceivedMessage message) {
         return DELIVERY_EXHAUSTED.equalsIgnoreCase(message.getDeadLetterReason())
-                ? PackingJobRecoveryService.DispatchStall.DELIVERY_EXHAUSTED
-                : PackingJobRecoveryService.DispatchStall.EXPIRED;
+                                                                                  ? PackingJobRecoveryService.DispatchStall.DELIVERY_EXHAUSTED
+                                                                                  : PackingJobRecoveryService.DispatchStall.EXPIRED;
     }
 
     private boolean replayResult(ServiceBusReceivedMessage message) {
-        PackingWorkerEvent event = codec.decodeWorkerEvent(message.getBody().toString());
+        PackingWorkerEvent event = codec.decodeWorkerEvent(message.getBody()
+                                                                  .toString());
         requireMatchingSession(message, event);
         workerEvents.apply(event);
         return true;
@@ -110,11 +108,14 @@ class PackingDeadLetterReconciler {
 
     @FunctionalInterface
     private interface Replay {
+
         boolean settles(ServiceBusReceivedMessage message);
     }
 
     private void requireMatchingSession(ServiceBusReceivedMessage message, PackingWorkerEvent event) {
-        if (!event.jobId().toString().equals(message.getSessionId())) {
+        if (!event.jobId()
+                  .toString()
+                  .equals(message.getSessionId())) {
             throw new DomainRuleViolationException("Packing result message session does not match job id");
         }
     }

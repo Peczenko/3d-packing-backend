@@ -34,15 +34,15 @@ class ModelFormatTest {
     @Test
     void rejectsAnUnsupportedExtensionAndListsWhatIsAccepted() {
         assertThatThrownBy(() -> ModelFormat.fromExtension("exe"))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("exe")
-                .hasMessageContaining("stl");
+                                                                  .isInstanceOf(DomainRuleViolationException.class)
+                                                                  .hasMessageContaining("exe")
+                                                                  .hasMessageContaining("stl");
     }
 
     @Test
     void rejectsABlankExtension() {
         assertThatThrownBy(() -> ModelFormat.fromExtension(" "))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
@@ -54,6 +54,6 @@ class ModelFormatTest {
     @Test
     void exposesEveryExtensionForClientHints() {
         assertThat(ModelFormat.allExtensions())
-                .contains("stl", "obj", "step", "stp", "3mf", "ply", "gltf", "glb");
+                                               .contains("stl", "obj", "step", "stp", "3mf", "ply", "gltf", "glb");
     }
 }

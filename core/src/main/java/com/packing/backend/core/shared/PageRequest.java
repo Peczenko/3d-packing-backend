@@ -12,7 +12,7 @@ public record PageRequest(int page, int size) {
         }
         if (size < 1 || size > MAX_SIZE) {
             throw new DomainRuleViolationException(
-                    "Page size must be between 1 and " + MAX_SIZE);
+                                                   "Page size must be between 1 and " + MAX_SIZE);
         }
     }
 

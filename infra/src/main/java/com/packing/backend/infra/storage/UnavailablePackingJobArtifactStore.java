@@ -11,9 +11,8 @@ import java.util.Optional;
 class UnavailablePackingJobArtifactStore implements PackingJobArtifactStore {
 
     private static final String SERVICE = "azure-blob-storage";
-    private static final String MESSAGE =
-            "Object storage is not configured. Set app.storage.enabled=true and provide "
-                    + "spring.cloud.azure.storage.blob.connection-string (or .endpoint).";
+    private static final String MESSAGE = "Object storage is not configured. Set app.storage.enabled=true and provide "
+            + "spring.cloud.azure.storage.blob.connection-string (or .endpoint).";
 
     @Override
     public void writeRequestIfAbsent(PackingJobId jobId, PackingRequestEnvelope envelope) {

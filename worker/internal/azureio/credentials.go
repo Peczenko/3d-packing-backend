@@ -1,6 +1,3 @@
-// Package azureio adapts the packing worker's ports to Azure. It is the only
-// package that imports the Azure SDK: pipeline and its processor stay free of
-// it, which is why their tests need no cloud services and no broker.
 package azureio
 
 import (
@@ -12,16 +9,8 @@ import (
 	"github.com/Peczenko/3d-packing-backend/worker/internal/config"
 )
 
-// serviceBusDomainSuffix turns the bare SERVICE_BUS_NAMESPACE into the fully
-// qualified host the SDK wants. The Java side's messaging configuration
-// appends the same suffix to the same bare value, so the two agree by
-// construction.
 const serviceBusDomainSuffix = ".servicebus.windows.net"
 
-// NewServiceBusClient picks the one authentication mode config.Load left set.
-// That function already guarantees exactly one of the two is present and
-// already rejects a namespace that is itself fully qualified, so neither is
-// re-checked here.
 func NewServiceBusClient(cfg config.Config) (*azservicebus.Client, error) {
 	if cfg.ServiceBusConnectionString != "" {
 		client, err := azservicebus.NewClientFromConnectionString(cfg.ServiceBusConnectionString, nil)

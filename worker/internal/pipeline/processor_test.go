@@ -20,10 +20,7 @@ import (
 )
 
 const (
-	testJobID = "00000000-0000-0000-0000-000000000001"
-	// testSpec carries < and & on purpose: json.Marshal would escape them to
-	// < and &, so a spec that survives to input.json byte for byte
-	// proves the envelope was never re-encoded on its way to disk.
+	testJobID      = "00000000-0000-0000-0000-000000000001"
 	testSpec       = `{"label":"crate <a> & <b>","boxes":[{"w":1}]}`
 	testEngineVer  = "packer 0.3.0"
 	testEngineSum  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -64,26 +61,13 @@ func (d fakeDelivery) Body() []byte { return d.body }
 type fakeQueue struct {
 	rec *recorder
 
-	delivery   Delivery
-	receiveErr error
-
-	// renewErr is returned by the FIRST RenewLock call only; the renewal
-	// goroutine stops at the first error, so one failure is all a test can
-	// observe.
-	renewErr error
-	// renewGate, when set, holds RenewLock until the test opens it. It is
-	// what makes "the lock is lost while the packer is running" a fact
-	// rather than a race with a ticker.
-	renewGate <-chan struct{}
-	// renewHook runs inside RenewLock, before it returns, so a test can
-	// make something else happen at that exact point.
-	renewHook func()
-	// renewBlocks makes RenewLock wait for its context, the way a slow
-	// broker call would.
+	delivery    Delivery
+	receiveErr  error
+	renewErr    error
+	renewGate   <-chan struct{}
+	renewHook   func()
 	renewBlocks bool
-	// renewing is closed once RenewLock is blocked, so a test can act while
-	// a renewal is genuinely in flight.
-	renewing chan struct{}
+	renewing    chan struct{}
 
 	sendErrs    map[string]error
 	completeErr error
@@ -168,8 +152,6 @@ func (q *fakeQueue) recordSettleContext(ctx context.Context) {
 	q.settleDeadline = hasDeadline
 }
 
-// settleContext reports whether the context the settlement ran under was
-// bounded, and whether it had already been canceled.
 func (q *fakeQueue) settleContext() (bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -191,18 +173,14 @@ func (q *fakeQueue) close() {
 type fakeArtifacts struct {
 	rec *recorder
 
-	find        *StoredResult
-	findErr     error
-	request     []byte
-	downloadErr error
-	created     *StoredResult
-	createErr   error
-	// downloadWritesNothing reports success without leaving a file, the way
-	// a broken adapter would.
+	find                  *StoredResult
+	findErr               error
+	request               []byte
+	downloadErr           error
+	created               *StoredResult
+	createErr             error
 	downloadWritesNothing bool
-	// blockSpecFile plants a directory where the spec file has to go, so
-	// writing the packer input fails on any platform.
-	blockSpecFile bool
+	blockSpecFile         bool
 
 	mu            sync.Mutex
 	findJobID     string
@@ -262,10 +240,8 @@ type fakeEngine struct {
 
 	provenance    EngineProvenance
 	provenanceErr error
-	// provenanceFn replaces the canned answer when a test needs Provenance
-	// itself to do something, such as observe its context.
-	provenanceFn func(context.Context) (EngineProvenance, error)
-	run          func(context.Context, RunRequest) (EngineResult, error)
+	provenanceFn  func(context.Context) (EngineProvenance, error)
+	run           func(context.Context, RunRequest) (EngineResult, error)
 
 	mu          sync.Mutex
 	lastRequest RunRequest
@@ -304,9 +280,6 @@ func (e *fakeEngine) Run(ctx context.Context, request RunRequest) (EngineResult,
 	return e.run(ctx, request)
 }
 
-// engineResult is what the fake packer reports; createdResult is what the
-// blob store reports back. They differ so a test can tell which one reached
-// the succeeded event.
 var (
 	engineResult = EngineResult{
 		FileName:    "output",
@@ -314,10 +287,6 @@ var (
 		SizeBytes:   13,
 		Checksum:    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 	}
-	// createdResult's engine differs from the engine this delivery ran on
-	// purpose: when another delivery won the conditional create, the
-	// succeeded event must describe the winner's packer as well as the
-	// winner's bytes.
 	createdResult = StoredResult{
 		Engine: EngineProvenance{Version: "packer 0.4.0", Checksum: strings.Repeat("b", 64)},
 		Result: EngineResult{
@@ -443,9 +412,6 @@ func TestRunOnceSuccessCallsPortsInOrder(t *testing.T) {
 	if events[0].JobID != testJobID || events[0].EngineVersion != testEngineVer || events[0].EngineChecksum != testEngineSum {
 		t.Fatalf("started event does not carry the job and its engine: %+v", events[0])
 	}
-	// The succeeded event must report the metadata CreateResult returned,
-	// not the metadata this delivery computed: a loser of the conditional
-	// create has to report the winner's bytes, and the winner's packer.
 	succeeded := events[1]
 	if succeeded.EngineVersion != createdResult.Engine.Version || succeeded.EngineChecksum != createdResult.Engine.Checksum {
 		t.Fatalf("succeeded event reports engine %s/%s, want the stored winner's %s/%s",
@@ -634,8 +600,6 @@ func TestRunOnceNeverReportsABlankFailureReason(t *testing.T) {
 	}
 
 	events := h.queue.sentEvents()
-	// The Java decoder rejects a blank reason outright, which would wedge
-	// the job in RUNNING until the dead-letter reconciler noticed.
 	if reason := deref(events[len(events)-1].Reason); strings.TrimSpace(reason) == "" {
 		t.Fatal("failed event carries a blank reason")
 	}
@@ -812,8 +776,6 @@ func TestRunOnceInfrastructureFailuresAbandon(t *testing.T) {
 
 func TestRunOnceAbandonsWhenTheWorkspaceCannotBeCreated(t *testing.T) {
 	h := newHarness(t)
-	// A work root that does not exist stands in for the full disk or
-	// read-only mount this would be in production.
 	h.workRoot = filepath.Join(h.workRoot, "no-such-directory")
 
 	err := h.run()
@@ -855,11 +817,6 @@ func invalidResults(base StoredResult) []invalidResult {
 	}
 }
 
-// Blob metadata is written by another process and read by nothing else in
-// this worker. An event built from a value PackingJob.markRunning or
-// PackingJob.succeed rejects is dead-lettered on the result queue, where
-// the reconciler leaves it for inspection instead of settling it — so the
-// job is never terminal and the message is re-logged forever.
 func TestRunOnceRefusesToReportAnUnusableStoredResult(t *testing.T) {
 	for _, tc := range invalidResults(storedResult) {
 		t.Run(tc.name, func(t *testing.T) {
@@ -893,10 +850,6 @@ func TestRunOnceRefusesToReportAnUnusableCreatedResult(t *testing.T) {
 	}
 }
 
-// The provenance guard runs before the started event, so a packer whose
-// identity the backend would reject is caught while the job is still
-// QUEUED — the one state the dispatch dead-letter reconciler can still
-// drive to FAILED.
 func TestRunOnceRefusesToStartWithUnusableProvenance(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -904,16 +857,6 @@ func TestRunOnceRefusesToStartWithUnusableProvenance(t *testing.T) {
 	}{
 		{name: "blank version", engine: EngineProvenance{Version: " ", Checksum: testEngineSum}},
 		{name: "truncated checksum", engine: EngineProvenance{Version: testEngineVer, Checksum: "deadbeef"}},
-		// packing_jobs.engine_version is VARCHAR(255) and packing_jobs is
-		// UTF-8 text, so the three below are accepted by the codec and by
-		// PackingJob.markRunning and then rejected by Postgres — after the
-		// started event was already taken off the result queue. That is the
-		// one shape of rejection nothing recovers from: the save throws, the
-		// event is abandoned to the result dead-letter queue where
-		// replayIndependently leaves it unsettled, and the worker meanwhile
-		// completes the dispatch, so the job sits QUEUED with dispatched_at
-		// set — invisible to findUndispatched, to findRunning and to
-		// resolveStalledDispatch alike.
 		{name: "version wider than the column", engine: EngineProvenance{
 			Version:  strings.Repeat("v", maxEngineVersionBytes+1),
 			Checksum: testEngineSum,
@@ -941,10 +884,6 @@ func TestRunOnceRefusesToStartWithUnusableProvenance(t *testing.T) {
 	}
 }
 
-// The guard above is a bound, not a ban: 255 bytes is exactly what the
-// column holds, so a version of that width has to go through. Without this
-// the same guard passes written as >= and silently rejects a legitimate
-// packer.
 func TestRunOnceAcceptsAVersionThatExactlyFillsTheColumn(t *testing.T) {
 	h := newHarness(t)
 	version := strings.Repeat("v", maxEngineVersionBytes)
@@ -959,13 +898,6 @@ func TestRunOnceAcceptsAVersionThatExactlyFillsTheColumn(t *testing.T) {
 	}
 }
 
-// A packer's stderr is copied into the reason verbatim, and Postgres
-// rejects a NUL byte in a text column outright. A failed event carrying one
-// is accepted by the codec and by PackingJob.fail, then throws on save —
-// which wedges a RUNNING job exactly the way an over-long version wedges a
-// QUEUED one. Stripping rather than refusing, because unlike the engine
-// version a reason is prose: mangling it loses nothing, while refusing to
-// send it would abandon a delivery whose packing job genuinely failed.
 func TestRunOnceStripsControlCharactersFromTheFailureReason(t *testing.T) {
 	h := newHarness(t)
 	h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
@@ -978,9 +910,6 @@ func TestRunOnceStripsControlCharactersFromTheFailureReason(t *testing.T) {
 
 	events := h.queue.sentEvents()
 	reason := deref(events[len(events)-1].Reason)
-	// Five spaces: NUL, CR and LF each become one, and the two the packer
-	// itself indented with survive. Nothing is collapsed, so the assertion
-	// pins the mapping rather than a tidy-up nobody asked for.
 	if want := "packer exited with code 3: boom     at frame [0m"; reason != want {
 		t.Fatalf("reason = %q, want %q", reason, want)
 	}
@@ -989,9 +918,6 @@ func TestRunOnceStripsControlCharactersFromTheFailureReason(t *testing.T) {
 	}
 }
 
-// Stripping has to run before the blank check, not after: a reason made of
-// nothing but control characters is non-blank on the way in and blank on
-// the way out, and PackingJob.fail rejects a blank one.
 func TestRunOnceSubstitutesAReasonThatStrippingEmpties(t *testing.T) {
 	h := newHarness(t)
 	h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
@@ -1082,9 +1008,6 @@ func TestRunOnceLostLockCancelsTheEngineAndSettlesNothing(t *testing.T) {
 	h.interval = time.Millisecond
 	h.queue.renewErr = errInjected
 
-	// RenewLock is held until the packer is running, so the lock is always
-	// lost mid-run rather than at whichever step the ticker happened to
-	// catch.
 	running := make(chan struct{})
 	h.queue.renewGate = running
 
@@ -1128,10 +1051,6 @@ func TestRunOnceLostLockSuppressesAnEngineFailure(t *testing.T) {
 
 	running := make(chan struct{})
 	h.queue.renewGate = running
-	// A packer that reports its own failure after the lock is gone must not
-	// produce a terminal event: the job did not fail, the worker lost the
-	// message. Task 2's runner checks cancellation before it classifies, so
-	// this is defence in depth against an engine that does not.
 	h.engine.run = func(ctx context.Context, _ RunRequest) (EngineResult, error) {
 		close(running)
 		select {
@@ -1151,10 +1070,6 @@ func TestRunOnceLostLockSuppressesAnEngineFailure(t *testing.T) {
 	assertNoCalls(t, calls, "send:failed", "send:succeeded", "complete", "abandon")
 }
 
-// The lost lock decides the settlement, but it does not get to be the whole
-// story: the job was doing something when the lock went, and that something
-// is all an operator has to go on. main.go keys its exit code off
-// errors.Is(err, ErrLockLost), so the two have to travel together.
 func TestRunOnceLostLockKeepsTheJobsOwnError(t *testing.T) {
 	h := newHarness(t)
 	h.interval = time.Millisecond
@@ -1186,9 +1101,6 @@ func TestRunOnceLostLockKeepsTheJobsOwnError(t *testing.T) {
 	}
 }
 
-// Provenance has no timeout of its own, so it is bounded only by the
-// context it is handed. Called under context.Background() a packer that
-// hangs on --version would hold the worker while its lock expired.
 func TestRunOnceCancelsProvenanceWhenTheLockIsLost(t *testing.T) {
 	h := newHarness(t)
 	h.interval = time.Millisecond
@@ -1223,9 +1135,6 @@ func TestRunOnceCancelsProvenanceWhenTheLockIsLost(t *testing.T) {
 	assertNoCalls(t, calls, "send:started", "run", "complete", "abandon")
 }
 
-// A shutdown that lands while a renewal is in flight is not a lost lock:
-// the message must still be abandoned, and abandoning must still work on a
-// context the shutdown already canceled.
 func TestRunOnceShutdownDuringRenewalStillAbandons(t *testing.T) {
 	h := newHarness(t)
 	h.interval = time.Millisecond
@@ -1236,8 +1145,6 @@ func TestRunOnceShutdownDuringRenewalStillAbandons(t *testing.T) {
 
 	running := make(chan struct{})
 	h.queue.renewGate = running
-	// The renewal fails because the process is going down, at exactly the
-	// moment it fails.
 	h.queue.renewHook = shutdown
 
 	h.engine.run = func(runCtx context.Context, _ RunRequest) (EngineResult, error) {
@@ -1272,9 +1179,6 @@ func TestRunOnceShutdownDuringRenewalStillAbandons(t *testing.T) {
 	}
 }
 
-// stop() has to be able to interrupt a renewal that is still in the broker.
-// Renewing under the job's own context could not: the only cancel of that
-// context is the deferred one, which cannot run until RunOnce returns.
 func TestRunOnceReturnsWhileARenewalIsInFlight(t *testing.T) {
 	h := newHarness(t)
 	h.interval = time.Millisecond
@@ -1321,7 +1225,6 @@ func TestRunOnceStopsRenewalBeforeReturning(t *testing.T) {
 	}
 	h.queue.close()
 
-	// Twenty renewal intervals is ample for a surviving goroutine to tick.
 	time.Sleep(20 * time.Millisecond)
 	if leaked.Load() {
 		t.Fatal("lock renewal outlived RunOnce")

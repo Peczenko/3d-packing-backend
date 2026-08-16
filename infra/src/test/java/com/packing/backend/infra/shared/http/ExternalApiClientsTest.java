@@ -29,20 +29,20 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 
 class ExternalApiClientsTest {
 
-    private HttpServer server;
-    private ExternalApiClients apiClients;
+    private HttpServer                          server;
+    private ExternalApiClients                  apiClients;
     private final AtomicReference<HttpExchange> lastExchange = new AtomicReference<>();
-    private final AtomicInteger requestCount = new AtomicInteger();
+    private final AtomicInteger                 requestCount = new AtomicInteger();
 
     @BeforeEach
     void startServer() throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.start();
         apiClients = new ExternalApiClients(
-                RestClient.builder(),
-                requestFactoryBuilder(),
-                ClientHttpRequestFactorySettings.defaults(),
-                new ObjectMapper());
+                                            RestClient.builder(),
+                                            requestFactoryBuilder(),
+                                            ClientHttpRequestFactorySettings.defaults(),
+                                            new ObjectMapper());
     }
 
     @AfterEach
@@ -54,24 +54,34 @@ class ExternalApiClientsTest {
     void resolvesRequestsAgainstTheBaseUrlAndAppliesTheCustomizer() {
         respondWith(200, "{\"messageId\":\"1\"}");
         ExternalApi api = apiClients.create(spec(baseUrl()),
-                builder -> builder.defaultHeader("api-key", "secret-key"));
+                                            builder -> builder.defaultHeader("api-key", "secret-key"));
 
-        api.execute(client -> client.get().uri("/v3/account").retrieve().toBodilessEntity());
+        api.execute(client -> client.get()
+                                    .uri("/v3/account")
+                                    .retrieve()
+                                    .toBodilessEntity());
 
-        assertThat(lastExchange.get().getRequestURI().getPath()).isEqualTo("/v3/account");
-        assertThat(lastExchange.get().getRequestHeaders().getFirst("api-key"))
-                .isEqualTo("secret-key");
+        assertThat(lastExchange.get()
+                               .getRequestURI()
+                               .getPath()).isEqualTo("/v3/account");
+        assertThat(lastExchange.get()
+                               .getRequestHeaders()
+                               .getFirst("api-key"))
+                                                    .isEqualTo("secret-key");
     }
 
     @Test
     void translatesANonSuccessResponseWithoutTheAdapterHandlingAnything() {
         respondWith(401, "{\"code\":\"unauthorized\",\"message\":\"Key not found\"}");
-        ExternalApi api = apiClients.create(spec(baseUrl()), builder -> { });
+        ExternalApi api = apiClients.create(spec(baseUrl()), builder -> {
+        });
 
         ExternalHttpException thrown = org.assertj.core.api.Assertions.catchThrowableOfType(
-                () -> api.execute(client ->
-                        client.get().uri("/v3/account").retrieve().toBodilessEntity()),
-                ExternalHttpException.class);
+                                                                                            () -> api.execute(client -> client.get()
+                                                                                                                              .uri("/v3/account")
+                                                                                                                              .retrieve()
+                                                                                                                              .toBodilessEntity()),
+                                                                                            ExternalHttpException.class);
 
         assertThat(thrown.service()).isEqualTo("brevo");
         assertThat(thrown.statusCode()).isEqualTo(401);
@@ -80,32 +90,40 @@ class ExternalApiClientsTest {
         assertThat(thrown.providerCode()).isEqualTo("unauthorized");
         assertThat(thrown.retryAfter()).isNull();
         assertThat(thrown.retryable()).isFalse();
-        assertThat(thrown).hasMessageContaining("401").hasMessageContaining("unauthorized");
+        assertThat(thrown).hasMessageContaining("401")
+                          .hasMessageContaining("unauthorized");
     }
 
     @Test
     void truncatesAnOversizedErrorBody() {
         respondWith(500, "x".repeat(5_000));
-        ExternalApi api = apiClients.create(spec(baseUrl()), builder -> { });
+        ExternalApi api = apiClients.create(spec(baseUrl()), builder -> {
+        });
 
         Throwable thrown = catchThrowable(
-                () -> api.execute(client ->
-                        client.get().uri("/v3/account").retrieve().toBodilessEntity()));
+                                          () -> api.execute(client -> client.get()
+                                                                            .uri("/v3/account")
+                                                                            .retrieve()
+                                                                            .toBodilessEntity()));
 
         assertThat(thrown).isInstanceOf(ExternalHttpException.class);
-        assertThat(thrown.getMessage()).contains("truncated").hasSizeLessThan(2_000);
+        assertThat(thrown.getMessage()).contains("truncated")
+                                       .hasSizeLessThan(2_000);
     }
 
     @Test
     void exposesRetryMetadataWithoutMessageParsing() {
-        respondWith(429, "{\"code\":\"rate_limited\",\"message\":\"Slow down\"}",
-                Map.of("Retry-After", "30"));
+        respondWith(429,
+                    "{\"code\":\"rate_limited\",\"message\":\"Slow down\"}",
+                    Map.of("Retry-After", "30"));
         ExternalApi api = apiClients.create(spec(baseUrl()));
 
         ExternalHttpException thrown = org.assertj.core.api.Assertions.catchThrowableOfType(
-                () -> api.execute(client ->
-                        client.get().uri("/v3/account").retrieve().toBodilessEntity()),
-                ExternalHttpException.class);
+                                                                                            () -> api.execute(client -> client.get()
+                                                                                                                              .uri("/v3/account")
+                                                                                                                              .retrieve()
+                                                                                                                              .toBodilessEntity()),
+                                                                                            ExternalHttpException.class);
 
         assertThat(thrown.statusCode()).isEqualTo(429);
         assertThat(thrown.providerCode()).isEqualTo("rate_limited");
@@ -117,61 +135,78 @@ class ExternalApiClientsTest {
     @Test
     void translatesAConnectionFailureWithoutExposingTheRawClient() {
         server.stop(0);
-        ExternalApi api = apiClients.create(spec(baseUrl()), builder -> { });
+        ExternalApi api = apiClients.create(spec(baseUrl()), builder -> {
+        });
 
-        assertThatThrownBy(() -> api.execute(client ->
-                client.get().uri("/v3/account").retrieve().toBodilessEntity()))
-                .isInstanceOf(ExternalServiceException.class)
-                .hasMessageContaining("brevo");
+        assertThatThrownBy(() -> api.execute(client -> client.get()
+                                                             .uri("/v3/account")
+                                                             .retrieve()
+                                                             .toBodilessEntity()))
+                                                                                  .isInstanceOf(ExternalServiceException.class)
+                                                                                  .hasMessageContaining("brevo");
     }
 
     @Test
     void appliesAndTranslatesTheConfiguredReadTimeout() {
         respondAfter(Duration.ofMillis(300), 200, "{}");
         ExternalApi api = apiClients.create(
-                new ExternalApiSpec("brevo", URI.create(baseUrl()),
-                        Duration.ofSeconds(2), Duration.ofMillis(30)));
+                                            new ExternalApiSpec("brevo",
+                                                                URI.create(baseUrl()),
+                                                                Duration.ofSeconds(2),
+                                                                Duration.ofMillis(30)));
 
-        assertThatThrownBy(() -> api.execute(client ->
-                client.get().uri("/v3/account").retrieve().toBodilessEntity()))
-                .isInstanceOf(ExternalServiceException.class)
-                .hasMessageContaining("brevo");
+        assertThatThrownBy(() -> api.execute(client -> client.get()
+                                                             .uri("/v3/account")
+                                                             .retrieve()
+                                                             .toBodilessEntity()))
+                                                                                  .isInstanceOf(ExternalServiceException.class)
+                                                                                  .hasMessageContaining("brevo");
     }
 
     @Test
     void refusesASpecWithoutAServiceName() {
         assertThatThrownBy(() -> new ExternalApiSpec(
-                " ", URI.create("https://example.test"),
-                Duration.ofSeconds(1), Duration.ofSeconds(1)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("serviceName");
+                                                     " ",
+                                                     URI.create("https://example.test"),
+                                                     Duration.ofSeconds(1),
+                                                     Duration.ofSeconds(1)))
+                                                                            .isInstanceOf(IllegalArgumentException.class)
+                                                                            .hasMessageContaining("serviceName");
     }
 
     @Test
     void refusesABaseUrlThatCanCarryCredentialsOrRequestSpecificParts() {
         assertThatThrownBy(() -> new ExternalApiSpec(
-                "brevo", URI.create("https://user@example.test/v3?token=secret"),
-                Duration.ofSeconds(1), Duration.ofSeconds(1)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("baseUrl");
+                                                     "brevo",
+                                                     URI.create("https://user@example.test/v3?token=secret"),
+                                                     Duration.ofSeconds(1),
+                                                     Duration.ofSeconds(1)))
+                                                                            .isInstanceOf(IllegalArgumentException.class)
+                                                                            .hasMessageContaining("baseUrl");
     }
 
     @Test
     void refusesASpecWithANonPositiveTimeout() {
         assertThatThrownBy(() -> new ExternalApiSpec(
-                "brevo", URI.create("https://example.test"),
-                Duration.ZERO, Duration.ofSeconds(1)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("connectTimeout");
+                                                     "brevo",
+                                                     URI.create("https://example.test"),
+                                                     Duration.ZERO,
+                                                     Duration.ofSeconds(1)))
+                                                                            .isInstanceOf(IllegalArgumentException.class)
+                                                                            .hasMessageContaining("connectTimeout");
     }
 
     private ExternalApiSpec spec(String baseUrl) {
         return new ExternalApiSpec(
-                "brevo", URI.create(baseUrl), Duration.ofSeconds(2), Duration.ofSeconds(2));
+                                   "brevo",
+                                   URI.create(baseUrl),
+                                   Duration.ofSeconds(2),
+                                   Duration.ofSeconds(2));
     }
 
     private String baseUrl() {
-        return "http://127.0.0.1:" + server.getAddress().getPort();
+        return "http://127.0.0.1:" + server.getAddress()
+                                           .getPort();
     }
 
     private void respondWith(int status, String body) {
@@ -183,10 +218,13 @@ class ExternalApiClientsTest {
             requestCount.incrementAndGet();
             lastExchange.set(exchange);
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            headers.forEach((name, value) -> exchange.getResponseHeaders().add(name, value));
+            exchange.getResponseHeaders()
+                    .add("Content-Type", "application/json");
+            headers.forEach((name, value) -> exchange.getResponseHeaders()
+                                                     .add(name, value));
             exchange.sendResponseHeaders(status, bytes.length);
-            exchange.getResponseBody().write(bytes);
+            exchange.getResponseBody()
+                    .write(bytes);
             exchange.close();
         };
         server.createContext("/", handler);
@@ -200,7 +238,8 @@ class ExternalApiClientsTest {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             try {
                 exchange.sendResponseHeaders(status, bytes.length);
-                exchange.getResponseBody().write(bytes);
+                exchange.getResponseBody()
+                        .write(bytes);
             } finally {
                 exchange.close();
             }
@@ -210,6 +249,7 @@ class ExternalApiClientsTest {
 
     private ClientHttpRequestFactoryBuilder<?> requestFactoryBuilder() {
         var builder = ClientHttpRequestFactoryBuilder.httpComponents();
-        return new ExternalHttpConfig().disableImplicitHttpRetries().customize(builder);
+        return new ExternalHttpConfig().disableImplicitHttpRetries()
+                                       .customize(builder);
     }
 }

@@ -7,6 +7,6 @@ import com.packing.backend.domain.shared.DomainEvent;
 import java.time.Instant;
 
 public record PackingJobQueued(PackingJobId jobId,
-                               ProjectId projectId,
-                               Instant occurredAt) implements DomainEvent {
+        ProjectId projectId,
+        Instant occurredAt) implements DomainEvent {
 }

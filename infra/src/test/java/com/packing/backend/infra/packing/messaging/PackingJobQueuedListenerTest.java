@@ -37,7 +37,8 @@ class PackingJobQueuedListenerTest {
         PackingJobDispatchService dispatcher = Mockito.mock(PackingJobDispatchService.class);
         PackingJobQueuedListener listener = new PackingJobQueuedListener(dispatcher);
         PackingJobQueued event = event();
-        doThrow(new IllegalStateException("queue unavailable")).when(dispatcher).dispatch(event.jobId());
+        doThrow(new IllegalStateException("queue unavailable")).when(dispatcher)
+                                                               .dispatch(event.jobId());
 
         listener.on(event);
 

@@ -37,19 +37,19 @@ class PackingResultProcessorTest {
     @Mock
     private ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder builder;
     @Mock
-    private ServiceBusProcessorClient client;
+    private ServiceBusProcessorClient                                       client;
     @Mock
-    private PackingWorkerEventService workerEvents;
+    private PackingWorkerEventService                                       workerEvents;
     @Mock
-    private ServiceBusReceivedMessageContext context;
+    private ServiceBusReceivedMessageContext                                context;
     @Mock
-    private ServiceBusReceivedMessage message;
+    private ServiceBusReceivedMessage                                       message;
 
     private final PackingContractCodec codec = new PackingContractCodec(new ObjectMapper());
 
     private Consumer<ServiceBusReceivedMessageContext> processMessage;
-    private Consumer<ServiceBusErrorContext> processError;
-    private PackingResultProcessor processor;
+    private Consumer<ServiceBusErrorContext>           processError;
+    private PackingResultProcessor                     processor;
 
     @BeforeEach
     void setUp() {
@@ -70,36 +70,47 @@ class PackingResultProcessorTest {
     @Test
     void buildsOnceWithCallbacksRegisteredBeforeBuildingThenStartsAndClosesTheClient() {
         InOrder order = inOrder(builder);
-        order.verify(builder).processMessage(any());
-        order.verify(builder).processError(any());
-        order.verify(builder).buildProcessorClient();
+        order.verify(builder)
+             .processMessage(any());
+        order.verify(builder)
+             .processError(any());
+        order.verify(builder)
+             .buildProcessorClient();
         verify(builder).buildProcessorClient();
 
         processor.start();
         processor.close();
 
         InOrder lifecycle = inOrder(client);
-        lifecycle.verify(client).start();
-        lifecycle.verify(client).close();
+        lifecycle.verify(client)
+                 .start();
+        lifecycle.verify(client)
+                 .close();
     }
 
     @Test
     void validEventIsAppliedBeforeItsMessageIsCompleted() {
         PackingWorkerEvent event = started();
-        received(event, event.jobId().toString());
+        received(event,
+                 event.jobId()
+                      .toString());
 
         processMessage.accept(context);
 
         InOrder order = inOrder(workerEvents, context);
-        order.verify(workerEvents).apply(event);
-        order.verify(context).complete();
+        order.verify(workerEvents)
+             .apply(event);
+        order.verify(context)
+             .complete();
         verify(context, never()).abandon();
     }
 
     @Test
     void mismatchedSessionAbandonsWithoutApplyingOrCompleting() {
         PackingWorkerEvent event = started();
-        received(event, PackingJobId.generate().toString());
+        received(event,
+                 PackingJobId.generate()
+                             .toString());
 
         processMessage.accept(context);
 
@@ -123,8 +134,11 @@ class PackingResultProcessorTest {
     @Test
     void serviceFailureAbandonsWithoutCompleting() {
         PackingWorkerEvent event = started();
-        received(event, event.jobId().toString());
-        doThrow(new IllegalStateException("database unavailable")).when(workerEvents).apply(event);
+        received(event,
+                 event.jobId()
+                      .toString());
+        doThrow(new IllegalStateException("database unavailable")).when(workerEvents)
+                                                                  .apply(event);
 
         processMessage.accept(context);
 

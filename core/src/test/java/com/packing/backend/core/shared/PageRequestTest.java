@@ -17,23 +17,23 @@ class PageRequestTest {
     @Test
     void doesNotOverflowOnALargePageIndex() {
         assertThat(new PageRequest(Integer.MAX_VALUE, 100).offset())
-                .isEqualTo(214_748_364_700L);
+                                                                    .isEqualTo(214_748_364_700L);
     }
 
     @Test
     void rejectsANegativePage() {
         assertThatThrownBy(() -> new PageRequest(-1, 20))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessage("Page must not be negative");
+                                                         .isInstanceOf(DomainRuleViolationException.class)
+                                                         .hasMessage("Page must not be negative");
     }
 
     @Test
     void rejectsASizeOutsideTheAllowedRange() {
         assertThatThrownBy(() -> new PageRequest(0, 0))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessage("Page size must be between 1 and 100");
+                                                       .isInstanceOf(DomainRuleViolationException.class)
+                                                       .hasMessage("Page size must be between 1 and 100");
         assertThatThrownBy(() -> new PageRequest(0, PageRequest.MAX_SIZE + 1))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessage("Page size must be between 1 and 100");
+                                                                              .isInstanceOf(DomainRuleViolationException.class)
+                                                                              .hasMessage("Page size must be between 1 and 100");
     }
 }

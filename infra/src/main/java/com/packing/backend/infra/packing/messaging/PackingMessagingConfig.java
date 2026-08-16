@@ -32,15 +32,15 @@ public class PackingMessagingConfig {
     @Bean
     ServiceBusSenderClient packingDispatchSenderClient(PackingMessagingProperties properties) {
         return clientBuilder(properties).sender()
-                .queueName(properties.dispatchQueue())
-                .buildClient();
+                                        .queueName(properties.dispatchQueue())
+                                        .buildClient();
     }
 
     @Bean
     ServiceBusSenderClient packingResultSenderClient(PackingMessagingProperties properties) {
         return clientBuilder(properties).sender()
-                .queueName(properties.resultQueue())
-                .buildClient();
+                                        .queueName(properties.resultQueue())
+                                        .buildClient();
     }
 
     @Bean
@@ -55,26 +55,26 @@ public class PackingMessagingConfig {
 
     @Bean
     ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder packingResultProcessorBuilder(
-            PackingMessagingProperties properties) {
+                                                                                                  PackingMessagingProperties properties) {
         return configureResultProcessor(clientBuilder(properties).sessionProcessor(), properties);
     }
 
     static ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder configureResultProcessor(
-            ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder builder,
-            PackingMessagingProperties properties) {
+                                                                                                    ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder builder,
+                                                                                                    PackingMessagingProperties properties) {
         return builder
-                .queueName(properties.resultQueue())
-                .receiveMode(ServiceBusReceiveMode.PEEK_LOCK)
-                .disableAutoComplete()
-                .maxConcurrentSessions(properties.resultConcurrentSessions())
-                .maxAutoLockRenewDuration(Duration.ofMinutes(5))
-                .maxConcurrentCalls(1);
+                      .queueName(properties.resultQueue())
+                      .receiveMode(ServiceBusReceiveMode.PEEK_LOCK)
+                      .disableAutoComplete()
+                      .maxConcurrentSessions(properties.resultConcurrentSessions())
+                      .maxAutoLockRenewDuration(Duration.ofMinutes(5))
+                      .maxConcurrentCalls(1);
     }
 
     @Bean
     PackingDispatchSender azurePackingDispatchSender(
-            @Qualifier("packingDispatchSenderClient") ServiceBusSenderClient sender,
-            PackingContractCodec codec) {
+                                                     @Qualifier("packingDispatchSenderClient") ServiceBusSenderClient sender,
+                                                     PackingContractCodec codec) {
         return new AzurePackingDispatchSender(sender, codec);
     }
 
@@ -93,30 +93,35 @@ public class PackingMessagingConfig {
 
     @Bean
     PackingDispatchReconciler packingDispatchReconciler(PackingJobFinder finder,
-                                                         PackingJobDispatchService dispatcher,
-                                                         PackingJobArtifactStore artifacts,
-                                                         PackingJobRecoveryService recovery) {
+                                                        PackingJobDispatchService dispatcher,
+                                                        PackingJobArtifactStore artifacts,
+                                                        PackingJobRecoveryService recovery) {
         return new PackingDispatchReconciler(finder, dispatcher, artifacts, recovery);
     }
 
     @Bean
     PackingDeadLetterReconciler packingDeadLetterReconciler(
-            @Qualifier("packingDispatchDeadLetterReceiver") ServiceBusReceiverClient dispatchReceiver,
-            @Qualifier("packingResultDeadLetterReceiver") ServiceBusReceiverClient resultReceiver,
-            PackingContractCodec codec,
-            PackingJobArtifactStore artifacts,
-            PackingJobRecoveryService recovery,
-            PackingWorkerEventService workerEvents) {
+                                                            @Qualifier("packingDispatchDeadLetterReceiver") ServiceBusReceiverClient dispatchReceiver,
+                                                            @Qualifier("packingResultDeadLetterReceiver") ServiceBusReceiverClient resultReceiver,
+                                                            PackingContractCodec codec,
+                                                            PackingJobArtifactStore artifacts,
+                                                            PackingJobRecoveryService recovery,
+                                                            PackingWorkerEventService workerEvents) {
         return new PackingDeadLetterReconciler(
-                dispatchReceiver, resultReceiver, codec, artifacts, recovery, workerEvents);
+                                               dispatchReceiver,
+                                               resultReceiver,
+                                               codec,
+                                               artifacts,
+                                               recovery,
+                                               workerEvents);
     }
 
     private ServiceBusReceiverClient deadLetterReceiver(PackingMessagingProperties properties, String queueName) {
         return clientBuilder(properties).receiver()
-                .queueName(queueName)
-                .subQueue(SubQueue.DEAD_LETTER_QUEUE)
-                .receiveMode(ServiceBusReceiveMode.PEEK_LOCK)
-                .buildClient();
+                                        .queueName(queueName)
+                                        .subQueue(SubQueue.DEAD_LETTER_QUEUE)
+                                        .receiveMode(ServiceBusReceiveMode.PEEK_LOCK)
+                                        .buildClient();
     }
 
     private ServiceBusClientBuilder clientBuilder(PackingMessagingProperties properties) {
@@ -125,7 +130,7 @@ public class PackingMessagingConfig {
             builder.connectionString(properties.connectionString());
         } else {
             builder.fullyQualifiedNamespace(properties.fullyQualifiedNamespace())
-                    .credential(new DefaultAzureCredentialBuilder().build());
+                   .credential(new DefaultAzureCredentialBuilder().build());
         }
         return builder;
     }

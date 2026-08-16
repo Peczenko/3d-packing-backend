@@ -31,23 +31,25 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RequiredArgsConstructor
 public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
 
-    private static final String SERVICE = "azure-blob-storage";
-    private static final int CLOCK_SKEW_ALLOWANCE_MINUTES = 5;
+    private static final String SERVICE                      = "azure-blob-storage";
+    private static final int    CLOCK_SKEW_ALLOWANCE_MINUTES = 5;
 
-    private final BlobContainerClient container;
-    private final BlobSasIssuer sasIssuer;
+    private final BlobContainerClient  container;
+    private final BlobSasIssuer        sasIssuer;
     private final PackingContractCodec codec;
-    private final AtomicBoolean containerEnsured = new AtomicBoolean();
+    private final AtomicBoolean        containerEnsured = new AtomicBoolean();
 
     @Override
     public void writeRequestIfAbsent(PackingJobId jobId, PackingRequestEnvelope envelope) {
-        byte[] request = codec.encodeRequest(envelope).getBytes(StandardCharsets.UTF_8);
+        byte[] request = codec.encodeRequest(envelope)
+                              .getBytes(StandardCharsets.UTF_8);
         BlobClient blob = ensureContainer(jobId).getBlobClient(requestKey(jobId));
         try {
             blob.uploadWithResponse(new BlobParallelUploadOptions(new ByteArrayInputStream(request))
-                            .setHeaders(new BlobHttpHeaders().setContentType("application/json"))
-                            .setRequestConditions(new BlobRequestConditions().setIfNoneMatch("*")),
-                    null, Context.NONE);
+                                                                                                    .setHeaders(new BlobHttpHeaders().setContentType("application/json"))
+                                                                                                    .setRequestConditions(new BlobRequestConditions().setIfNoneMatch("*")),
+                                    null,
+                                    Context.NONE);
         } catch (BlobStorageException e) {
             if (isAlreadyExists(e)) {
                 acceptOnlyIdenticalRequest(blob, request, jobId);
@@ -60,18 +62,19 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
     @Override
     public Optional<ResultArtifact> findResult(PackingJobId jobId) {
         try {
-            BlobProperties properties = container.getBlobClient(resultKey(jobId)).getProperties();
+            BlobProperties properties = container.getBlobClient(resultKey(jobId))
+                                                 .getProperties();
             Map<String, String> metadata = properties.getMetadata();
             if (properties.getBlobSize() <= 0) {
                 throw invalidResult(jobId, "a positive size");
             }
             return Optional.of(new ResultArtifact(
-                    requiredMetadata(metadata, "fileName", jobId),
-                    requiredMetadata(metadata, "contentType", jobId),
-                    properties.getBlobSize(),
-                    requiredMetadata(metadata, "checksumSha256", jobId),
-                    requiredMetadata(metadata, "engineVersion", jobId),
-                    requiredMetadata(metadata, "engineChecksumSha256", jobId)));
+                                                  requiredMetadata(metadata, "fileName", jobId),
+                                                  requiredMetadata(metadata, "contentType", jobId),
+                                                  properties.getBlobSize(),
+                                                  requiredMetadata(metadata, "checksumSha256", jobId),
+                                                  requiredMetadata(metadata, "engineVersion", jobId),
+                                                  requiredMetadata(metadata, "engineChecksumSha256", jobId)));
         } catch (BlobStorageException e) {
             if (e.getStatusCode() == 404) {
                 return Optional.empty();
@@ -85,13 +88,14 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         OffsetDateTime expiry = now.plus(validity);
         BlobServiceSasSignatureValues values = new BlobServiceSasSignatureValues(
-                expiry, new BlobSasPermission().setReadPermission(true))
-                .setStartTime(now.minusMinutes(CLOCK_SKEW_ALLOWANCE_MINUTES));
+                                                                                 expiry,
+                                                                                 new BlobSasPermission().setReadPermission(true))
+                                                                                                                                 .setStartTime(now.minusMinutes(CLOCK_SKEW_ALLOWANCE_MINUTES));
         BlobClient blob = container.getBlobClient(resultKey(jobId));
         try {
             return new TemporaryUrl(
-                    URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)),
-                    expiry.toInstant());
+                                    URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)),
+                                    expiry.toInstant());
         } catch (BlobStorageException e) {
             throw external("issue result download URL", jobId, e);
         }
@@ -99,7 +103,9 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
 
     private void acceptOnlyIdenticalRequest(BlobClient blob, byte[] requested, PackingJobId jobId) {
         try {
-            if (!java.util.Arrays.equals(requested, blob.downloadContent().toBytes())) {
+            if (!java.util.Arrays.equals(requested,
+                                         blob.downloadContent()
+                                             .toBytes())) {
                 throw new ResourceConflictException("Packing job request already exists with different content");
             }
         } catch (BlobStorageException e) {
@@ -115,11 +121,13 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
         if (metadata == null) {
             throw invalidResult(jobId, "required metadata " + name);
         }
-        String value = metadata.entrySet().stream()
-                .filter(entry -> entry.getKey().equalsIgnoreCase(name))
-                .map(Map.Entry::getValue)
-                .findFirst()
-                .orElse(null);
+        String value = metadata.entrySet()
+                               .stream()
+                               .filter(entry -> entry.getKey()
+                                                     .equalsIgnoreCase(name))
+                               .map(Map.Entry::getValue)
+                               .findFirst()
+                               .orElse(null);
         if (value == null || value.isBlank()) {
             throw invalidResult(jobId, "required metadata " + name);
         }
@@ -128,7 +136,7 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
 
     private ExternalServiceException invalidResult(PackingJobId jobId, String problem) {
         return new ExternalServiceException(SERVICE,
-                "Result artifact for packing job " + jobId + " is missing " + problem);
+                                            "Result artifact for packing job " + jobId + " is missing " + problem);
     }
 
     private BlobContainerClient ensureContainer(PackingJobId jobId) {
@@ -147,7 +155,8 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
     private ExternalServiceException external(String operation, PackingJobId jobId,
                                               BlobStorageException exception) {
         return new ExternalServiceException(SERVICE,
-                "Could not " + operation + " for packing job " + jobId, exception);
+                                            "Could not " + operation + " for packing job " + jobId,
+                                            exception);
     }
 
     private static String requestKey(PackingJobId id) {

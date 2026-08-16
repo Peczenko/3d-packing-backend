@@ -71,13 +71,16 @@ class PackingDispatchReconcilerTest {
         PackingJobId first = PackingJobId.generate();
         PackingJobId second = PackingJobId.generate();
         when(finder.findUndispatched(100)).thenReturn(List.of(first, second));
-        doThrow(new IllegalStateException("queue unavailable")).when(dispatcher).dispatch(first);
+        doThrow(new IllegalStateException("queue unavailable")).when(dispatcher)
+                                                               .dispatch(first);
 
         reconciler.reconcilePeriodically();
 
         InOrder order = inOrder(dispatcher);
-        order.verify(dispatcher).dispatch(first);
-        order.verify(dispatcher).dispatch(second);
+        order.verify(dispatcher)
+             .dispatch(first);
+        order.verify(dispatcher)
+             .dispatch(second);
     }
 
     @Test
@@ -90,7 +93,12 @@ class PackingDispatchReconcilerTest {
         PackingJobId first = PackingJobId.generate();
         PackingJobId second = PackingJobId.generate();
         PackingJobArtifactStore.ResultArtifact result = new PackingJobArtifactStore.ResultArtifact(
-                "result.bin", "application/octet-stream", 1, "a".repeat(64), "packer 0.1.0", "a".repeat(64));
+                                                                                                   "result.bin",
+                                                                                                   "application/octet-stream",
+                                                                                                   1,
+                                                                                                   "a".repeat(64),
+                                                                                                   "packer 0.1.0",
+                                                                                                   "a".repeat(64));
         when(finder.findUndispatched(100)).thenReturn(List.of());
         when(finder.findRunning(100)).thenReturn(List.of(first, second));
         when(artifacts.findResult(first)).thenThrow(new IllegalStateException("blob unavailable"));
@@ -119,6 +127,7 @@ class PackingDispatchReconcilerTest {
 
         verify(artifacts).findResult(jobId);
         verify(recovery, org.mockito.Mockito.never()).recoverResult(
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+                                                                    org.mockito.ArgumentMatchers.any(),
+                                                                    org.mockito.ArgumentMatchers.any());
     }
 }
