@@ -13,6 +13,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (runs Gradle; the JDK 25 toolchain is auto-provisioned)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Check formatting and lint
+        run: ./gradlew lint --no-daemon
+
+      - name: Upload Checkstyle reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkstyle-reports
+          path: '*/build/reports/checkstyle/*.html'
+          if-no-files-found: ignore
+
   build:
     name: Build & Test
     runs-on: ubuntu-latest
@@ -43,27 +69,9 @@ jobs:
           go-version: '1.26.5'
           cache-dependency-path: worker/go.sum
 
-      # Started from docker-compose.yml rather than declared as a service
-      # container, because a service container cannot override the image's
-      # command and Azurite 3.31.0 answers this SDK with "The API version
-      # 2026-06-06 is not supported by Azurite" unless it was started with
-      # --skipApiVersionCheck. Compose already starts it with exactly that, so
-      # a developer and this job run one emulator configured in one place.
       - name: Start Azurite
         run: docker compose up --detach --wait azurite
 
-      # -race needs cgo, which ubuntu-latest has. The contract fixtures live above worker/,
-      # so the whole repository has to be checked out for these to resolve.
-      #
-      # STORAGE_CONNECTION_STRING is what makes TestBlobArtifacts run at all.
-      # Without it the suite skips, `go test` prints nothing for a skip, and
-      # the entire blob half of the cross-language contract — both derived
-      # keys, the six metadata names, the content-type header — reports ok
-      # having executed nothing. GitHub sets CI, so the suite now fails rather
-      # than skipping if this is ever dropped.
-      #
-      # gofmt -l exits 0 whether or not it lists a file, so the listing, not
-      # the status, is what the step is checked against.
       - name: Test and vet
         working-directory: worker
         env:

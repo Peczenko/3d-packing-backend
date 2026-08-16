@@ -3,6 +3,7 @@ plugins {
 
     alias(libs.plugins.spring.boot) apply false
     alias(libs.plugins.jooq.docker) apply false
+    alias(libs.plugins.spotless) apply false
 }
 
 group = 'com.packing'
@@ -11,9 +12,39 @@ description = '3d-packing-backend'
 
 subprojects {
     apply plugin: 'java-library'
+    apply plugin: 'com.diffplug.spotless'
+    apply plugin: 'checkstyle'
 
     group = rootProject.group
     version = rootProject.version
+
+    spotless {
+        java {
+            target 'src/*/java/**/*.java'
+            eclipse().configFile rootProject.file('config/formatter/eclipse-format.xml')
+        }
+    }
+
+    checkstyle {
+        toolVersion = libs.versions.checkstyle.get()
+        configFile = rootProject.file('config/checkstyle/checkstyle.xml')
+        maxWarnings = 0
+    }
+
+    afterEvaluate {
+        tasks.withType(Checkstyle).configureEach {
+            classpath = files()
+            setDependsOn([])
+            String sourceSetName = name.substring('checkstyle'.length())
+            source = fileTree("src/${sourceSetName.uncapitalize()}/java") {
+                include '**/*.java'
+            }
+            reports {
+                xml.required = false
+                html.required = true
+            }
+        }
+    }
 
     java {
         toolchain {
@@ -58,5 +89,13 @@ subprojects {
             events 'passed', 'skipped', 'failed'
             exceptionFormat = 'full'
         }
+    }
+}
+
+tasks.register('lint') {
+    group = 'verification'
+    description = 'Runs Spotless and Checkstyle across every module.'
+    dependsOn subprojects.collect { subproject ->
+        subproject.tasks.matching { it.name == 'spotlessCheck' || it instanceof Checkstyle }
     }
 }
