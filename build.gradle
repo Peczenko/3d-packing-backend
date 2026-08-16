@@ -31,15 +31,15 @@ subprojects {
         maxWarnings = 0
     }
 
-    afterEvaluate {
-        tasks.withType(Checkstyle).configureEach {
-            classpath = files()
-            setDependsOn([])
-            String sourceSetName = name.substring('checkstyle'.length())
-            source = fileTree("src/${sourceSetName.uncapitalize()}/java") {
+    afterEvaluate { proj ->
+        proj.tasks.withType(Checkstyle).configureEach { task ->
+            String sourceSetName = task.name.substring('checkstyle'.length()).uncapitalize()
+            task.classpath = proj.files()
+            task.setDependsOn([])
+            task.source = proj.fileTree("src/${sourceSetName}/java") {
                 include '**/*.java'
             }
-            reports {
+            task.reports {
                 xml.required = false
                 html.required = true
             }
