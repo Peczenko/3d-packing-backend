@@ -11,6 +11,11 @@ import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -38,12 +43,15 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/projects/{projectId}/files")
 @RequiredArgsConstructor
+@Tag(name = "Files", description = "3D model files stored in a project")
 public class ProjectFileController {
 
     private final FileApplicationService files;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
+    @Operation(operationId = "uploadProjectFile", summary = "Upload a 3D model file to a project")
+    @ApiResponse(responseCode = "201", description = "File stored")
     public FileResponse upload(@CurrentUser AuthenticatedUser caller,
                                @PathVariable UUID projectId,
                                @RequestPart("file") MultipartFile file) {
@@ -59,6 +67,8 @@ public class ProjectFileController {
     }
 
     @GetMapping
+    @Operation(operationId = "listProjectFiles", summary = "List the files in a project")
+    @ApiResponse(responseCode = "200", description = "Page of files")
     public FilePageResponse list(
                                  @CurrentUser AuthenticatedUser caller,
                                  @PathVariable UUID projectId,
@@ -69,6 +79,13 @@ public class ProjectFileController {
     }
 
     @GetMapping("/{fileId}/content")
+    @Operation(operationId = "downloadProjectFile",
+               summary = "Redirect to a short-lived download URL for a file")
+    @ApiResponse(responseCode = "302",
+                 description = "Redirect to the file",
+                 headers = @Header(name = HttpHeaders.LOCATION,
+                                   description = "Short-lived storage URL",
+                                   schema = @Schema(type = "string", format = "uri")))
     public ResponseEntity<Void> download(@CurrentUser AuthenticatedUser caller,
                                          @PathVariable UUID projectId,
                                          @PathVariable UUID fileId) {
@@ -82,6 +99,8 @@ public class ProjectFileController {
     }
 
     @PatchMapping("/{fileId}")
+    @Operation(operationId = "renameProjectFile", summary = "Rename a file")
+    @ApiResponse(responseCode = "200", description = "The renamed file")
     public FileResponse rename(@CurrentUser AuthenticatedUser caller,
                                @PathVariable UUID projectId,
                                @PathVariable UUID fileId,
@@ -94,6 +113,8 @@ public class ProjectFileController {
     }
 
     @DeleteMapping("/{fileId}")
+    @Operation(operationId = "deleteProjectFile", summary = "Delete a file")
+    @ApiResponse(responseCode = "204", description = "File deleted")
     public ResponseEntity<Void> delete(@CurrentUser AuthenticatedUser caller,
                                        @PathVariable UUID projectId,
                                        @PathVariable UUID fileId) {

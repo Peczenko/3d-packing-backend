@@ -1,6 +1,7 @@
 package com.packing.backend.api.packing;
 
 import com.packing.backend.core.packing.PackingJobView;
+import com.packing.backend.domain.packing.PackingJobStatus;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -8,7 +9,7 @@ import java.util.UUID;
 public record PackingJobResponse(
         UUID id,
         UUID projectId,
-        String status,
+        PackingJobStatus status,
         long maxRuntimeSeconds,
         String engineVersion,
         String engineChecksum,
@@ -25,8 +26,7 @@ public record PackingJobResponse(
         return new PackingJobResponse(
                                       view.id(),
                                       view.projectId(),
-                                      view.status()
-                                          .name(),
+                                      view.status(),
                                       view.maxRuntimeSeconds(),
                                       view.engineVersion(),
                                       view.engineChecksum(),
