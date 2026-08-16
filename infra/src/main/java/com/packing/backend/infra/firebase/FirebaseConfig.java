@@ -16,7 +16,7 @@ public class FirebaseConfig {
 
     @Bean(destroyMethod = "")
     @ConditionalOnProperty(prefix = "firebase", name = ADMIN_ENABLED,
-            havingValue = "true", matchIfMissing = true)
+                           havingValue = "true", matchIfMissing = true)
     public FirebaseApp firebaseApp(FirebaseProperties properties) {
         return FirebaseApp.getApps()
                           .stream()
@@ -27,14 +27,14 @@ public class FirebaseConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = "firebase", name = ADMIN_ENABLED,
-            havingValue = "true", matchIfMissing = true)
+                           havingValue = "true", matchIfMissing = true)
     public FirebaseAuth firebaseAuth(FirebaseApp firebaseApp) {
         return FirebaseAuth.getInstance(firebaseApp);
     }
 
     @Bean
     @ConditionalOnProperty(prefix = "firebase", name = ADMIN_ENABLED,
-            havingValue = "true", matchIfMissing = true)
+                           havingValue = "true", matchIfMissing = true)
     public FirebaseUserDirectory firebaseUserDirectory(FirebaseAuth firebaseAuth) {
         return new FirebaseAdminUserDirectory(firebaseAuth);
     }
