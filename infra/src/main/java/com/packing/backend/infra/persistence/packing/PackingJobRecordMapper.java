@@ -13,34 +13,39 @@ import static com.packing.backend.infra.persistence.jooq.tables.PackingJobs.PACK
 final class PackingJobRecordMapper {
 
     static final AggregateTable<PackingJobsRecord> TABLE = new AggregateTable<>(
-            "PackingJob", PACKING_JOBS.VERSION, Set.<Field<?>>of(
-                    PACKING_JOBS.PROJECT_ID, PACKING_JOBS.CREATED_BY,
-                    PACKING_JOBS.SPEC_JSON, PACKING_JOBS.MAX_RUNTIME_SECONDS,
-                    PACKING_JOBS.CREATED_AT));
+                                                                                "PackingJob",
+                                                                                PACKING_JOBS.VERSION,
+                                                                                Set.<Field<?>>of(
+                                                                                                 PACKING_JOBS.PROJECT_ID,
+                                                                                                 PACKING_JOBS.CREATED_BY,
+                                                                                                 PACKING_JOBS.SPEC_JSON,
+                                                                                                 PACKING_JOBS.MAX_RUNTIME_SECONDS,
+                                                                                                 PACKING_JOBS.CREATED_AT));
 
     private PackingJobRecordMapper() {
     }
 
     static PackingJob toDomain(PackingJobsRecord record) {
         return PackingJob.rehydrate(
-                record.getId(),
-                record.getProjectId(),
-                record.getCreatedBy(),
-                record.getSpecJson().data(),
-                record.getMaxRuntimeSeconds(),
-                record.getStatus(),
-                record.getEngineVersion(),
-                record.getEngineChecksumSha256(),
-                record.getDispatchedAt(),
-                record.getStartedAt(),
-                record.getFinishedAt(),
-                record.getResultFileName(),
-                record.getResultContentType(),
-                record.getResultChecksumSha256(),
-                record.getResultSizeBytes(),
-                record.getFailureReason(),
-                record.getVersion(),
-                record.getCreatedAt());
+                                    record.getId(),
+                                    record.getProjectId(),
+                                    record.getCreatedBy(),
+                                    record.getSpecJson()
+                                          .data(),
+                                    record.getMaxRuntimeSeconds(),
+                                    record.getStatus(),
+                                    record.getEngineVersion(),
+                                    record.getEngineChecksumSha256(),
+                                    record.getDispatchedAt(),
+                                    record.getStartedAt(),
+                                    record.getFinishedAt(),
+                                    record.getResultFileName(),
+                                    record.getResultContentType(),
+                                    record.getResultChecksumSha256(),
+                                    record.getResultSizeBytes(),
+                                    record.getFailureReason(),
+                                    record.getVersion(),
+                                    record.getCreatedAt());
     }
 
     static PackingJobsRecord toRecord(PackingJob job) {

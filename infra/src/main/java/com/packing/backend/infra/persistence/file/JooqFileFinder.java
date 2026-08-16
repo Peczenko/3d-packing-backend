@@ -23,9 +23,10 @@ public class JooqFileFinder implements FileFinder {
     @Override
     public Page<FileView> listAvailableInProject(ProjectId projectId, PageRequest page) {
         return Paging.fetch(dsl,
-                dsl.selectFrom(FILES).where(FileQueries.availableIn(projectId)),
-                List.of(FILES.CREATED_AT.desc(), FILES.ID.desc()),
-                page,
-                record -> FileView.from(FileRecordMapper.toDomain(record)));
+                            dsl.selectFrom(FILES)
+                               .where(FileQueries.availableIn(projectId)),
+                            List.of(FILES.CREATED_AT.desc(), FILES.ID.desc()),
+                            page,
+                            record -> FileView.from(FileRecordMapper.toDomain(record)));
     }
 }

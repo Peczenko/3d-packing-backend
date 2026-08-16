@@ -23,13 +23,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 class ErrorEmailRenderer {
 
-    private static final int MAX_STACK_TRACE_CHARS = 20_000;
-    private static final String ABSENT = "—";
+    private static final int    MAX_STACK_TRACE_CHARS = 20_000;
+    private static final String ABSENT                = "—";
 
     private static volatile String hostname;
 
-    private final EmailTemplates templates;
-    private final Environment environment;
+    private final EmailTemplates                  templates;
+    private final Environment                     environment;
     private final ObjectProvider<BuildProperties> buildProperties;
 
     EmailMessage render(ServerErrorReport report, AlertThrottle.Decision decision,
@@ -38,16 +38,16 @@ class ErrorEmailRenderer {
         String stackTrace = stackTraceOf(report.cause());
 
         return EmailMessage.to(recipients.toArray(String[]::new))
-                .subject(subject(report, decision))
-                .html(html(report, fields, stackTrace))
-                .text(text(fields, stackTrace))
-                .build();
+                           .subject(subject(report, decision))
+                           .html(html(report, fields, stackTrace))
+                           .text(text(fields, stackTrace))
+                           .build();
     }
 
     private String subject(ServerErrorReport report, AlertThrottle.Decision decision) {
         String recurrence = decision.suppressedSinceLastAlert() > 0
-                ? " (recurred " + (decision.suppressedSinceLastAlert() + 1) + "x)"
-                : "";
+                                                                    ? " (recurred " + (decision.suppressedSinceLastAlert() + 1) + "x)"
+                                                                    : "";
         return "[3D Packing][" + profiles() + "] " + report.status() + " "
                 + orAbsent(report.httpMethod()) + " " + orAbsent(report.uriTemplate()) + recurrence;
     }
@@ -59,17 +59,24 @@ class ErrorEmailRenderer {
         fields.put("Status", String.valueOf(report.status()));
         fields.put("Request", orAbsent(report.httpMethod()) + " " + orAbsent(report.path()));
         fields.put("Handler", orAbsent(report.uriTemplate()));
-        fields.put("Exception", report.cause() == null
-                ? ABSENT
-                : report.cause().getClass().getName());
-        fields.put("Message", report.cause() == null ? ABSENT : orAbsent(report.cause().getMessage()));
+        fields.put("Exception",
+                   report.cause() == null
+                                          ? ABSENT
+                                          : report.cause()
+                                                  .getClass()
+                                                  .getName());
+        fields.put("Message",
+                   report.cause() == null ? ABSENT
+                                          : orAbsent(report.cause()
+                                                           .getMessage()));
         fields.put("User", user(report));
         fields.put("Client", orAbsent(report.clientIp()) + " · " + orAbsent(report.userAgent()));
         fields.put("Build", version() + " · profiles " + profiles() + " · host " + hostname());
         if (decision.suppressedSinceLastAlert() > 0) {
-            fields.put("Recurrence", decision.suppressedSinceLastAlert()
-                    + " identical failures suppressed since the last alert "
-                    + describeGap(decision.lastAlertAt(), report.occurredAt()));
+            fields.put("Recurrence",
+                       decision.suppressedSinceLastAlert()
+                               + " identical failures suppressed since the last alert "
+                               + describeGap(decision.lastAlertAt(), report.occurredAt()));
         }
         return fields;
     }
@@ -87,24 +94,34 @@ class ErrorEmailRenderer {
         if (lastAlertAt == null || occurredAt == null) {
             return "";
         }
-        return "(" + Duration.between(lastAlertAt, occurredAt).toMinutes() + " minutes ago)";
+        return "(" + Duration.between(lastAlertAt, occurredAt)
+                             .toMinutes()
+                + " minutes ago)";
     }
 
     private String html(ServerErrorReport report, Map<String, String> fields, String stackTrace) {
-        return templates.render("server-error", Map.of(
-                "status", report.status(),
-                "handler", orAbsent(report.uriTemplate()),
-                "request", orAbsent(report.httpMethod()) + " " + orAbsent(report.path()),
-                "fields", fields,
-                "stackTrace", stackTrace,
-                "footerNote", "You are receiving this because your address is listed in "
-                        + "app.alerts.recipients."));
+        return templates.render("server-error",
+                                Map.of(
+                                       "status",
+                                       report.status(),
+                                       "handler",
+                                       orAbsent(report.uriTemplate()),
+                                       "request",
+                                       orAbsent(report.httpMethod()) + " " + orAbsent(report.path()),
+                                       "fields",
+                                       fields,
+                                       "stackTrace",
+                                       stackTrace,
+                                       "footerNote",
+                                       "You are receiving this because your address is listed in "
+                                               + "app.alerts.recipients."));
     }
 
     private String text(Map<String, String> fields, String stackTrace) {
-        String lines = fields.entrySet().stream()
-                .map(field -> field.getKey() + ": " + field.getValue())
-                .collect(Collectors.joining("\n"));
+        String lines = fields.entrySet()
+                             .stream()
+                             .map(field -> field.getKey() + ": " + field.getValue())
+                             .collect(Collectors.joining("\n"));
         return lines + "\n\nStack trace\n" + stackTrace;
     }
 
@@ -116,8 +133,8 @@ class ErrorEmailRenderer {
         cause.printStackTrace(new PrintWriter(writer));
         String trace = writer.toString();
         return trace.length() <= MAX_STACK_TRACE_CHARS
-                ? trace
-                : trace.substring(0, MAX_STACK_TRACE_CHARS) + "\n… truncated";
+                                                       ? trace
+                                                       : trace.substring(0, MAX_STACK_TRACE_CHARS) + "\n… truncated";
     }
 
     private String version() {
@@ -153,7 +170,8 @@ class ErrorEmailRenderer {
             return fromEnvironment;
         }
         try {
-            return InetAddress.getLocalHost().getHostName();
+            return InetAddress.getLocalHost()
+                              .getHostName();
         } catch (UnknownHostException e) {
             return "unknown host";
         }

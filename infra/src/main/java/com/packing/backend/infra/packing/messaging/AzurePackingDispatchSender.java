@@ -9,7 +9,7 @@ import com.packing.backend.infra.packing.PackingContractCodec;
 public final class AzurePackingDispatchSender implements PackingDispatchSender {
 
     private final ServiceBusSenderClient sender;
-    private final PackingContractCodec codec;
+    private final PackingContractCodec   codec;
 
     public AzurePackingDispatchSender(ServiceBusSenderClient sender, PackingContractCodec codec) {
         this.sender = sender;
@@ -19,7 +19,8 @@ public final class AzurePackingDispatchSender implements PackingDispatchSender {
     @Override
     public void send(PackingDispatchMessage command) {
         ServiceBusMessage message = new ServiceBusMessage(codec.encodeDispatch(command));
-        message.setMessageId(command.jobId().toString());
+        message.setMessageId(command.jobId()
+                                    .toString());
         message.setContentType("application/json");
         sender.sendMessage(message);
     }

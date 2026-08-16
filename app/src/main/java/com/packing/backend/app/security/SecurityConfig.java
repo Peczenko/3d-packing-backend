@@ -23,18 +23,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
-/**
- * Every route requires a verified Firebase ID token except the health probes. New
- * endpoints are therefore protected by default — a route has to be added to the permit
- * list explicitly to become public.
- */
 @Configuration(proxyBeanMethods = false)
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    private final FirebaseProperties firebaseProperties;
-    private final CorsProperties corsProperties;
+    private final FirebaseProperties           firebaseProperties;
+    private final CorsProperties               corsProperties;
     private final LoadUserAuthorizationUseCase loadUserAuthorization;
 
     public SecurityConfig(FirebaseProperties firebaseProperties,
@@ -48,42 +43,33 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
-                // No cookies and no server-side session — authentication is a bearer token
-                // on every request, so there is no CSRF vector to defend.
-                .csrf(AbstractHttpConfigurer::disable)
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .sessionManagement(session ->
-                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info")
-                        .permitAll()
-                        .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(
-                                new DatabaseRoleJwtAuthenticationConverter(loadUserAuthorization))))
-                .build();
+                   .csrf(AbstractHttpConfigurer::disable)
+                   .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                   .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                   .authorizeHttpRequests(auth -> auth
+                                                      .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info")
+                                                      .permitAll()
+                                                      .anyRequest()
+                                                      .authenticated())
+                   .oauth2ResourceServer(oauth2 -> oauth2
+                                                         .jwt(jwt -> jwt.jwtAuthenticationConverter(
+                                                                                                    new DatabaseRoleJwtAuthenticationConverter(loadUserAuthorization))))
+                   .build();
     }
 
-    /**
-     * {@code withIssuerLocation} resolves the OIDC discovery document — and from it the
-     * JWKS URI — lazily on the first token decode rather than at startup. That matters
-     * here because the container app scales to zero: a cold replica must not fail to boot
-     * just because Google was momentarily unreachable.
-     */
     @Bean
     public JwtDecoder jwtDecoder() {
-        NimbusJwtDecoder decoder =
-                NimbusJwtDecoder.withIssuerLocation(firebaseProperties.issuerUri()).build();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withIssuerLocation(firebaseProperties.issuerUri())
+                                                   .build();
         decoder.setJwtValidator(firebaseTokenValidator());
         return decoder;
     }
 
     private OAuth2TokenValidator<Jwt> firebaseTokenValidator() {
         return new DelegatingOAuth2TokenValidator<>(
-                // Timestamps (exp / nbf) plus the issuer.
-                JwtValidators.createDefaultWithIssuer(firebaseProperties.issuerUri()),
-                new FirebaseAudienceValidator(firebaseProperties.audience()),
-                new FirebaseSubjectValidator());
+                                                    JwtValidators.createDefaultWithIssuer(firebaseProperties.issuerUri()),
+                                                    new FirebaseAudienceValidator(firebaseProperties.audience()),
+                                                    new FirebaseSubjectValidator());
     }
 
     @Bean

@@ -26,17 +26,17 @@ public final class Project extends AggregateRoot {
     @EqualsAndHashCode.Include
     private final ProjectId id;
 
-    private final UserId createdBy;
+    private final UserId  createdBy;
     private final Instant createdAt;
 
     @Getter(AccessLevel.NONE)
     private final Map<UserId, ProjectMember> members = new LinkedHashMap<>();
 
-    private ProjectName name;
+    private ProjectName   name;
     private ProjectStatus status;
-    private long version;
-    private Instant updatedAt;
-    private Instant deletedAt;
+    private long          version;
+    private Instant       updatedAt;
+    private Instant       deletedAt;
 
     private Project(ProjectId id,
                     ProjectName name,
@@ -61,15 +61,15 @@ public final class Project extends AggregateRoot {
     public static Project create(ProjectName name, UserId creator, Instant now) {
         Objects.requireNonNull(creator, "creator");
         return new Project(
-                ProjectId.generate(),
-                name,
-                creator,
-                ProjectStatus.ACTIVE,
-                INITIAL_VERSION,
-                now,
-                now,
-                null,
-                List.of(new ProjectMember(creator, ProjectPermission.OWNER, creator, now)));
+                           ProjectId.generate(),
+                           name,
+                           creator,
+                           ProjectStatus.ACTIVE,
+                           INITIAL_VERSION,
+                           now,
+                           now,
+                           null,
+                           List.of(new ProjectMember(creator, ProjectPermission.OWNER, creator, now)));
     }
 
     public static Project rehydrate(ProjectId id,
@@ -81,8 +81,15 @@ public final class Project extends AggregateRoot {
                                     Instant updatedAt,
                                     Instant deletedAt,
                                     Collection<ProjectMember> members) {
-        return new Project(id, name, createdBy, status, version, createdAt, updatedAt,
-                deletedAt, members);
+        return new Project(id,
+                           name,
+                           createdBy,
+                           status,
+                           version,
+                           createdAt,
+                           updatedAt,
+                           deletedAt,
+                           members);
     }
 
     public void rename(ProjectName newName, Instant now) {
@@ -158,15 +165,16 @@ public final class Project extends AggregateRoot {
     }
 
     public Optional<ProjectPermission> permissionOf(UserId user) {
-        return Optional.ofNullable(members.get(user)).map(ProjectMember::permission);
+        return Optional.ofNullable(members.get(user))
+                       .map(ProjectMember::permission);
     }
 
     public ProjectPermission requireAccess(UserId caller, ProjectPermission required) {
         ProjectPermission actual = permissionOf(caller)
-                .orElseThrow(() -> ProjectNotFoundException.byId(id));
+                                                       .orElseThrow(() -> ProjectNotFoundException.byId(id));
         if (!actual.allows(required)) {
             throw new PermissionDeniedException(
-                    "This action requires " + required + " permission on project " + id);
+                                                "This action requires " + required + " permission on project " + id);
         }
         return actual;
     }
@@ -174,8 +182,9 @@ public final class Project extends AggregateRoot {
     public void requireWritable() {
         if (status != ProjectStatus.ACTIVE) {
             throw new ResourceConflictException(
-                    "Project " + id + " is " + status.name().toLowerCase()
-                            + " and cannot be modified");
+                                                "Project " + id + " is " + status.name()
+                                                                                 .toLowerCase()
+                                                        + " and cannot be modified");
         }
     }
 
@@ -196,19 +205,21 @@ public final class Project extends AggregateRoot {
         if (member == null || !member.isOwner()) {
             return;
         }
-        boolean anotherOwnerRemains = members.values().stream()
-                .anyMatch(other -> other.isOwner() && !other.userId().equals(user));
+        boolean anotherOwnerRemains = members.values()
+                                             .stream()
+                                             .anyMatch(other -> other.isOwner() && !other.userId()
+                                                                                         .equals(user));
         if (!anotherOwnerRemains) {
             throw new ResourceConflictException(
-                    "Project " + id + " must keep at least one owner. Promote another member "
-                            + "first.");
+                                                "Project " + id + " must keep at least one owner. Promote another member "
+                                                        + "first.");
         }
     }
 
     private void ensureNotDeleted(String operation) {
         if (isDeleted()) {
             throw new ResourceConflictException(
-                    "Cannot " + operation + " a deleted project: " + id);
+                                                "Cannot " + operation + " a deleted project: " + id);
         }
     }
 

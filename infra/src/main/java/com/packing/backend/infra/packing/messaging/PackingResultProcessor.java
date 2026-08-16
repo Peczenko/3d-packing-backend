@@ -21,7 +21,7 @@ class PackingResultProcessor {
     private static final Logger log = LoggerFactory.getLogger(PackingResultProcessor.class);
 
     private final ServiceBusProcessorClient processor;
-    private final PackingContractCodec codec;
+    private final PackingContractCodec      codec;
     private final PackingWorkerEventService workerEvents;
 
     PackingResultProcessor(ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder builder,
@@ -30,8 +30,8 @@ class PackingResultProcessor {
         this.codec = codec;
         this.workerEvents = workerEvents;
         this.processor = builder.processMessage(this::processMessage)
-                .processError(this::processError)
-                .buildProcessorClient();
+                                .processError(this::processError)
+                                .buildProcessorClient();
     }
 
     @PostConstruct
@@ -46,8 +46,13 @@ class PackingResultProcessor {
 
     private void processMessage(ServiceBusReceivedMessageContext context) {
         try {
-            PackingWorkerEvent event = codec.decodeWorkerEvent(context.getMessage().getBody().toString());
-            if (!event.jobId().toString().equals(context.getMessage().getSessionId())) {
+            PackingWorkerEvent event = codec.decodeWorkerEvent(context.getMessage()
+                                                                      .getBody()
+                                                                      .toString());
+            if (!event.jobId()
+                      .toString()
+                      .equals(context.getMessage()
+                                     .getSessionId())) {
                 throw new IllegalArgumentException("Packing result message session does not match job id");
             }
             workerEvents.apply(event);
@@ -59,7 +64,9 @@ class PackingResultProcessor {
     }
 
     private void processError(ServiceBusErrorContext context) {
-        log.warn("Packing result processor error from {} on {}", context.getErrorSource(),
-                context.getEntityPath(), context.getException());
+        log.warn("Packing result processor error from {} on {}",
+                 context.getErrorSource(),
+                 context.getEntityPath(),
+                 context.getException());
     }
 }

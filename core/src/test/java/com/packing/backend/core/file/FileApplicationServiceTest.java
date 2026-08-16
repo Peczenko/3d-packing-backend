@@ -66,23 +66,22 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class FileApplicationServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-07-19T10:15:30Z");
-    private static final String UID = "firebase-uid-1";
-    private static final UserId CALLER = UserId.generate();
+    private static final Instant   NOW     = Instant.parse("2026-07-19T10:15:30Z");
+    private static final String    UID     = "firebase-uid-1";
+    private static final UserId    CALLER  = UserId.generate();
     private static final ProjectId PROJECT = ProjectId.generate();
-    private static final byte[] BYTES = "solid cube".getBytes(StandardCharsets.UTF_8);
-    //SHA-256 of "solid cube"
-    private static final String BYTES_SHA256 =
-            "d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971";
+    private static final byte[]    BYTES   = "solid cube".getBytes(StandardCharsets.UTF_8);
+    // SHA-256 of "solid cube"
+    private static final String BYTES_SHA256 = "d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971";
 
     @Mock
-    private FileRepository files;
+    private FileRepository       files;
     @Mock
-    private FileFinder fileFinder;
+    private FileFinder           fileFinder;
     @Mock
-    private BinaryStorage storage;
+    private BinaryStorage        storage;
     @Mock
-    private ProjectAccessLookup projectAccess;
+    private ProjectAccessLookup  projectAccess;
     @Mock
     private DomainEventPublisher eventPublisher;
 
@@ -90,8 +89,12 @@ class FileApplicationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new FileApplicationService(files, fileFinder, storage, projectAccess,
-                eventPublisher, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new FileApplicationService(files,
+                                             fileFinder,
+                                             storage,
+                                             projectAccess,
+                                             eventPublisher,
+                                             Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private void access(ProjectPermission permission) {
@@ -100,7 +103,7 @@ class FileApplicationServiceTest {
 
     private void access(ProjectPermission permission, ProjectStatus status) {
         when(projectAccess.findAccess(new FirebaseUid(UID), PROJECT))
-                .thenReturn(Optional.of(new ProjectAccess(CALLER, PROJECT, status, permission)));
+                                                                     .thenReturn(Optional.of(new ProjectAccess(CALLER, PROJECT, status, permission)));
     }
 
     private void noAccess() {
@@ -112,8 +115,13 @@ class FileApplicationServiceTest {
     }
 
     private StoredFile storedFile(FileId id, ProjectId project) {
-        return StoredFile.upload(id, CALLER, project, new FileName("cube.stl"), BYTES.length,
-                Checksum.ofHex(BYTES_SHA256), NOW);
+        return StoredFile.upload(id,
+                                 CALLER,
+                                 project,
+                                 new FileName("cube.stl"),
+                                 BYTES.length,
+                                 Checksum.ofHex(BYTES_SHA256),
+                                 NOW);
     }
 
     private UploadFileCommand upload(String filename, byte[] bytes) {
@@ -128,8 +136,10 @@ class FileApplicationServiceTest {
         service.upload(upload("cube.stl", BYTES));
 
         InOrder order = inOrder(storage, files);
-        order.verify(storage).write(any(), any(), anyLong(), anyString());
-        order.verify(files).save(any());
+        order.verify(storage)
+             .write(any(), any(), anyLong(), anyString());
+        order.verify(files)
+             .save(any());
     }
 
     @Test
@@ -138,7 +148,7 @@ class FileApplicationServiceTest {
         when(files.save(any())).thenThrow(new IllegalStateException("database down"));
 
         assertThatThrownBy(() -> service.upload(upload("cube.stl", BYTES)))
-                .isInstanceOf(IllegalStateException.class);
+                                                                           .isInstanceOf(IllegalStateException.class);
 
         verify(storage).write(any(), any(), anyLong(), anyString());
     }
@@ -149,7 +159,11 @@ class FileApplicationServiceTest {
         when(files.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         FileView view = service.upload(new UploadFileCommand(
-                UID, PROJECT.value(), "cube.stl", 999_999L, sourceOf(BYTES)));
+                                                             UID,
+                                                             PROJECT.value(),
+                                                             "cube.stl",
+                                                             999_999L,
+                                                             sourceOf(BYTES)));
 
         assertThat(view.sizeBytes()).isEqualTo(BYTES.length);
     }
@@ -185,7 +199,11 @@ class FileApplicationServiceTest {
         };
 
         service.upload(new UploadFileCommand(
-                UID, PROJECT.value(), "cube.stl", BYTES.length, counting));
+                                             UID,
+                                             PROJECT.value(),
+                                             "cube.stl",
+                                             BYTES.length,
+                                             counting));
 
         assertThat(opens).hasValue(2);
         ArgumentCaptor<InputStream> written = ArgumentCaptor.forClass(InputStream.class);
@@ -210,7 +228,7 @@ class FileApplicationServiceTest {
         access(ProjectPermission.WRITE);
 
         assertThatThrownBy(() -> service.upload(upload("notes.txt", BYTES)))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                            .isInstanceOf(DomainRuleViolationException.class);
 
         verify(storage, never()).write(any(), any(), anyLong(), anyString());
         verify(files, never()).save(any());
@@ -221,7 +239,7 @@ class FileApplicationServiceTest {
         access(ProjectPermission.WRITE);
 
         assertThatThrownBy(() -> service.upload(upload("cube.stl", new byte[0])))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                                 .isInstanceOf(DomainRuleViolationException.class);
 
         verify(storage, never()).write(any(), any(), anyLong(), anyString());
     }
@@ -231,7 +249,7 @@ class FileApplicationServiceTest {
         access(ProjectPermission.READ);
 
         assertThatThrownBy(() -> service.upload(upload("cube.stl", BYTES)))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                                           .isInstanceOf(PermissionDeniedException.class);
 
         verify(storage, never()).write(any(), any(), anyLong(), anyString());
     }
@@ -241,7 +259,7 @@ class FileApplicationServiceTest {
         access(ProjectPermission.OWNER, ProjectStatus.DISABLED);
 
         assertThatThrownBy(() -> service.upload(upload("cube.stl", BYTES)))
-                .isInstanceOf(ResourceConflictException.class);
+                                                                           .isInstanceOf(ResourceConflictException.class);
 
         verify(storage, never()).write(any(), any(), anyLong(), anyString());
     }
@@ -251,7 +269,7 @@ class FileApplicationServiceTest {
         noAccess();
 
         assertThatThrownBy(() -> service.upload(upload("cube.stl", BYTES)))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                                           .isInstanceOf(ProjectNotFoundException.class);
 
         verify(storage, never()).write(any(), any(), anyLong(), anyString());
     }
@@ -264,11 +282,12 @@ class FileApplicationServiceTest {
         when(files.findById(id)).thenReturn(Optional.of(file));
         Instant expiry = NOW.plusSeconds(300);
         when(storage.temporaryReadUrl(file.storageKey(), "cube.stl", "model/stl"))
-                .thenReturn(new BinaryStorage.TemporaryUrl(
-                        URI.create("https://blob/cube?sig=x"), expiry));
+                                                                                  .thenReturn(new BinaryStorage.TemporaryUrl(
+                                                                                                                             URI.create("https://blob/cube?sig=x"),
+                                                                                                                             expiry));
 
         BinaryStorage.TemporaryUrl download = service.prepareDownload(
-                new PrepareDownloadCommand(UID, PROJECT.value(), id.value()));
+                                                                      new PrepareDownloadCommand(UID, PROJECT.value(), id.value()));
 
         assertThat(download.url()).isEqualTo(URI.create("https://blob/cube?sig=x"));
         assertThat(download.expiresAt()).isEqualTo(expiry);
@@ -282,11 +301,12 @@ class FileApplicationServiceTest {
         StoredFile file = storedFile(id, PROJECT);
         when(files.findById(id)).thenReturn(Optional.of(file));
         when(storage.temporaryReadUrl(any(), anyString(), anyString()))
-                .thenReturn(new BinaryStorage.TemporaryUrl(
-                        URI.create("https://blob/cube?sig=x"), NOW.plusSeconds(300)));
+                                                                       .thenReturn(new BinaryStorage.TemporaryUrl(
+                                                                                                                  URI.create("https://blob/cube?sig=x"),
+                                                                                                                  NOW.plusSeconds(300)));
 
         assertThat(service.prepareDownload(
-                new PrepareDownloadCommand(UID, PROJECT.value(), id.value()))).isNotNull();
+                                           new PrepareDownloadCommand(UID, PROJECT.value(), id.value()))).isNotNull();
     }
 
     @Test
@@ -296,8 +316,8 @@ class FileApplicationServiceTest {
         when(files.findById(id)).thenReturn(Optional.of(storedFile(id, ProjectId.generate())));
 
         assertThatThrownBy(() -> service.prepareDownload(
-                new PrepareDownloadCommand(UID, PROJECT.value(), id.value())))
-                .isInstanceOf(StoredFileNotFoundException.class);
+                                                         new PrepareDownloadCommand(UID, PROJECT.value(), id.value())))
+                                                                                                                       .isInstanceOf(StoredFileNotFoundException.class);
     }
 
     @Test
@@ -309,8 +329,8 @@ class FileApplicationServiceTest {
         when(files.findById(id)).thenReturn(Optional.of(file));
 
         assertThatThrownBy(() -> service.prepareDownload(
-                new PrepareDownloadCommand(UID, PROJECT.value(), id.value())))
-                .isInstanceOf(StoredFileNotFoundException.class);
+                                                         new PrepareDownloadCommand(UID, PROJECT.value(), id.value())))
+                                                                                                                       .isInstanceOf(StoredFileNotFoundException.class);
     }
 
     @Test
@@ -320,8 +340,8 @@ class FileApplicationServiceTest {
         when(files.findById(id)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.prepareDownload(
-                new PrepareDownloadCommand(UID, PROJECT.value(), id.value())))
-                .isInstanceOf(StoredFileNotFoundException.class);
+                                                         new PrepareDownloadCommand(UID, PROJECT.value(), id.value())))
+                                                                                                                       .isInstanceOf(StoredFileNotFoundException.class);
     }
 
     @Test
@@ -329,8 +349,8 @@ class FileApplicationServiceTest {
         noAccess();
 
         assertThatThrownBy(() -> service.prepareDownload(
-                new PrepareDownloadCommand(UID, PROJECT.value(), UUID.randomUUID())))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                         new PrepareDownloadCommand(UID, PROJECT.value(), UUID.randomUUID())))
+                                                                                                                              .isInstanceOf(ProjectNotFoundException.class);
     }
 
     @Test
@@ -338,12 +358,15 @@ class FileApplicationServiceTest {
         access(ProjectPermission.READ);
         FileId id = FileId.generate();
         Page<FileView> finderPage = new Page<>(
-                List.of(FileView.from(storedFile(id, PROJECT))), 2, 20, 45L);
+                                               List.of(FileView.from(storedFile(id, PROJECT))),
+                                               2,
+                                               20,
+                                               45L);
         when(fileFinder.listAvailableInProject(PROJECT, new PageRequest(2, 20)))
-                .thenReturn(finderPage);
+                                                                                .thenReturn(finderPage);
 
         Page<FileView> page = service.listFiles(
-                new ListFilesCommand(UID, PROJECT.value(), new PageRequest(2, 20)));
+                                                new ListFilesCommand(UID, PROJECT.value(), new PageRequest(2, 20)));
 
         assertThat(page).isSameAs(finderPage);
     }
@@ -353,8 +376,8 @@ class FileApplicationServiceTest {
         noAccess();
 
         assertThatThrownBy(() -> service.listFiles(
-                new ListFilesCommand(UID, PROJECT.value(), new PageRequest(0, 20))))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                   new ListFilesCommand(UID, PROJECT.value(), new PageRequest(0, 20))))
+                                                                                                                       .isInstanceOf(ProjectNotFoundException.class);
 
         verify(fileFinder, never()).listAvailableInProject(any(), any());
     }
@@ -368,7 +391,7 @@ class FileApplicationServiceTest {
         when(files.save(file)).thenReturn(file);
 
         FileView view = service.renameFile(
-                new RenameFileCommand(UID, PROJECT.value(), id.value(), "chassis.stl"));
+                                           new RenameFileCommand(UID, PROJECT.value(), id.value(), "chassis.stl"));
 
         assertThat(view.filename()).isEqualTo("chassis.stl");
         verify(storage, never()).write(any(), any(), anyLong(), anyString());
@@ -379,14 +402,19 @@ class FileApplicationServiceTest {
     void renameDoesNotCareWhoUploadedTheFile() {
         access(ProjectPermission.WRITE);
         FileId id = FileId.generate();
-        StoredFile file = StoredFile.upload(id, UserId.generate(), PROJECT,
-                new FileName("cube.stl"), BYTES.length, Checksum.ofHex(BYTES_SHA256), NOW);
+        StoredFile file = StoredFile.upload(id,
+                                            UserId.generate(),
+                                            PROJECT,
+                                            new FileName("cube.stl"),
+                                            BYTES.length,
+                                            Checksum.ofHex(BYTES_SHA256),
+                                            NOW);
         when(files.findById(id)).thenReturn(Optional.of(file));
         when(files.save(file)).thenReturn(file);
 
         assertThat(service.renameFile(
-                new RenameFileCommand(UID, PROJECT.value(), id.value(), "chassis.stl"))
-                .filename()).isEqualTo("chassis.stl");
+                                      new RenameFileCommand(UID, PROJECT.value(), id.value(), "chassis.stl"))
+                          .filename()).isEqualTo("chassis.stl");
     }
 
     @Test
@@ -394,8 +422,11 @@ class FileApplicationServiceTest {
         access(ProjectPermission.READ);
 
         assertThatThrownBy(() -> service.renameFile(new RenameFileCommand(
-                UID, PROJECT.value(), UUID.randomUUID(), "chassis.stl")))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                                          UID,
+                                                                          PROJECT.value(),
+                                                                          UUID.randomUUID(),
+                                                                          "chassis.stl")))
+                                                                                          .isInstanceOf(PermissionDeniedException.class);
 
         verify(files, never()).save(any());
     }
@@ -405,8 +436,11 @@ class FileApplicationServiceTest {
         access(ProjectPermission.OWNER, ProjectStatus.DISABLED);
 
         assertThatThrownBy(() -> service.renameFile(new RenameFileCommand(
-                UID, PROJECT.value(), UUID.randomUUID(), "chassis.stl")))
-                .isInstanceOf(ResourceConflictException.class);
+                                                                          UID,
+                                                                          PROJECT.value(),
+                                                                          UUID.randomUUID(),
+                                                                          "chassis.stl")))
+                                                                                          .isInstanceOf(ResourceConflictException.class);
 
         verify(files, never()).save(any());
     }
@@ -425,12 +459,11 @@ class FileApplicationServiceTest {
         verify(storage, never()).delete(any());
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<Collection<? extends DomainEvent>> events =
-                ArgumentCaptor.forClass(Collection.class);
+        ArgumentCaptor<Collection<? extends DomainEvent>> events = ArgumentCaptor.forClass(Collection.class);
         verify(eventPublisher).publishAll(events.capture());
         assertThat(events.getValue()).singleElement()
-                .isInstanceOfSatisfying(FileDeleted.class,
-                        event -> assertThat(event.storageKey()).isEqualTo(file.storageKey()));
+                                     .isInstanceOfSatisfying(FileDeleted.class,
+                                                             event -> assertThat(event.storageKey()).isEqualTo(file.storageKey()));
     }
 
     @Test
@@ -440,8 +473,8 @@ class FileApplicationServiceTest {
         when(files.findById(id)).thenReturn(Optional.of(storedFile(id, ProjectId.generate())));
 
         assertThatThrownBy(() -> service.deleteFile(
-                new DeleteFileCommand(UID, PROJECT.value(), id.value())))
-                .isInstanceOf(StoredFileNotFoundException.class);
+                                                    new DeleteFileCommand(UID, PROJECT.value(), id.value())))
+                                                                                                             .isInstanceOf(StoredFileNotFoundException.class);
 
         verify(files, never()).save(any());
     }
@@ -455,8 +488,8 @@ class FileApplicationServiceTest {
         when(files.findById(id)).thenReturn(Optional.of(file));
 
         assertThatThrownBy(() -> service.deleteFile(
-                new DeleteFileCommand(UID, PROJECT.value(), id.value())))
-                .isInstanceOf(StoredFileNotFoundException.class);
+                                                    new DeleteFileCommand(UID, PROJECT.value(), id.value())))
+                                                                                                             .isInstanceOf(StoredFileNotFoundException.class);
     }
 
     @Test
@@ -464,8 +497,8 @@ class FileApplicationServiceTest {
         access(ProjectPermission.READ);
 
         assertThatThrownBy(() -> service.deleteFile(
-                new DeleteFileCommand(UID, PROJECT.value(), UUID.randomUUID())))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                    new DeleteFileCommand(UID, PROJECT.value(), UUID.randomUUID())))
+                                                                                                                    .isInstanceOf(PermissionDeniedException.class);
 
         verify(files, never()).save(any());
     }
@@ -475,7 +508,7 @@ class FileApplicationServiceTest {
         noAccess();
 
         assertThatThrownBy(() -> service.deleteFile(
-                new DeleteFileCommand(UID, PROJECT.value(), UUID.randomUUID())))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                    new DeleteFileCommand(UID, PROJECT.value(), UUID.randomUUID())))
+                                                                                                                    .isInstanceOf(ProjectNotFoundException.class);
     }
 }

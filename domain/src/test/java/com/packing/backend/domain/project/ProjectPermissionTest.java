@@ -18,7 +18,7 @@ class ProjectPermissionTest {
             "WRITE, OWNER, false",
             "OWNER, READ,  true",
             "OWNER, WRITE, true",
-            "OWNER, OWNER, true"})
+            "OWNER, OWNER, true" })
     void allowsIsReflexiveAndOrderedWeakestFirst(ProjectPermission held,
                                                  ProjectPermission required,
                                                  boolean expected) {
@@ -28,8 +28,8 @@ class ProjectPermissionTest {
     @Test
     void theDeclarationOrderIsTheAuthorityModel() {
         assertThat(ProjectPermission.values())
-                .containsExactly(ProjectPermission.READ,
-                        ProjectPermission.WRITE,
-                        ProjectPermission.OWNER);
+                                              .containsExactly(ProjectPermission.READ,
+                                                               ProjectPermission.WRITE,
+                                                               ProjectPermission.OWNER);
     }
 }

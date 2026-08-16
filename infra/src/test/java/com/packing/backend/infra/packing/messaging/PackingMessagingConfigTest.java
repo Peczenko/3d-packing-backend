@@ -37,7 +37,7 @@ class PackingMessagingConfigTest {
     @Test
     void configuresManualPeekLockSettlementAndFiveMinuteRenewalForResultSessions() {
         ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder builder = mock(
-                ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder.class);
+                                                                                       ServiceBusClientBuilder.ServiceBusSessionProcessorClientBuilder.class);
         PackingMessagingProperties properties = properties(true, connectionString(), Duration.ofSeconds(30));
         when(builder.queueName(properties.resultQueue())).thenReturn(builder);
         when(builder.receiveMode(ServiceBusReceiveMode.PEEK_LOCK)).thenReturn(builder);
@@ -49,45 +49,51 @@ class PackingMessagingConfigTest {
         PackingMessagingConfig.configureResultProcessor(builder, properties);
 
         org.mockito.InOrder order = inOrder(builder);
-        order.verify(builder).queueName("packing-results");
-        order.verify(builder).receiveMode(ServiceBusReceiveMode.PEEK_LOCK);
-        order.verify(builder).disableAutoComplete();
-        order.verify(builder).maxConcurrentSessions(5);
-        order.verify(builder).maxAutoLockRenewDuration(Duration.ofMinutes(5));
-        order.verify(builder).maxConcurrentCalls(1);
+        order.verify(builder)
+             .queueName("packing-results");
+        order.verify(builder)
+             .receiveMode(ServiceBusReceiveMode.PEEK_LOCK);
+        order.verify(builder)
+             .disableAutoComplete();
+        order.verify(builder)
+             .maxConcurrentSessions(5);
+        order.verify(builder)
+             .maxAutoLockRenewDuration(Duration.ofMinutes(5));
+        order.verify(builder)
+             .maxConcurrentCalls(1);
     }
 
     @Test
     void disabledMessagingCreatesNoBrokerClientsSchedulingOrDispatchComponents() {
         runner(defaultProperties()).withPropertyValues("packing.messaging.enabled=false")
-                .run(context -> {
-                    assertThat(context).doesNotHaveBean(ServiceBusSenderClient.class);
-                    assertThat(context).doesNotHaveBean(ServiceBusReceiverClient.class);
-                    assertThat(context).doesNotHaveBean(PackingDispatchSender.class);
-                    assertThat(context).doesNotHaveBean(PackingJobDispatchService.class);
-                    assertThat(context).doesNotHaveBean("packingJobQueuedListener");
-                    assertThat(context).doesNotHaveBean("packingDispatchReconciler");
-                    assertThat(context).doesNotHaveBean("packingDeadLetterReconciler");
-                    assertThat(context).doesNotHaveBean(ScheduledAnnotationBeanPostProcessor.class);
-                });
+                                   .run(context -> {
+                                       assertThat(context).doesNotHaveBean(ServiceBusSenderClient.class);
+                                       assertThat(context).doesNotHaveBean(ServiceBusReceiverClient.class);
+                                       assertThat(context).doesNotHaveBean(PackingDispatchSender.class);
+                                       assertThat(context).doesNotHaveBean(PackingJobDispatchService.class);
+                                       assertThat(context).doesNotHaveBean("packingJobQueuedListener");
+                                       assertThat(context).doesNotHaveBean("packingDispatchReconciler");
+                                       assertThat(context).doesNotHaveBean("packingDeadLetterReconciler");
+                                       assertThat(context).doesNotHaveBean(ScheduledAnnotationBeanPostProcessor.class);
+                                   });
     }
 
     @Test
     void enabledMessagingWiresTheClientsSchedulerAndDispatchComponents() {
         runner(properties(true, connectionString(), Duration.ofSeconds(30))).withPropertyValues("packing.messaging.enabled=true")
-                .run(context -> {
-                    assertThat(context).hasBean("packingDispatchSenderClient");
-                    assertThat(context).hasBean("packingResultSenderClient");
-                    assertThat(context).hasBean("packingDispatchDeadLetterReceiver");
-                    assertThat(context).hasBean("packingResultDeadLetterReceiver");
-                    assertThat(context).hasBean("packingResultProcessorBuilder");
-                    assertThat(context).hasSingleBean(PackingDispatchSender.class);
-                    assertThat(context).hasSingleBean(PackingJobDispatchService.class);
-                    assertThat(context).hasBean("packingJobQueuedListener");
-                    assertThat(context).hasBean("packingDispatchReconciler");
-                    assertThat(context).hasBean("packingDeadLetterReconciler");
-                    assertThat(context).hasSingleBean(ScheduledAnnotationBeanPostProcessor.class);
-                });
+                                                                            .run(context -> {
+                                                                                assertThat(context).hasBean("packingDispatchSenderClient");
+                                                                                assertThat(context).hasBean("packingResultSenderClient");
+                                                                                assertThat(context).hasBean("packingDispatchDeadLetterReceiver");
+                                                                                assertThat(context).hasBean("packingResultDeadLetterReceiver");
+                                                                                assertThat(context).hasBean("packingResultProcessorBuilder");
+                                                                                assertThat(context).hasSingleBean(PackingDispatchSender.class);
+                                                                                assertThat(context).hasSingleBean(PackingJobDispatchService.class);
+                                                                                assertThat(context).hasBean("packingJobQueuedListener");
+                                                                                assertThat(context).hasBean("packingDispatchReconciler");
+                                                                                assertThat(context).hasBean("packingDeadLetterReconciler");
+                                                                                assertThat(context).hasSingleBean(ScheduledAnnotationBeanPostProcessor.class);
+                                                                            });
     }
 
     @Test
@@ -98,7 +104,7 @@ class PackingMessagingConfigTest {
     @Test
     void bindsTheConfiguredLocalConnectionString() {
         assertThat(bind(Map.of("packing.messaging.connection-string", connectionString())).connectionString())
-                .isEqualTo(connectionString());
+                                                                                                              .isEqualTo(connectionString());
     }
 
     @Test
@@ -118,21 +124,21 @@ class PackingMessagingConfigTest {
 
     private static ApplicationContextRunner runner(PackingMessagingProperties properties) {
         return new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(PackingMessagingConfig.class))
-                .withBean(PackingMessagingProperties.class, () -> properties)
-                .withBean(PackingContractCodec.class, () -> new PackingContractCodec(new ObjectMapper()))
-                .withBean(PackingJobRepository.class, () -> mock(PackingJobRepository.class))
-                .withBean(PackingJobArtifactStore.class, () -> mock(PackingJobArtifactStore.class))
-                .withBean(PackingJobFinder.class, () -> mock(PackingJobFinder.class))
-                .withBean(PackingJobRecoveryService.class, () -> mock(PackingJobRecoveryService.class))
-                .withBean(PackingWorkerEventService.class, () -> mock(PackingWorkerEventService.class))
-                .withBean(Clock.class, Clock::systemUTC);
+                                             .withConfiguration(AutoConfigurations.of(PackingMessagingConfig.class))
+                                             .withBean(PackingMessagingProperties.class, () -> properties)
+                                             .withBean(PackingContractCodec.class, () -> new PackingContractCodec(new ObjectMapper()))
+                                             .withBean(PackingJobRepository.class, () -> mock(PackingJobRepository.class))
+                                             .withBean(PackingJobArtifactStore.class, () -> mock(PackingJobArtifactStore.class))
+                                             .withBean(PackingJobFinder.class, () -> mock(PackingJobFinder.class))
+                                             .withBean(PackingJobRecoveryService.class, () -> mock(PackingJobRecoveryService.class))
+                                             .withBean(PackingWorkerEventService.class, () -> mock(PackingWorkerEventService.class))
+                                             .withBean(Clock.class, Clock::systemUTC);
     }
 
     private static PackingMessagingProperties bind(Map<String, Object> properties) {
         return new Binder(new MapConfigurationPropertySource(properties))
-                .bind("packing.messaging", Bindable.of(PackingMessagingProperties.class))
-                .orElseThrow(IllegalStateException::new);
+                                                                         .bind("packing.messaging", Bindable.of(PackingMessagingProperties.class))
+                                                                         .orElseThrow(IllegalStateException::new);
     }
 
     private static PackingMessagingProperties defaultProperties() {
@@ -141,7 +147,13 @@ class PackingMessagingConfigTest {
 
     private static PackingMessagingProperties properties(boolean enabled, String connectionString, Duration reconcileDelay) {
         return new PackingMessagingProperties(
-                enabled, "", connectionString, "packing-dispatch", "packing-results", reconcileDelay, 5);
+                                              enabled,
+                                              "",
+                                              connectionString,
+                                              "packing-dispatch",
+                                              "packing-results",
+                                              reconcileDelay,
+                                              5);
     }
 
     private static String connectionString() {
@@ -149,6 +161,7 @@ class PackingMessagingConfigTest {
     }
 
     private static Validator validator() {
-        return Validation.buildDefaultValidatorFactory().getValidator();
+        return Validation.buildDefaultValidatorFactory()
+                         .getValidator();
     }
 }

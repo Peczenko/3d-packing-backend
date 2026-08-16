@@ -20,7 +20,7 @@ public final class ExternalApiErrorMapper {
 
     private static final int MAX_BODY_CHARS = 1_000;
 
-    private final String serviceName;
+    private final String       serviceName;
     private final ObjectMapper objectMapper;
 
     public ExternalApiErrorMapper(String serviceName, ObjectMapper objectMapper) {
@@ -35,7 +35,9 @@ public final class ExternalApiErrorMapper {
             throw e;
         } catch (RestClientException | HttpMessageConversionException e) {
             throw new ExternalServiceException(
-                    serviceName, "Call to '" + serviceName + "' failed: " + e.getMessage(), e);
+                                               serviceName,
+                                               "Call to '" + serviceName + "' failed: " + e.getMessage(),
+                                               e);
         }
     }
 
@@ -49,26 +51,31 @@ public final class ExternalApiErrorMapper {
     public void raise(HttpRequest request, ClientHttpResponse response) throws IOException {
         HttpStatusCode status = response.getStatusCode();
         String body = responseBody(response);
-        String path = request.getURI().getRawPath();
+        String path = request.getURI()
+                             .getRawPath();
         String message = "Call to '" + serviceName + "' failed: "
-                + request.getMethod() + " " + request.getURI().getPath()
+                + request.getMethod() + " " + request.getURI()
+                                                     .getPath()
                 + " returned " + status.value() + " " + response.getStatusText()
                 + bodyFragment(body);
         throw new ExternalHttpException(
-                serviceName,
-                status.value(),
-                request.getMethod().name(),
-                path == null || path.isBlank() ? "/" : path,
-                providerCode(body),
-                response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER),
-                isRetryable(status.value()),
-                message);
+                                        serviceName,
+                                        status.value(),
+                                        request.getMethod()
+                                               .name(),
+                                        path == null || path.isBlank() ? "/" : path,
+                                        providerCode(body),
+                                        response.getHeaders()
+                                                .getFirst(HttpHeaders.RETRY_AFTER),
+                                        isRetryable(status.value()),
+                                        message);
     }
 
     private String responseBody(ClientHttpResponse response) {
         try {
-            return new String(response.getBody().readNBytes(MAX_BODY_CHARS * 4),
-                    StandardCharsets.UTF_8).strip();
+            return new String(response.getBody()
+                                      .readNBytes(MAX_BODY_CHARS * 4),
+                              StandardCharsets.UTF_8).strip();
         } catch (IOException e) {
             return " (response body unreadable: " + e.getMessage() + ")";
         }
@@ -79,8 +86,8 @@ public final class ExternalApiErrorMapper {
             return "";
         }
         return body.length() <= MAX_BODY_CHARS
-                ? ": " + body
-                : ": " + body.substring(0, MAX_BODY_CHARS) + "… (truncated)";
+                                               ? ": " + body
+                                               : ": " + body.substring(0, MAX_BODY_CHARS) + "… (truncated)";
     }
 
     private String providerCode(String body) {
@@ -88,7 +95,8 @@ public final class ExternalApiErrorMapper {
             return null;
         }
         try {
-            JsonNode code = objectMapper.readTree(body).get("code");
+            JsonNode code = objectMapper.readTree(body)
+                                        .get("code");
             return code == null || code.isContainerNode() || code.isNull() ? null : code.asText();
         } catch (JsonProcessingException | IllegalArgumentException e) {
             return null;

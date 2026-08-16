@@ -7,7 +7,7 @@ import java.util.function.Function;
 
 public final class ExternalApi {
 
-    private final RestClient client;
+    private final RestClient             client;
     private final ExternalApiErrorMapper errors;
 
     ExternalApi(RestClient client, ExternalApiErrorMapper errors) {

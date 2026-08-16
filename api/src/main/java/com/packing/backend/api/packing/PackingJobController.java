@@ -36,23 +36,29 @@ public class PackingJobController {
                                                      @PathVariable UUID projectId,
                                                      @Valid @RequestBody CreatePackingJobRequest request) {
         PackingJobResponse response = PackingJobResponse.from(jobs.create(new CreatePackingJobCommand(
-                caller.firebaseUid(), projectId, request.spec().toString(),
-                request.effectiveMaxRuntimeSeconds())));
+                                                                                                      caller.firebaseUid(),
+                                                                                                      projectId,
+                                                                                                      request.spec()
+                                                                                                             .toString(),
+                                                                                                      request.effectiveMaxRuntimeSeconds())));
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
-                .path("/{jobId}")
-                .buildAndExpand(response.id())
-                .toUri();
-        return ResponseEntity.accepted().location(location).body(response);
+                                                  .path("/{jobId}")
+                                                  .buildAndExpand(response.id())
+                                                  .toUri();
+        return ResponseEntity.accepted()
+                             .location(location)
+                             .body(response);
     }
 
     @GetMapping
     public PackingJobPageResponse list(@CurrentUser AuthenticatedUser caller,
                                        @PathVariable UUID projectId,
                                        @RequestParam(defaultValue = "0") @Min(0) int page,
-                                       @RequestParam(defaultValue = "20") @Min(1) @Max(PageRequest.MAX_SIZE)
-                                       int size) {
+                                       @RequestParam(defaultValue = "20") @Min(1) @Max(PageRequest.MAX_SIZE) int size) {
         return PackingJobPageResponse.from(jobs.list(new ListPackingJobsQuery(
-                caller.firebaseUid(), projectId, new PageRequest(page, size))));
+                                                                              caller.firebaseUid(),
+                                                                              projectId,
+                                                                              new PageRequest(page, size))));
     }
 
     @GetMapping("/{jobId}")

@@ -21,6 +21,9 @@ public final class Causes {
     }
 
     public static <T extends Throwable> Optional<T> firstOfType(Throwable throwable, Class<T> type) {
-        return chainOf(throwable).stream().filter(type::isInstance).map(type::cast).findFirst();
+        return chainOf(throwable).stream()
+                                 .filter(type::isInstance)
+                                 .map(type::cast)
+                                 .findFirst();
     }
 }

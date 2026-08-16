@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 @EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
 public final class PackingJob extends AggregateRoot {
 
-    public static final long INITIAL_VERSION = 0L;
+    public static final long INITIAL_VERSION     = 0L;
     public static final long MIN_RUNTIME_SECONDS = 1L;
     public static final long MAX_RUNTIME_SECONDS = 7_200L;
 
@@ -27,23 +27,23 @@ public final class PackingJob extends AggregateRoot {
     private final PackingJobId id;
 
     private final ProjectId projectId;
-    private final UserId requestedBy;
-    private final String specJson;
-    private final long maxRuntimeSeconds;
-    private final Instant createdAt;
+    private final UserId    requestedBy;
+    private final String    specJson;
+    private final long      maxRuntimeSeconds;
+    private final Instant   createdAt;
 
     private PackingJobStatus status;
-    private String engineVersion;
-    private String engineChecksum;
-    private Instant dispatchedAt;
-    private Instant startedAt;
-    private Instant finishedAt;
-    private String resultFileName;
-    private String resultContentType;
-    private String resultChecksum;
-    private Long resultSizeBytes;
-    private String failureReason;
-    private long version;
+    private String           engineVersion;
+    private String           engineChecksum;
+    private Instant          dispatchedAt;
+    private Instant          startedAt;
+    private Instant          finishedAt;
+    private String           resultFileName;
+    private String           resultContentType;
+    private String           resultChecksum;
+    private Long             resultSizeBytes;
+    private String           failureReason;
+    private long             version;
 
     private PackingJob(PackingJobId id,
                        ProjectId projectId,
@@ -90,9 +90,24 @@ public final class PackingJob extends AggregateRoot {
                                    String specJson,
                                    long maxRuntimeSeconds,
                                    Instant now) {
-        PackingJob job = new PackingJob(id, projectId, requestedBy, specJson, maxRuntimeSeconds,
-                PackingJobStatus.QUEUED, null, null, null, null, null,
-                null, null, null, null, null, INITIAL_VERSION, now);
+        PackingJob job = new PackingJob(id,
+                                        projectId,
+                                        requestedBy,
+                                        specJson,
+                                        maxRuntimeSeconds,
+                                        PackingJobStatus.QUEUED,
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        null,
+                                        INITIAL_VERSION,
+                                        now);
         job.recordEvent(new PackingJobQueued(id, projectId, now));
         return job;
     }
@@ -115,10 +130,24 @@ public final class PackingJob extends AggregateRoot {
                                        String failureReason,
                                        long version,
                                        Instant createdAt) {
-        return new PackingJob(id, projectId, requestedBy, specJson, maxRuntimeSeconds, status,
-                engineVersion, engineChecksum, dispatchedAt, startedAt, finishedAt,
-                resultFileName, resultContentType, resultChecksum, resultSizeBytes, failureReason,
-                version, createdAt);
+        return new PackingJob(id,
+                              projectId,
+                              requestedBy,
+                              specJson,
+                              maxRuntimeSeconds,
+                              status,
+                              engineVersion,
+                              engineChecksum,
+                              dispatchedAt,
+                              startedAt,
+                              finishedAt,
+                              resultFileName,
+                              resultContentType,
+                              resultChecksum,
+                              resultSizeBytes,
+                              failureReason,
+                              version,
+                              createdAt);
     }
 
     public boolean markDispatched(Instant now) {
@@ -210,15 +239,15 @@ public final class PackingJob extends AggregateRoot {
     private void requireStatus(PackingJobStatus expected) {
         if (status != expected) {
             throw new DomainRuleViolationException(
-                    "Cannot transition packing job " + id + " from " + status + " to " + expected);
+                                                   "Cannot transition packing job " + id + " from " + status + " to " + expected);
         }
     }
 
     private static void requireRuntime(long seconds) {
         if (seconds < MIN_RUNTIME_SECONDS || seconds > MAX_RUNTIME_SECONDS) {
             throw new DomainRuleViolationException(
-                    "maxRuntimeSeconds must be between " + MIN_RUNTIME_SECONDS + " and "
-                            + MAX_RUNTIME_SECONDS);
+                                                   "maxRuntimeSeconds must be between " + MIN_RUNTIME_SECONDS + " and "
+                                                           + MAX_RUNTIME_SECONDS);
         }
     }
 
@@ -236,7 +265,8 @@ public final class PackingJob extends AggregateRoot {
     }
 
     private static String requireSha256(String value, String field) {
-        if (value == null || !SHA_256.matcher(value).matches()) {
+        if (value == null || !SHA_256.matcher(value)
+                                     .matches()) {
             throw new DomainRuleViolationException(field + " must be a SHA-256 hexadecimal string");
         }
         return value.toLowerCase(Locale.ROOT);

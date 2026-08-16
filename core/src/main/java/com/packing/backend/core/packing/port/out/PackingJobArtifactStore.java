@@ -17,7 +17,7 @@ public interface PackingJobArtifactStore {
     TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity);
 
     record ResultArtifact(String fileName, String contentType, long sizeBytes,
-                          String checksum, String engineVersion, String engineChecksum) {
+            String checksum, String engineVersion, String engineChecksum) {
     }
 
     record TemporaryUrl(URI url, Instant expiresAt) {

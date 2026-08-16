@@ -15,14 +15,12 @@ import static org.mockito.Mockito.mock;
 
 class ErrorEmailRendererTest {
 
-    private static final Instant WHEN = Instant.parse("2026-07-26T14:22:08Z");
-    private static final List<String> RECIPIENTS = List.of("ops@example.com");
-    private static final AlertThrottle.Decision FIRST_SIGHTING =
-            new AlertThrottle.Decision(true, 0, null);
+    private static final Instant                WHEN           = Instant.parse("2026-07-26T14:22:08Z");
+    private static final List<String>           RECIPIENTS     = List.of("ops@example.com");
+    private static final AlertThrottle.Decision FIRST_SIGHTING = new AlertThrottle.Decision(true, 0, null);
 
-    private final MockEnvironment environment = new MockEnvironment();
-    private final ErrorEmailRenderer renderer =
-            new ErrorEmailRenderer(new EmailTemplates(), environment, noBuildInfo());
+    private final MockEnvironment    environment = new MockEnvironment();
+    private final ErrorEmailRenderer renderer    = new ErrorEmailRenderer(new EmailTemplates(), environment, noBuildInfo());
 
     @Test
     void putsTheStatusMethodAndHandlerTemplateInTheSubject() {
@@ -31,14 +29,13 @@ class ErrorEmailRendererTest {
         EmailMessage message = renderer.render(report(500, boom()), FIRST_SIGHTING, RECIPIENTS);
 
         assertThat(message.subject())
-                .isEqualTo("[3D Packing][azure] 500 POST /api/v1/files/{fileId}");
+                                     .isEqualTo("[3D Packing][azure] 500 POST /api/v1/files/{fileId}");
         assertThat(message.to()).containsExactly("ops@example.com");
     }
 
     @Test
     void countsTheOriginalAlongsideTheSuppressedRepeatsInTheSubject() {
-        AlertThrottle.Decision recurring =
-                new AlertThrottle.Decision(true, 46, WHEN.minusSeconds(900));
+        AlertThrottle.Decision recurring = new AlertThrottle.Decision(true, 46, WHEN.minusSeconds(900));
 
         EmailMessage message = renderer.render(report(500, boom()), recurring, RECIPIENTS);
 
@@ -53,8 +50,8 @@ class ErrorEmailRendererTest {
         EmailMessage message = renderer.render(report(500, hostile), FIRST_SIGHTING, RECIPIENTS);
 
         assertThat(message.htmlBody())
-                .doesNotContain("<script>")
-                .contains("&lt;script&gt;");
+                                      .doesNotContain("<script>")
+                                      .contains("&lt;script&gt;");
     }
 
     @Test
@@ -67,8 +64,18 @@ class ErrorEmailRendererTest {
     @Test
     void reportsAnonymousWhenTheFailureHadNoPrincipal() {
         ServerErrorReport anonymous = new ServerErrorReport(
-                "7f3a9c21", WHEN, 500, "POST", "/api/v1/files", "/api/v1/files",
-                "203.0.113.9", "curl/8", null, null, null, boom());
+                                                            "7f3a9c21",
+                                                            WHEN,
+                                                            500,
+                                                            "POST",
+                                                            "/api/v1/files",
+                                                            "/api/v1/files",
+                                                            "203.0.113.9",
+                                                            "curl/8",
+                                                            null,
+                                                            null,
+                                                            null,
+                                                            boom());
 
         EmailMessage message = renderer.render(anonymous, FIRST_SIGHTING, RECIPIENTS);
 
@@ -103,10 +110,10 @@ class ErrorEmailRendererTest {
         EmailMessage message = renderer.render(report(500, boom()), FIRST_SIGHTING, RECIPIENTS);
 
         assertThat(message.htmlBody())
-                .contains("<style>")
-                .contains("class=\"card\"")
-                .contains("app.alerts.recipients")
-                .doesNotContain("th:text", "th:each", "th:replace");
+                                      .contains("<style>")
+                                      .contains("class=\"card\"")
+                                      .contains("app.alerts.recipients")
+                                      .doesNotContain("th:text", "th:each", "th:replace");
     }
 
     @Test
@@ -119,8 +126,18 @@ class ErrorEmailRendererTest {
     @Test
     void survivesAReportWithNoExceptionAttached() {
         ServerErrorReport withoutCause = new ServerErrorReport(
-                "7f3a9c21", WHEN, 500, "GET", "/api/v1/files", "/api/v1/files",
-                null, null, null, null, null, null);
+                                                               "7f3a9c21",
+                                                               WHEN,
+                                                               500,
+                                                               "GET",
+                                                               "/api/v1/files",
+                                                               "/api/v1/files",
+                                                               null,
+                                                               null,
+                                                               null,
+                                                               null,
+                                                               null,
+                                                               null);
 
         EmailMessage message = renderer.render(withoutCause, FIRST_SIGHTING, RECIPIENTS);
 
@@ -129,10 +146,18 @@ class ErrorEmailRendererTest {
 
     private ServerErrorReport report(int status, Throwable cause) {
         return new ServerErrorReport(
-                "7f3a9c21", WHEN, status, "POST",
-                "/api/v1/files/8c1f?draft=true", "/api/v1/files/{fileId}",
-                "203.0.113.9", "curl/8",
-                "firebase-uid-1", "user@example.com", "ROLE_USER", cause);
+                                     "7f3a9c21",
+                                     WHEN,
+                                     status,
+                                     "POST",
+                                     "/api/v1/files/8c1f?draft=true",
+                                     "/api/v1/files/{fileId}",
+                                     "203.0.113.9",
+                                     "curl/8",
+                                     "firebase-uid-1",
+                                     "user@example.com",
+                                     "ROLE_USER",
+                                     cause);
     }
 
     private RuntimeException boom() {

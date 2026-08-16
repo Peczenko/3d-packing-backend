@@ -15,13 +15,13 @@ class AlertThrottle {
 
     private static final int MAX_TRACKED = 500;
 
-    private final Clock clock;
-    private final Duration cooldown;
-    private final int maxPerHour;
+    private final Clock                   clock;
+    private final Duration                cooldown;
+    private final int                     maxPerHour;
     private final Map<String, Occurrence> occurrences = new HashMap<>();
 
     private Instant budgetWindowStart;
-    private int sentInWindow;
+    private int     sentInWindow;
     private boolean budgetExhaustionLogged;
     private Instant lastEvictionAt;
 
@@ -80,7 +80,8 @@ class AlertThrottle {
         lastEvictionAt = now;
 
         Instant cutoff = now.minus(cooldown.multipliedBy(2));
-        occurrences.values().removeIf(occurrence -> occurrence.lastSeenAt.isBefore(cutoff));
+        occurrences.values()
+                   .removeIf(occurrence -> occurrence.lastSeenAt.isBefore(cutoff));
         if (occurrences.size() >= MAX_TRACKED) {
             log.warn("Tracking {} distinct failures; clearing throttle state", occurrences.size());
             occurrences.clear();
@@ -98,7 +99,7 @@ class AlertThrottle {
 
         private Instant lastSeenAt;
         private Instant lastAlertAt;
-        private long suppressed;
+        private long    suppressed;
 
         private Occurrence(Instant firstSeenAt) {
             this.lastSeenAt = firstSeenAt;

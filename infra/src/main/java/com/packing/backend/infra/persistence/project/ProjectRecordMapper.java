@@ -17,36 +17,39 @@ import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECT
 final class ProjectRecordMapper {
 
     static final AggregateTable<ProjectsRecord> TABLE = new AggregateTable<>(
-            "Project", PROJECTS.VERSION, Set.<Field<?>>of(PROJECTS.CREATED_BY, PROJECTS.CREATED_AT));
+                                                                             "Project",
+                                                                             PROJECTS.VERSION,
+                                                                             Set.<Field<?>>of(PROJECTS.CREATED_BY, PROJECTS.CREATED_AT));
 
     private ProjectRecordMapper() {
     }
 
     static Project toDomain(ProjectsRecord record, Collection<ProjectMember> members) {
         return Project.rehydrate(
-                record.getId(),
-                new ProjectName(record.getName()),
-                record.getCreatedBy(),
-                record.getStatus(),
-                record.getVersion(),
-                record.getCreatedAt(),
-                record.getUpdatedAt(),
-                record.getDeletedAt(),
-                members);
+                                 record.getId(),
+                                 new ProjectName(record.getName()),
+                                 record.getCreatedBy(),
+                                 record.getStatus(),
+                                 record.getVersion(),
+                                 record.getCreatedAt(),
+                                 record.getUpdatedAt(),
+                                 record.getDeletedAt(),
+                                 members);
     }
 
     static ProjectMember toDomain(ProjectMembersRecord record) {
         return new ProjectMember(
-                record.getUserId(),
-                record.getPermission(),
-                record.getAddedBy(),
-                record.getAddedAt());
+                                 record.getUserId(),
+                                 record.getPermission(),
+                                 record.getAddedBy(),
+                                 record.getAddedAt());
     }
 
     static ProjectsRecord toRecord(Project project) {
         ProjectsRecord record = new ProjectsRecord();
         record.setId(project.id());
-        record.setName(project.name().value());
+        record.setName(project.name()
+                              .value());
         record.setCreatedBy(project.createdBy());
         record.setStatus(project.status());
         record.setVersion(project.version());

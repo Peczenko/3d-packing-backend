@@ -26,7 +26,7 @@ public final class PackingContractCodec {
     public PackingContractCodec(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
         this.strictTreeReader = objectMapper.reader()
-                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+                                            .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     }
 
     public String encodeRequest(PackingRequestEnvelope envelope) {
@@ -42,7 +42,9 @@ public final class PackingContractCodec {
         requireVersion(message.messageVersion(), "message");
         ObjectNode dispatch = objectMapper.createObjectNode();
         dispatch.put("messageVersion", message.messageVersion());
-        dispatch.put("jobId", message.jobId().toString());
+        dispatch.put("jobId",
+                     message.jobId()
+                            .toString());
         return write(dispatch);
     }
 
@@ -57,7 +59,9 @@ public final class PackingContractCodec {
         ObjectNode message = objectMapper.createObjectNode();
         message.put("messageVersion", event.messageVersion());
         message.put("eventType", eventType(event));
-        message.put("jobId", event.jobId().toString());
+        message.put("jobId",
+                    event.jobId()
+                         .toString());
         message.put("engineVersion", event.engineVersion());
         message.put("engineChecksum", event.engineChecksum());
         switch (event) {
@@ -82,16 +86,25 @@ public final class PackingContractCodec {
         String engineChecksum = requiredText(event, "engineChecksum");
         return switch (requiredText(event, "eventType")) {
             case "started" -> new PackingWorkerEvent.Started(
-                    VERSION_ONE, jobId, engineVersion, engineChecksum);
+                                                             VERSION_ONE,
+                                                             jobId,
+                                                             engineVersion,
+                                                             engineChecksum);
             case "succeeded" -> new PackingWorkerEvent.Succeeded(
-                    VERSION_ONE, jobId, engineVersion, engineChecksum,
-                    requiredText(event, "resultFileName"),
-                    requiredText(event, "resultContentType"),
-                    requiredLong(event, "resultSizeBytes"),
-                    requiredText(event, "resultChecksum"));
+                                                                 VERSION_ONE,
+                                                                 jobId,
+                                                                 engineVersion,
+                                                                 engineChecksum,
+                                                                 requiredText(event, "resultFileName"),
+                                                                 requiredText(event, "resultContentType"),
+                                                                 requiredLong(event, "resultSizeBytes"),
+                                                                 requiredText(event, "resultChecksum"));
             case "failed" -> new PackingWorkerEvent.Failed(
-                    VERSION_ONE, jobId, engineVersion, engineChecksum,
-                    requiredText(event, "reason"));
+                                                           VERSION_ONE,
+                                                           jobId,
+                                                           engineVersion,
+                                                           engineChecksum,
+                                                           requiredText(event, "reason"));
             default -> throw new DomainRuleViolationException("Unknown packing worker event type");
         };
     }

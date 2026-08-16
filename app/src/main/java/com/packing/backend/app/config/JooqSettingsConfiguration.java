@@ -11,8 +11,8 @@ public class JooqSettingsConfiguration {
     @Bean
     public DefaultConfigurationCustomizer jooqCustomizer() {
         return configuration -> configuration.settings()
-                .withQueryTimeout(10)
-                .withRenderImplicitJoinType(RenderImplicitJoinType.THROW)
-                .withRenderImplicitJoinToManyType(RenderImplicitJoinType.THROW);
+                                             .withQueryTimeout(10)
+                                             .withRenderImplicitJoinType(RenderImplicitJoinType.THROW)
+                                             .withRenderImplicitJoinToManyType(RenderImplicitJoinType.THROW);
     }
 }

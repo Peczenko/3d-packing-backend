@@ -37,29 +37,35 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class FileApplicationService {
 
-    private static final String DIGEST_ALGORITHM = "SHA-256";
-    private static final int DIGEST_BUFFER_BYTES = 8192;
+    private static final String DIGEST_ALGORITHM    = "SHA-256";
+    private static final int    DIGEST_BUFFER_BYTES = 8192;
 
-    private final FileRepository files;
-    private final FileFinder fileFinder;
-    private final BinaryStorage storage;
-    private final ProjectAccessLookup projectAccess;
+    private final FileRepository       files;
+    private final FileFinder           fileFinder;
+    private final BinaryStorage        storage;
+    private final ProjectAccessLookup  projectAccess;
     private final DomainEventPublisher eventPublisher;
-    private final Clock clock;
-
+    private final Clock                clock;
 
     public FileView upload(UploadFileCommand command) {
-        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.WRITE).requireWritable();
+        ProjectAccess access = requireAccess(command.firebaseUid(),
+                                             command.projectId(),
+                                             ProjectPermission.WRITE).requireWritable();
         FileName name = new FileName(command.originalFilename());
         FileId id = FileId.generate();
 
         Content content = digestAndCount(command.content());
 
-        StoredFile file = StoredFile.upload(id, access.userId(), access.projectId(), name,
-                content.sizeBytes(), content.checksum(), clock.instant());
+        StoredFile file = StoredFile.upload(id,
+                                            access.userId(),
+                                            access.projectId(),
+                                            name,
+                                            content.sizeBytes(),
+                                            content.checksum(),
+                                            clock.instant());
 
-        try (InputStream stream = command.content().open()) {
+        try (InputStream stream = command.content()
+                                         .open()) {
             storage.write(file.storageKey(), stream, file.sizeBytes(), file.contentType());
         } catch (IOException e) {
             throw new UncheckedIOException("Could not read the upload for file " + id, e);
@@ -71,25 +77,31 @@ public class FileApplicationService {
 
     @Transactional(readOnly = true)
     public BinaryStorage.TemporaryUrl prepareDownload(PrepareDownloadCommand command) {
-        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.READ);
+        ProjectAccess access = requireAccess(command.firebaseUid(),
+                                             command.projectId(),
+                                             ProjectPermission.READ);
         StoredFile file = requireReachable(command.fileId(), access.projectId());
 
         return storage.temporaryReadUrl(
-                file.storageKey(), file.name().value(), file.contentType());
+                                        file.storageKey(),
+                                        file.name()
+                                            .value(),
+                                        file.contentType());
     }
 
     @Transactional(readOnly = true)
     public Page<FileView> listFiles(ListFilesCommand command) {
-        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.READ);
+        ProjectAccess access = requireAccess(command.firebaseUid(),
+                                             command.projectId(),
+                                             ProjectPermission.READ);
         return fileFinder.listAvailableInProject(access.projectId(), command.page());
     }
 
     @Transactional
     public FileView renameFile(RenameFileCommand command) {
-        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.WRITE).requireWritable();
+        ProjectAccess access = requireAccess(command.firebaseUid(),
+                                             command.projectId(),
+                                             ProjectPermission.WRITE).requireWritable();
         StoredFile file = requireReachable(command.fileId(), access.projectId());
 
         file.rename(new FileName(command.name()), clock.instant());
@@ -98,8 +110,9 @@ public class FileApplicationService {
 
     @Transactional
     public void deleteFile(DeleteFileCommand command) {
-        ProjectAccess access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.WRITE).requireWritable();
+        ProjectAccess access = requireAccess(command.firebaseUid(),
+                                             command.projectId(),
+                                             ProjectPermission.WRITE).requireWritable();
         StoredFile file = requireReachable(command.fileId(), access.projectId());
 
         file.delete(clock.instant());
@@ -111,16 +124,16 @@ public class FileApplicationService {
                                         ProjectPermission required) {
         ProjectId id = new ProjectId(projectId);
         return projectAccess.findAccess(new FirebaseUid(firebaseUid), id)
-                .orElseThrow(() -> ProjectNotFoundException.byId(id))
-                .requireAtLeast(required);
+                            .orElseThrow(() -> ProjectNotFoundException.byId(id))
+                            .requireAtLeast(required);
     }
 
     private StoredFile requireReachable(UUID fileId, ProjectId projectId) {
         FileId id = new FileId(fileId);
         return files.findById(id)
-                .filter(file -> file.belongsTo(projectId))
-                .filter(file -> !file.isDeleted())
-                .orElseThrow(() -> StoredFileNotFoundException.byId(id));
+                    .filter(file -> file.belongsTo(projectId))
+                    .filter(file -> !file.isDeleted())
+                    .orElseThrow(() -> StoredFileNotFoundException.byId(id));
     }
 
     private Content digestAndCount(ContentSource source) {
@@ -135,14 +148,16 @@ public class FileApplicationService {
                 size += read;
                 if (size > StoredFile.MAX_SIZE_BYTES) {
                     throw new DomainRuleViolationException(
-                            "File must be at most " + StoredFile.MAX_SIZE_BYTES + " bytes");
+                                                           "File must be at most " + StoredFile.MAX_SIZE_BYTES + " bytes");
                 }
             }
         } catch (IOException e) {
             throw new UncheckedIOException("Could not read the upload", e);
         }
 
-        return new Content(size, Checksum.ofHex(HexFormat.of().formatHex(digest.digest())));
+        return new Content(size,
+                           Checksum.ofHex(HexFormat.of()
+                                                   .formatHex(digest.digest())));
     }
 
     private static MessageDigest newDigest() {
@@ -157,10 +172,10 @@ public class FileApplicationService {
     }
 
     public record UploadFileCommand(String firebaseUid,
-                                    UUID projectId,
-                                    String originalFilename,
-                                    long declaredSizeBytes,
-                                    ContentSource content) {
+            UUID projectId,
+            String originalFilename,
+            long declaredSizeBytes,
+            ContentSource content) {
     }
 
     public record PrepareDownloadCommand(String firebaseUid, UUID projectId, UUID fileId) {

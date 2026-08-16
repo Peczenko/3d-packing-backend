@@ -36,13 +36,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(TestcontainersConfiguration.class)
 class JooqFileFinderIT {
 
-    private static final Checksum CHECKSUM =
-            Checksum.ofHex("d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971");
+    private static final Checksum CHECKSUM = Checksum.ofHex("d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971");
 
     @Autowired
     private DSLContext dsl;
 
-    private UserId owner;
+    private UserId    owner;
     private ProjectId project;
     private ProjectId otherProject;
 
@@ -55,13 +54,17 @@ class JooqFileFinderIT {
     }
 
     private static Instant now() {
-        return Instant.now().truncatedTo(ChronoUnit.MICROS);
+        return Instant.now()
+                      .truncatedTo(ChronoUnit.MICROS);
     }
 
     @BeforeEach
     void createOwnerAndProjects() {
-        User user = User.register(new FirebaseUid("uid-owner"), new Email("owner@example.com"),
-                new Username("owner"), "Owner", now());
+        User user = User.register(new FirebaseUid("uid-owner"),
+                                  new Email("owner@example.com"),
+                                  new Username("owner"),
+                                  "Owner",
+                                  now());
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         owner = user.id();
 
@@ -80,9 +83,14 @@ class JooqFileFinderIT {
     }
 
     private StoredFile persistFile(ProjectId projectId, UserId uploader, String filename,
-                                    Instant createdAt) {
-        StoredFile file = StoredFile.upload(FileId.generate(), uploader, projectId,
-                new FileName(filename), 2_048L, CHECKSUM, createdAt);
+                                   Instant createdAt) {
+        StoredFile file = StoredFile.upload(FileId.generate(),
+                                            uploader,
+                                            projectId,
+                                            new FileName(filename),
+                                            2_048L,
+                                            CHECKSUM,
+                                            createdAt);
         repository().save(file);
         return file;
     }
@@ -99,7 +107,7 @@ class JooqFileFinderIT {
         Page<FileView> page = finder().listAvailableInProject(project, new PageRequest(0, 10));
 
         assertThat(page.content()).extracting(FileView::filename)
-                .containsExactly("newer.stl", "older.stl");
+                                  .containsExactly("newer.stl", "older.stl");
         assertThat(page.totalElements()).isEqualTo(2L);
     }
 
@@ -110,14 +118,18 @@ class JooqFileFinderIT {
             persistFile(project, "part" + i + ".stl", base.plusSeconds(i));
         }
 
-        assertThat(finder().listAvailableInProject(project, new PageRequest(0, 2)).content())
-                .hasSize(2);
-        assertThat(finder().listAvailableInProject(project, new PageRequest(2, 2)).content())
-                .hasSize(1);
-        assertThat(finder().listAvailableInProject(project, new PageRequest(5, 2)).content())
-                .isEmpty();
-        assertThat(finder().listAvailableInProject(project, new PageRequest(5, 2)).totalElements())
-                .isEqualTo(5L);
+        assertThat(finder().listAvailableInProject(project, new PageRequest(0, 2))
+                           .content())
+                                      .hasSize(2);
+        assertThat(finder().listAvailableInProject(project, new PageRequest(2, 2))
+                           .content())
+                                      .hasSize(1);
+        assertThat(finder().listAvailableInProject(project, new PageRequest(5, 2))
+                           .content())
+                                      .isEmpty();
+        assertThat(finder().listAvailableInProject(project, new PageRequest(5, 2))
+                           .totalElements())
+                                            .isEqualTo(5L);
     }
 
     @Test
@@ -132,8 +144,11 @@ class JooqFileFinderIT {
 
     @Test
     void listingIncludesFilesUploadedByAnyMemberNotJustTheOwner() {
-        User other = User.register(new FirebaseUid("uid-other"), new Email("other@example.com"),
-                new Username("other"), "Other", now());
+        User other = User.register(new FirebaseUid("uid-other"),
+                                   new Email("other@example.com"),
+                                   new Username("other"),
+                                   "Other",
+                                   now());
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(other);
 
         Instant base = now();
@@ -143,22 +158,24 @@ class JooqFileFinderIT {
         Page<FileView> page = finder().listAvailableInProject(project, new PageRequest(0, 10));
 
         assertThat(page.content()).extracting(FileView::filename)
-                .containsExactly("theirs.stl", "mine.stl");
+                                  .containsExactly("theirs.stl", "mine.stl");
     }
 
     @Test
     void viewCarriesTheFieldsAClientRenders() {
         StoredFile file = persistFile(project, "bracket.stl", now());
 
-        assertThat(finder().listAvailableInProject(project, new PageRequest(0, 10)).content())
-                .singleElement()
-                .satisfies(view -> {
-                    assertThat(view.id()).isEqualTo(file.id().value());
-                    assertThat(view.projectId()).isEqualTo(project.value());
-                    assertThat(view.filename()).isEqualTo("bracket.stl");
-                    assertThat(view.format()).isEqualTo(ModelFormat.STL);
-                    assertThat(view.sizeBytes()).isEqualTo(2_048L);
-                    assertThat(view.checksumSha256()).isEqualTo(CHECKSUM.value());
-                });
+        assertThat(finder().listAvailableInProject(project, new PageRequest(0, 10))
+                           .content())
+                                      .singleElement()
+                                      .satisfies(view -> {
+                                          assertThat(view.id()).isEqualTo(file.id()
+                                                                              .value());
+                                          assertThat(view.projectId()).isEqualTo(project.value());
+                                          assertThat(view.filename()).isEqualTo("bracket.stl");
+                                          assertThat(view.format()).isEqualTo(ModelFormat.STL);
+                                          assertThat(view.sizeBytes()).isEqualTo(2_048L);
+                                          assertThat(view.checksumSha256()).isEqualTo(CHECKSUM.value());
+                                      });
     }
 }

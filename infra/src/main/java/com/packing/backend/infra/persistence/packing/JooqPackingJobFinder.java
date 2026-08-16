@@ -26,20 +26,21 @@ public class JooqPackingJobFinder implements PackingJobFinder {
     @Override
     public Page<PackingJobView> listInProject(ProjectId projectId, PageRequest page) {
         return Paging.fetch(dsl,
-                dsl.select(PackingJobQueries.VIEW_FIELDS)
-                        .from(PACKING_JOBS)
-                        .where(PackingJobQueries.inProject(projectId)),
-                List.of(PACKING_JOBS.CREATED_AT.desc(), PACKING_JOBS.ID.desc()),
-                page,
-                PackingJobQueries::toView);
+                            dsl.select(PackingJobQueries.VIEW_FIELDS)
+                               .from(PACKING_JOBS)
+                               .where(PackingJobQueries.inProject(projectId)),
+                            List.of(PACKING_JOBS.CREATED_AT.desc(), PACKING_JOBS.ID.desc()),
+                            page,
+                            PackingJobQueries::toView);
     }
 
     @Override
     public Optional<PackingJobView> detailInProject(ProjectId projectId, PackingJobId jobId) {
         return dsl.select(PackingJobQueries.VIEW_FIELDS)
-                .from(PACKING_JOBS)
-                .where(PackingJobQueries.inProject(projectId).and(PACKING_JOBS.ID.eq(jobId)))
-                .fetchOptional(PackingJobQueries::toView);
+                  .from(PACKING_JOBS)
+                  .where(PackingJobQueries.inProject(projectId)
+                                          .and(PACKING_JOBS.ID.eq(jobId)))
+                  .fetchOptional(PackingJobQueries::toView);
     }
 
     @Override
@@ -49,12 +50,12 @@ public class JooqPackingJobFinder implements PackingJobFinder {
         }
 
         return dsl.select(PACKING_JOBS.ID)
-                .from(PACKING_JOBS)
-                .where(PACKING_JOBS.STATUS.eq(PackingJobStatus.QUEUED)
-                        .and(PACKING_JOBS.DISPATCHED_AT.isNull()))
-                .orderBy(PACKING_JOBS.CREATED_AT.asc(), PACKING_JOBS.ID.asc())
-                .limit(limit)
-                .fetch(PACKING_JOBS.ID);
+                  .from(PACKING_JOBS)
+                  .where(PACKING_JOBS.STATUS.eq(PackingJobStatus.QUEUED)
+                                            .and(PACKING_JOBS.DISPATCHED_AT.isNull()))
+                  .orderBy(PACKING_JOBS.CREATED_AT.asc(), PACKING_JOBS.ID.asc())
+                  .limit(limit)
+                  .fetch(PACKING_JOBS.ID);
     }
 
     @Override
@@ -64,10 +65,10 @@ public class JooqPackingJobFinder implements PackingJobFinder {
         }
 
         return dsl.select(PACKING_JOBS.ID)
-                .from(PACKING_JOBS)
-                .where(PACKING_JOBS.STATUS.eq(PackingJobStatus.RUNNING))
-                .orderBy(PACKING_JOBS.STARTED_AT.asc(), PACKING_JOBS.ID.asc())
-                .limit(limit)
-                .fetch(PACKING_JOBS.ID);
+                  .from(PACKING_JOBS)
+                  .where(PACKING_JOBS.STATUS.eq(PackingJobStatus.RUNNING))
+                  .orderBy(PACKING_JOBS.STARTED_AT.asc(), PACKING_JOBS.ID.asc())
+                  .limit(limit)
+                  .fetch(PACKING_JOBS.ID);
     }
 }

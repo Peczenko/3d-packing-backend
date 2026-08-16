@@ -14,16 +14,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class UserTest {
 
-    private static final Instant NOW = Instant.parse("2026-07-19T10:15:30Z");
+    private static final Instant NOW   = Instant.parse("2026-07-19T10:15:30Z");
     private static final Instant LATER = NOW.plusSeconds(3600);
 
     private User activeUser() {
         return User.register(
-                new FirebaseUid("firebase-uid-1"),
-                new Email("ada@example.com"),
-                new Username("ada"),
-                "Ada Lovelace",
-                NOW);
+                             new FirebaseUid("firebase-uid-1"),
+                             new Email("ada@example.com"),
+                             new Username("ada"),
+                             "Ada Lovelace",
+                             NOW);
     }
 
     @Test
@@ -35,7 +35,8 @@ class UserTest {
         assertThat(user.createdAt()).isEqualTo(NOW);
         assertThat(user.updatedAt()).isEqualTo(NOW);
         assertThat(user.lastLoginAt()).isNull();
-        assertThat(user.domainEvents()).singleElement().isInstanceOf(UserRegistered.class);
+        assertThat(user.domainEvents()).singleElement()
+                                       .isInstanceOf(UserRegistered.class);
     }
 
     @Test
@@ -56,7 +57,8 @@ class UserTest {
         assertThat(user.username()).isEqualTo(new Username("ada.l"));
         assertThat(user.displayName()).isEqualTo("Ada L.");
         assertThat(user.updatedAt()).isEqualTo(LATER);
-        assertThat(user.domainEvents()).singleElement().isInstanceOf(UserProfileChanged.class);
+        assertThat(user.domainEvents()).singleElement()
+                                       .isInstanceOf(UserProfileChanged.class);
     }
 
     @Test
@@ -85,7 +87,7 @@ class UserTest {
         String tooLong = "x".repeat(User.MAX_DISPLAY_NAME_LENGTH + 1);
 
         assertThatThrownBy(() -> user.changeProfile(new Username("ada"), tooLong, LATER))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                                         .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
@@ -94,8 +96,8 @@ class UserTest {
         user.disable(LATER);
 
         assertThatThrownBy(() -> user.changeProfile(new Username("ada.l"), null, LATER))
-                .isInstanceOf(DomainRuleViolationException.class)
-                .hasMessageContaining("disabled");
+                                                                                        .isInstanceOf(DomainRuleViolationException.class)
+                                                                                        .hasMessageContaining("disabled");
     }
 
     @Test
@@ -107,11 +109,11 @@ class UserTest {
 
         assertThat(user.role()).isEqualTo(UserRole.ADMIN);
         assertThat(user.domainEvents()).singleElement()
-                .isInstanceOfSatisfying(UserRoleChanged.class, event -> {
-                    assertThat(event.previousRole()).isEqualTo(UserRole.USER);
-                    assertThat(event.newRole()).isEqualTo(UserRole.ADMIN);
-                    assertThat(event.firebaseUid()).isEqualTo(user.firebaseUid());
-                });
+                                       .isInstanceOfSatisfying(UserRoleChanged.class, event -> {
+                                           assertThat(event.previousRole()).isEqualTo(UserRole.USER);
+                                           assertThat(event.newRole()).isEqualTo(UserRole.ADMIN);
+                                           assertThat(event.firebaseUid()).isEqualTo(user.firebaseUid());
+                                       });
     }
 
     @Test
@@ -148,15 +150,17 @@ class UserTest {
     @Test
     void rehydrateRecordsNoEvents() {
         User user = User.rehydrate(
-                UserId.generate(),
-                new FirebaseUid("firebase-uid-1"),
-                new Email("ada@example.com"),
-                new Username("ada"),
-                null,
-                UserRole.ADMIN,
-                UserStatus.DISABLED,
-                7L,
-                NOW, NOW, null);
+                                   UserId.generate(),
+                                   new FirebaseUid("firebase-uid-1"),
+                                   new Email("ada@example.com"),
+                                   new Username("ada"),
+                                   null,
+                                   UserRole.ADMIN,
+                                   UserStatus.DISABLED,
+                                   7L,
+                                   NOW,
+                                   NOW,
+                                   null);
 
         assertThat(user.domainEvents()).isEmpty();
         assertThat(user.role()).isEqualTo(UserRole.ADMIN);
@@ -167,15 +171,32 @@ class UserTest {
     @Test
     void identityIsTheAggregateIdAlone() {
         UserId sharedId = UserId.generate();
-        User first = User.rehydrate(sharedId, new FirebaseUid("a"), new Email("a@example.com"),
-                new Username("aaa"), null, UserRole.USER, UserStatus.ACTIVE, 0L, NOW, NOW, null);
-        User second = User.rehydrate(sharedId, new FirebaseUid("b"), new Email("b@example.com"),
-                new Username("bbb"), null, UserRole.ADMIN, UserStatus.DISABLED, 0L, NOW, NOW, null);
+        User first = User.rehydrate(sharedId,
+                                    new FirebaseUid("a"),
+                                    new Email("a@example.com"),
+                                    new Username("aaa"),
+                                    null,
+                                    UserRole.USER,
+                                    UserStatus.ACTIVE,
+                                    0L,
+                                    NOW,
+                                    NOW,
+                                    null);
+        User second = User.rehydrate(sharedId,
+                                     new FirebaseUid("b"),
+                                     new Email("b@example.com"),
+                                     new Username("bbb"),
+                                     null,
+                                     UserRole.ADMIN,
+                                     UserStatus.DISABLED,
+                                     0L,
+                                     NOW,
+                                     NOW,
+                                     null);
 
-        assertThat(first).isEqualTo(second).hasSameHashCodeAs(second);
+        assertThat(first).isEqualTo(second)
+                         .hasSameHashCodeAs(second);
     }
-
-    // --- optimistic locking --------------------------------------------------------
 
     @Test
     void aNewlyRegisteredUserStartsAtTheInitialVersion() {
@@ -191,8 +212,6 @@ class UserTest {
         assertThat(user.version()).isEqualTo(User.INITIAL_VERSION + 1);
     }
 
-    // --- deletion ------------------------------------------------------------------
-
     @Test
     void deletingAnonymisesTheProfileButKeepsTheFirebaseLink() {
         User user = activeUser();
@@ -204,18 +223,24 @@ class UserTest {
         assertThat(user.isDeleted()).isTrue();
         assertThat(user.isActive()).isFalse();
         assertThat(user.displayName()).isNull();
-        assertThat(user.email().value()).doesNotContain("ada@example.com").endsWith("@deleted.invalid");
-        assertThat(user.username().value()).isNotEqualTo("ada");
-        // Retained on purpose: it is the key that lets an already-issued token be rejected.
+        assertThat(user.email()
+                       .value()).doesNotContain("ada@example.com")
+                                .endsWith("@deleted.invalid");
+        assertThat(user.username()
+                       .value()).isNotEqualTo("ada");
         assertThat(user.firebaseUid()).isEqualTo(new FirebaseUid("firebase-uid-1"));
-        assertThat(user.domainEvents()).singleElement().isInstanceOf(UserAccountDeleted.class);
+        assertThat(user.domainEvents()).singleElement()
+                                       .isInstanceOf(UserAccountDeleted.class);
     }
 
     @Test
     void theAnonymisedValuesAreDerivedFromTheIdSoTheyStayUnique() {
         User first = activeUser();
-        User second = User.register(new FirebaseUid("firebase-uid-2"), new Email("bob@example.com"),
-                new Username("bob"), null, NOW);
+        User second = User.register(new FirebaseUid("firebase-uid-2"),
+                                    new Email("bob@example.com"),
+                                    new Username("bob"),
+                                    null,
+                                    NOW);
 
         first.delete(LATER);
         second.delete(LATER);
@@ -243,10 +268,10 @@ class UserTest {
         user.delete(LATER);
 
         assertThatThrownBy(() -> user.assignRole(UserRole.ADMIN, LATER))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                        .isInstanceOf(DomainRuleViolationException.class);
         assertThatThrownBy(() -> user.changeEmail(new Email("back@example.com"), LATER))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                                                        .isInstanceOf(DomainRuleViolationException.class);
         assertThatThrownBy(() -> user.enable(LATER))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                    .isInstanceOf(DomainRuleViolationException.class);
     }
 }

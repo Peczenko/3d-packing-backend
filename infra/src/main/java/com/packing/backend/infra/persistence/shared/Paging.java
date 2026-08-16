@@ -22,10 +22,10 @@ public final class Paging {
                                                       Function<? super R, T> mapper) {
         long total = dsl.fetchCount(query);
         List<T> content = query.orderBy(orderBy)
-                .offset(request.offset())
-                .limit(request.size())
-                .fetch()
-                .map(mapper::apply);
+                               .offset(request.offset())
+                               .limit(request.size())
+                               .fetch()
+                               .map(mapper::apply);
         return new Page<>(content, request.page(), request.size(), total);
     }
 }

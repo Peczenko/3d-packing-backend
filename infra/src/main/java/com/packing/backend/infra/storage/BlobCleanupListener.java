@@ -9,14 +9,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-/**
- * Runs {@link TransactionPhase#AFTER_COMMIT}: PostgreSQL and the object store cannot share
- * a transaction, and unlike a database row, a deleted blob cannot be rolled back.
- *
- * <p>Failures are logged, never rethrown — the row already says {@code DELETED}, so the
- * file is unreachable through the API regardless; an {@code ERROR} here means a blob needs
- * reaping, not that the deletion failed.
- */
 @Component
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 @Slf4j
@@ -30,9 +22,12 @@ class BlobCleanupListener {
             storage.delete(event.storageKey());
         } catch (RuntimeException e) {
             log.error("File {} was deleted for owner {} but blob {} could not be removed. "
-                            + "The file is already unreachable (the row is tombstoned); the "
-                            + "orphaned blob needs reaping.",
-                    event.fileId(), event.ownerId(), event.storageKey(), e);
+                    + "The file is already unreachable (the row is tombstoned); the "
+                    + "orphaned blob needs reaping.",
+                      event.fileId(),
+                      event.ownerId(),
+                      event.storageKey(),
+                      e);
         }
     }
 }

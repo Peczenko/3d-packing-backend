@@ -17,9 +17,9 @@ class PackingDispatchReconciler {
 
     private static final int BATCH_SIZE = 100;
 
-    private final PackingJobFinder finder;
+    private final PackingJobFinder          finder;
     private final PackingJobDispatchService dispatcher;
-    private final PackingJobArtifactStore artifacts;
+    private final PackingJobArtifactStore   artifacts;
     private final PackingJobRecoveryService recovery;
 
     @EventListener(ApplicationReadyEvent.class)
@@ -33,8 +33,10 @@ class PackingDispatchReconciler {
     }
 
     private void reconcileBatch() {
-        finder.findUndispatched(BATCH_SIZE).forEach(this::dispatchIndependently);
-        finder.findRunning(BATCH_SIZE).forEach(this::recoverIndependently);
+        finder.findUndispatched(BATCH_SIZE)
+              .forEach(this::dispatchIndependently);
+        finder.findRunning(BATCH_SIZE)
+              .forEach(this::recoverIndependently);
     }
 
     private void dispatchIndependently(PackingJobId jobId) {
@@ -47,7 +49,8 @@ class PackingDispatchReconciler {
 
     private void recoverIndependently(PackingJobId jobId) {
         try {
-            artifacts.findResult(jobId).ifPresent(result -> recovery.recoverResult(jobId, result));
+            artifacts.findResult(jobId)
+                     .ifPresent(result -> recovery.recoverResult(jobId, result));
         } catch (RuntimeException failure) {
             log.warn("Packing result reconciliation deferred for {}", jobId, failure);
         }

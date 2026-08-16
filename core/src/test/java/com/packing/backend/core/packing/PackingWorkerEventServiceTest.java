@@ -30,12 +30,12 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PackingWorkerEventServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-08-01T11:30:00Z");
-    private static final String STARTED_VERSION = "packer 0.1.0";
-    private static final String FINAL_VERSION = "packer 0.1.1";
-    private static final String STARTED_CHECKSUM = "a".repeat(64);
-    private static final String FINAL_CHECKSUM = "b".repeat(64);
-    private static final String RESULT_CHECKSUM = "c".repeat(64);
+    private static final Instant NOW              = Instant.parse("2026-08-01T11:30:00Z");
+    private static final String  STARTED_VERSION  = "packer 0.1.0";
+    private static final String  FINAL_VERSION    = "packer 0.1.1";
+    private static final String  STARTED_CHECKSUM = "a".repeat(64);
+    private static final String  FINAL_CHECKSUM   = "b".repeat(64);
+    private static final String  RESULT_CHECKSUM  = "c".repeat(64);
 
     @Mock
     private PackingJobRepository jobs;
@@ -133,8 +133,13 @@ class PackingWorkerEventServiceTest {
     @Test
     void anyWorkerEventAfterTerminalSuccessIsANoOp() {
         PackingJob job = runningJob();
-        job.succeed("earlier.bin", "application/octet-stream", 1, "d".repeat(64),
-                STARTED_VERSION, STARTED_CHECKSUM, NOW.minusSeconds(1));
+        job.succeed("earlier.bin",
+                    "application/octet-stream",
+                    1,
+                    "d".repeat(64),
+                    STARTED_VERSION,
+                    STARTED_CHECKSUM,
+                    NOW.minusSeconds(1));
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
         service.apply(failed(job.id()));
@@ -176,7 +181,7 @@ class PackingWorkerEventServiceTest {
         when(jobs.findById(jobId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.apply(started(jobId)))
-                .isInstanceOf(PackingJobNotFoundException.class);
+                                                               .isInstanceOf(PackingJobNotFoundException.class);
 
         verify(jobs, never()).save(org.mockito.ArgumentMatchers.any());
     }
@@ -188,8 +193,12 @@ class PackingWorkerEventServiceTest {
     }
 
     private static PackingJob queuedJob() {
-        return PackingJob.queue(PackingJobId.generate(), ProjectId.generate(), UserId.generate(),
-                "{\"testField\":true}", 60, NOW.minusSeconds(30));
+        return PackingJob.queue(PackingJobId.generate(),
+                                ProjectId.generate(),
+                                UserId.generate(),
+                                "{\"testField\":true}",
+                                60,
+                                NOW.minusSeconds(30));
     }
 
     private static PackingJob runningJob() {
@@ -203,12 +212,21 @@ class PackingWorkerEventServiceTest {
     }
 
     private static PackingWorkerEvent.Succeeded succeeded(PackingJobId jobId) {
-        return new PackingWorkerEvent.Succeeded(1, jobId, FINAL_VERSION, FINAL_CHECKSUM,
-                "result.bin", "application/octet-stream", 1234, RESULT_CHECKSUM);
+        return new PackingWorkerEvent.Succeeded(1,
+                                                jobId,
+                                                FINAL_VERSION,
+                                                FINAL_CHECKSUM,
+                                                "result.bin",
+                                                "application/octet-stream",
+                                                1234,
+                                                RESULT_CHECKSUM);
     }
 
     private static PackingWorkerEvent.Failed failed(PackingJobId jobId) {
-        return new PackingWorkerEvent.Failed(1, jobId, FINAL_VERSION, FINAL_CHECKSUM,
-                "engine exited 1");
+        return new PackingWorkerEvent.Failed(1,
+                                             jobId,
+                                             FINAL_VERSION,
+                                             FINAL_CHECKSUM,
+                                             "engine exited 1");
     }
 }

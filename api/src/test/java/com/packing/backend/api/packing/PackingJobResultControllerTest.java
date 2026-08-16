@@ -38,8 +38,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 class PackingJobResultControllerTest {
 
-    private static final String UID = "firebase-uid-1";
-    private static final UUID PROJECT_ID = UUID.randomUUID();
+    private static final String UID        = "firebase-uid-1";
+    private static final UUID   PROJECT_ID = UUID.randomUUID();
 
     @Autowired
     private MockMvc mockMvc;
@@ -60,56 +60,61 @@ class PackingJobResultControllerTest {
         authenticate();
         UUID jobId = UUID.randomUUID();
         when(jobs.prepareResultDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
-                URI.create("https://storage.example/packing-jobs/result?sig=secret"),
-                Instant.parse("2026-08-01T10:25:30Z")));
+                                                                                                    URI.create("https://storage.example/packing-jobs/result?sig=secret"),
+                                                                                                    Instant.parse("2026-08-01T10:25:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result", PROJECT_ID, jobId))
-                .andExpect(status().isFound())
-                .andExpect(header().string("Location",
-                        "https://storage.example/packing-jobs/result?sig=secret"))
-                .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(header().string("Pragma", "no-cache"))
-                .andExpect(content().string(""));
+               .andExpect(status().isFound())
+               .andExpect(header().string("Location",
+                                          "https://storage.example/packing-jobs/result?sig=secret"))
+               .andExpect(header().string("Cache-Control", "no-store"))
+               .andExpect(header().string("Pragma", "no-cache"))
+               .andExpect(content().string(""));
 
-        ArgumentCaptor<PackingJobResultQuery> query =
-                ArgumentCaptor.forClass(PackingJobResultQuery.class);
+        ArgumentCaptor<PackingJobResultQuery> query = ArgumentCaptor.forClass(PackingJobResultQuery.class);
         verify(jobs).prepareResultDownload(query.capture());
-        assertThat(query.getValue().firebaseUid()).isEqualTo(UID);
-        assertThat(query.getValue().projectId()).isEqualTo(PROJECT_ID);
-        assertThat(query.getValue().jobId()).isEqualTo(jobId);
+        assertThat(query.getValue()
+                        .firebaseUid()).isEqualTo(UID);
+        assertThat(query.getValue()
+                        .projectId()).isEqualTo(PROJECT_ID);
+        assertThat(query.getValue()
+                        .jobId()).isEqualTo(jobId);
     }
 
     @Test
     void unavailableResultIsAConflict() throws Exception {
         authenticate();
         when(jobs.prepareResultDownload(any()))
-                .thenThrow(new ResourceConflictException("Packing job result is not available"));
+                                               .thenThrow(new ResourceConflictException("Packing job result is not available"));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result",
-                        PROJECT_ID, UUID.randomUUID()))
-                .andExpect(status().isConflict());
+                            PROJECT_ID,
+                            UUID.randomUUID()))
+               .andExpect(status().isConflict());
     }
 
     @Test
     void unknownOrUnreachableJobIsNotFound() throws Exception {
         authenticate();
         when(jobs.prepareResultDownload(any()))
-                .thenThrow(PackingJobNotFoundException.byId(new PackingJobId(UUID.randomUUID())));
+                                               .thenThrow(PackingJobNotFoundException.byId(new PackingJobId(UUID.randomUUID())));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result",
-                        PROJECT_ID, UUID.randomUUID()))
-                .andExpect(status().isNotFound());
+                            PROJECT_ID,
+                            UUID.randomUUID()))
+               .andExpect(status().isNotFound());
     }
 
     private void authenticate() {
         Jwt jwt = Jwt.withTokenValue("token")
-                .header("alg", "RS256")
-                .subject(UID)
-                .claim("email", "ada@example.com")
-                .claim("name", "Ada Lovelace")
-                .claim("email_verified", true)
-                .build();
-        SecurityContextHolder.getContext().setAuthentication(
-                new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_USER"))));
+                     .header("alg", "RS256")
+                     .subject(UID)
+                     .claim("email", "ada@example.com")
+                     .claim("name", "Ada Lovelace")
+                     .claim("email_verified", true)
+                     .build();
+        SecurityContextHolder.getContext()
+                             .setAuthentication(
+                                                new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_USER"))));
     }
 }

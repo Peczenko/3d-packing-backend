@@ -21,28 +21,33 @@ import static org.jooq.impl.DSL.selectFrom;
 final class ProjectQueries {
 
     static final Field<List<ProjectMember>> MEMBERS = multiset(
-            selectFrom(PROJECT_MEMBERS)
-                    .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                    .orderBy(PROJECT_MEMBERS.ADDED_AT.asc(), PROJECT_MEMBERS.USER_ID.asc()))
-            .convertFrom(rows -> rows.map(ProjectRecordMapper::toDomain));
+                                                               selectFrom(PROJECT_MEMBERS)
+                                                                                          .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
+                                                                                          .orderBy(PROJECT_MEMBERS.ADDED_AT.asc(), PROJECT_MEMBERS.USER_ID.asc()))
+                                                                                                                                                                  .convertFrom(rows -> rows.map(ProjectRecordMapper::toDomain));
 
     static final Field<Integer> MEMBER_COUNT = field(selectCount()
-            .from(PROJECT_MEMBERS)
-            .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID)));
+                                                                  .from(PROJECT_MEMBERS)
+                                                                  .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID)));
 
     static final Field<List<ProjectMemberView>> MEMBER_VIEWS = multiset(
-            select(PROJECT_MEMBERS.USER_ID, USERS.USERNAME, USERS.DISPLAY_NAME,
-                    PROJECT_MEMBERS.PERMISSION, PROJECT_MEMBERS.ADDED_AT)
-                    .from(PROJECT_MEMBERS)
-                    .join(USERS).on(USERS.ID.eq(PROJECT_MEMBERS.USER_ID))
-                    .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
-                    .orderBy(PROJECT_MEMBERS.ADDED_AT.asc(), PROJECT_MEMBERS.USER_ID.asc()))
-            .convertFrom(rows -> rows.map(row -> new ProjectMemberView(
-                    row.get(PROJECT_MEMBERS.USER_ID).value(),
-                    row.get(USERS.USERNAME),
-                    row.get(USERS.DISPLAY_NAME),
-                    row.get(PROJECT_MEMBERS.PERMISSION),
-                    row.get(PROJECT_MEMBERS.ADDED_AT))));
+                                                                        select(PROJECT_MEMBERS.USER_ID,
+                                                                               USERS.USERNAME,
+                                                                               USERS.DISPLAY_NAME,
+                                                                               PROJECT_MEMBERS.PERMISSION,
+                                                                               PROJECT_MEMBERS.ADDED_AT)
+                                                                                                        .from(PROJECT_MEMBERS)
+                                                                                                        .join(USERS)
+                                                                                                        .on(USERS.ID.eq(PROJECT_MEMBERS.USER_ID))
+                                                                                                        .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID))
+                                                                                                        .orderBy(PROJECT_MEMBERS.ADDED_AT.asc(), PROJECT_MEMBERS.USER_ID.asc()))
+                                                                                                                                                                                .convertFrom(rows -> rows.map(row -> new ProjectMemberView(
+                                                                                                                                                                                                                                           row.get(PROJECT_MEMBERS.USER_ID)
+                                                                                                                                                                                                                                              .value(),
+                                                                                                                                                                                                                                           row.get(USERS.USERNAME),
+                                                                                                                                                                                                                                           row.get(USERS.DISPLAY_NAME),
+                                                                                                                                                                                                                                           row.get(PROJECT_MEMBERS.PERMISSION),
+                                                                                                                                                                                                                                           row.get(PROJECT_MEMBERS.ADDED_AT))));
 
     private ProjectQueries() {
     }

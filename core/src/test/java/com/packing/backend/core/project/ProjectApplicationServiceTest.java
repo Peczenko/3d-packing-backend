@@ -68,22 +68,22 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ProjectApplicationServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-07-27T10:15:30Z");
-    private static final String UID = "firebase-uid-1";
-    private static final UserId CALLER = UserId.generate();
-    private static final UserId MEMBER = UserId.generate();
-    private static final ProjectName NAME = new ProjectName("Chassis packing");
+    private static final Instant     NOW    = Instant.parse("2026-07-27T10:15:30Z");
+    private static final String      UID    = "firebase-uid-1";
+    private static final UserId      CALLER = UserId.generate();
+    private static final UserId      MEMBER = UserId.generate();
+    private static final ProjectName NAME   = new ProjectName("Chassis packing");
 
     @Mock
-    private ProjectRepository projects;
+    private ProjectRepository    projects;
     @Mock
-    private ProjectFinder projectFinder;
+    private ProjectFinder        projectFinder;
     @Mock
-    private UserRepository users;
+    private UserRepository       users;
     @Mock
-    private ActiveUserLookup activeUsers;
+    private ActiveUserLookup     activeUsers;
     @Mock
-    private FileRepository files;
+    private FileRepository       files;
     @Mock
     private DomainEventPublisher eventPublisher;
 
@@ -93,8 +93,13 @@ class ProjectApplicationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ProjectApplicationService(projects, projectFinder, users, activeUsers,
-                files, eventPublisher, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new ProjectApplicationService(projects,
+                                                projectFinder,
+                                                users,
+                                                activeUsers,
+                                                files,
+                                                eventPublisher,
+                                                Clock.fixed(NOW, ZoneOffset.UTC));
         when(activeUsers.findActiveUser(new FirebaseUid(UID))).thenReturn(Optional.of(CALLER));
         when(projects.save(any())).thenAnswer(invocation -> {
             Project project = invocation.getArgument(0);
@@ -106,7 +111,8 @@ class ProjectApplicationServiceTest {
             ProjectId id = invocation.getArgument(1);
             Project project = stored.get(id);
             if (project == null || project.isDeleted()
-                    || project.permissionOf(caller).isEmpty()) {
+                    || project.permissionOf(caller)
+                              .isEmpty()) {
                 return Optional.empty();
             }
             return Optional.of(viewOf(project, caller));
@@ -114,23 +120,47 @@ class ProjectApplicationServiceTest {
     }
 
     private static ProjectView viewOf(Project project, UserId caller) {
-        List<ProjectMemberView> members = project.members().stream()
-                .map(member -> new ProjectMemberView(member.userId().value(),
-                        "user" + Math.abs(member.userId().value().hashCode()), "Display Name",
-                        member.permission(), member.addedAt()))
-                .sorted(Comparator.comparing(ProjectMemberView::addedAt))
-                .toList();
-        return new ProjectView(project.id().value(), project.name().value(), project.status(),
-                project.createdBy().value(), project.permissionOf(caller).orElseThrow(),
-                members, project.createdAt(), project.updatedAt());
+        List<ProjectMemberView> members = project.members()
+                                                 .stream()
+                                                 .map(member -> new ProjectMemberView(member.userId()
+                                                                                            .value(),
+                                                                                      "user" + Math.abs(member.userId()
+                                                                                                              .value()
+                                                                                                              .hashCode()),
+                                                                                      "Display Name",
+                                                                                      member.permission(),
+                                                                                      member.addedAt()))
+                                                 .sorted(Comparator.comparing(ProjectMemberView::addedAt))
+                                                 .toList();
+        return new ProjectView(project.id()
+                                      .value(),
+                               project.name()
+                                      .value(),
+                               project.status(),
+                               project.createdBy()
+                                      .value(),
+                               project.permissionOf(caller)
+                                      .orElseThrow(),
+                               members,
+                               project.createdAt(),
+                               project.updatedAt());
     }
 
     private static User userWithId(UserId id) {
-        User user = User.rehydrate(id, new FirebaseUid("uid-" + id.value()),
-                new Email("u" + Math.abs(id.value().hashCode()) + "@example.com"),
-                Username.suggestionFrom("user" + Math.abs(id.value().hashCode())),
-                "Display Name", com.packing.backend.domain.user.UserRole.USER,
-                com.packing.backend.domain.user.UserStatus.ACTIVE, 1L, NOW, NOW, null);
+        User user = User.rehydrate(id,
+                                   new FirebaseUid("uid-" + id.value()),
+                                   new Email("u" + Math.abs(id.value()
+                                                              .hashCode())
+                                           + "@example.com"),
+                                   Username.suggestionFrom("user" + Math.abs(id.value()
+                                                                               .hashCode())),
+                                   "Display Name",
+                                   com.packing.backend.domain.user.UserRole.USER,
+                                   com.packing.backend.domain.user.UserStatus.ACTIVE,
+                                   1L,
+                                   NOW,
+                                   NOW,
+                                   null);
         return user;
     }
 
@@ -160,10 +190,10 @@ class ProjectApplicationServiceTest {
         assertThat(view.createdBy()).isEqualTo(CALLER.value());
         assertThat(view.myPermission()).isEqualTo(ProjectPermission.OWNER);
         assertThat(view.members()).singleElement()
-                .satisfies(member -> {
-                    assertThat(member.userId()).isEqualTo(CALLER.value());
-                    assertThat(member.permission()).isEqualTo(ProjectPermission.OWNER);
-                });
+                                  .satisfies(member -> {
+                                      assertThat(member.userId()).isEqualTo(CALLER.value());
+                                      assertThat(member.permission()).isEqualTo(ProjectPermission.OWNER);
+                                  });
     }
 
     @Test
@@ -171,7 +201,7 @@ class ProjectApplicationServiceTest {
         when(activeUsers.findActiveUser(new FirebaseUid(UID))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.createProject(new CreateProjectCommand(UID, "X")))
-                .isInstanceOf(UserNotFoundException.class);
+                                                                                           .isInstanceOf(UserNotFoundException.class);
 
         verify(projects, never()).save(any());
     }
@@ -181,8 +211,11 @@ class ProjectApplicationServiceTest {
         Project project = projectWhereCallerIs(ProjectPermission.WRITE);
 
         assertThatThrownBy(() -> service.renameProject(
-                new RenameProjectCommand(UID, project.id().value(), "New name")))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                       new RenameProjectCommand(UID,
+                                                                                project.id()
+                                                                                       .value(),
+                                                                                "New name")))
+                                                                                             .isInstanceOf(PermissionDeniedException.class);
     }
 
     @Test
@@ -190,7 +223,10 @@ class ProjectApplicationServiceTest {
         Project project = ownedProject();
 
         ProjectView view = service.renameProject(
-                new RenameProjectCommand(UID, project.id().value(), "New name"));
+                                                 new RenameProjectCommand(UID,
+                                                                          project.id()
+                                                                                 .value(),
+                                                                          "New name"));
 
         assertThat(view.name()).isEqualTo("New name");
     }
@@ -201,8 +237,10 @@ class ProjectApplicationServiceTest {
         project.delete(NOW);
 
         assertThatThrownBy(() -> service.getProject(
-                new ProjectQuery(UID, project.id().value())))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                    new ProjectQuery(UID,
+                                                                     project.id()
+                                                                            .value())))
+                                                                                       .isInstanceOf(ProjectNotFoundException.class);
     }
 
     @Test
@@ -210,7 +248,7 @@ class ProjectApplicationServiceTest {
         UUID unknown = UUID.randomUUID();
 
         assertThatThrownBy(() -> service.getProject(new ProjectQuery(UID, unknown)))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                                                    .isInstanceOf(ProjectNotFoundException.class);
     }
 
     @Test
@@ -219,19 +257,26 @@ class ProjectApplicationServiceTest {
         stored.put(project.id(), project);
 
         assertThatThrownBy(() -> service.getProject(
-                new ProjectQuery(UID, project.id().value())))
-                .isInstanceOf(ProjectNotFoundException.class);
+                                                    new ProjectQuery(UID,
+                                                                     project.id()
+                                                                            .value())))
+                                                                                       .isInstanceOf(ProjectNotFoundException.class);
     }
 
     @Test
     void listProjectsDelegatesToTheFinderWithTheCallersId() {
-        ProjectSummaryView summary = new ProjectSummaryView(UUID.randomUUID(), "Chassis packing",
-                ProjectStatus.ACTIVE, ProjectPermission.OWNER, 1, NOW, NOW);
+        ProjectSummaryView summary = new ProjectSummaryView(UUID.randomUUID(),
+                                                            "Chassis packing",
+                                                            ProjectStatus.ACTIVE,
+                                                            ProjectPermission.OWNER,
+                                                            1,
+                                                            NOW,
+                                                            NOW);
         when(projectFinder.listForMember(CALLER, new PageRequest(2, 20)))
-                .thenReturn(new Page<>(List.of(summary), 2, 20, 45L));
+                                                                         .thenReturn(new Page<>(List.of(summary), 2, 20, 45L));
 
         Page<ProjectSummaryView> page = service.listProjects(
-                new ListProjectsCommand(UID, new PageRequest(2, 20)));
+                                                             new ListProjectsCommand(UID, new PageRequest(2, 20)));
 
         assertThat(page.content()).containsExactly(summary);
         assertThat(page.totalPages()).isEqualTo(3);
@@ -244,7 +289,11 @@ class ProjectApplicationServiceTest {
         when(users.findByEmail(new Email("bob@example.com"))).thenReturn(Optional.of(invitee));
 
         ProjectView view = service.grantAccess(new GrantAccessCommand(
-                UID, project.id().value(), "bob@example.com", ProjectPermission.WRITE));
+                                                                      UID,
+                                                                      project.id()
+                                                                             .value(),
+                                                                      "bob@example.com",
+                                                                      ProjectPermission.WRITE));
 
         assertThat(view.members()).hasSize(2);
         assertThat(project.permissionOf(MEMBER)).contains(ProjectPermission.WRITE);
@@ -258,7 +307,11 @@ class ProjectApplicationServiceTest {
         when(users.findByUsername(new Username("bob"))).thenReturn(Optional.of(invitee));
 
         service.grantAccess(new GrantAccessCommand(
-                UID, project.id().value(), "bob", ProjectPermission.READ));
+                                                   UID,
+                                                   project.id()
+                                                          .value(),
+                                                   "bob",
+                                                   ProjectPermission.READ));
 
         assertThat(project.permissionOf(MEMBER)).contains(ProjectPermission.READ);
     }
@@ -267,17 +320,21 @@ class ProjectApplicationServiceTest {
     void grantAccessPublishesTheEventThatDrivesTheNotification() {
         Project project = ownedProject();
         when(users.findByEmail(new Email("bob@example.com")))
-                .thenReturn(Optional.of(userWithId(MEMBER)));
+                                                             .thenReturn(Optional.of(userWithId(MEMBER)));
 
         service.grantAccess(new GrantAccessCommand(
-                UID, project.id().value(), "bob@example.com", ProjectPermission.WRITE));
+                                                   UID,
+                                                   project.id()
+                                                          .value(),
+                                                   "bob@example.com",
+                                                   ProjectPermission.WRITE));
 
         assertThat(publishedEvents()).singleElement()
-                .isInstanceOfSatisfying(ProjectAccessGranted.class, event -> {
-                    assertThat(event.userId()).isEqualTo(MEMBER);
-                    assertThat(event.grantedBy()).isEqualTo(CALLER);
-                    assertThat(event.permission()).isEqualTo(ProjectPermission.WRITE);
-                });
+                                     .isInstanceOfSatisfying(ProjectAccessGranted.class, event -> {
+                                         assertThat(event.userId()).isEqualTo(MEMBER);
+                                         assertThat(event.grantedBy()).isEqualTo(CALLER);
+                                         assertThat(event.permission()).isEqualTo(ProjectPermission.WRITE);
+                                     });
     }
 
     @Test
@@ -287,9 +344,13 @@ class ProjectApplicationServiceTest {
         when(users.findByUsername(any())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.grantAccess(new GrantAccessCommand(
-                UID, project.id().value(), "ghost@example.com", ProjectPermission.READ)))
-                .isInstanceOf(UserNotFoundException.class)
-                .hasMessage("No user matches that identifier");
+                                                                            UID,
+                                                                            project.id()
+                                                                                   .value(),
+                                                                            "ghost@example.com",
+                                                                            ProjectPermission.READ)))
+                                                                                                     .isInstanceOf(UserNotFoundException.class)
+                                                                                                     .hasMessage("No user matches that identifier");
     }
 
     @Test
@@ -297,9 +358,13 @@ class ProjectApplicationServiceTest {
         Project project = ownedProject();
 
         assertThatThrownBy(() -> service.grantAccess(new GrantAccessCommand(
-                UID, project.id().value(), "!!", ProjectPermission.READ)))
-                .isInstanceOf(UserNotFoundException.class)
-                .hasMessage("No user matches that identifier");
+                                                                            UID,
+                                                                            project.id()
+                                                                                   .value(),
+                                                                            "!!",
+                                                                            ProjectPermission.READ)))
+                                                                                                     .isInstanceOf(UserNotFoundException.class)
+                                                                                                     .hasMessage("No user matches that identifier");
     }
 
     @Test
@@ -307,8 +372,12 @@ class ProjectApplicationServiceTest {
         Project project = projectWhereCallerIs(ProjectPermission.WRITE);
 
         assertThatThrownBy(() -> service.grantAccess(new GrantAccessCommand(
-                UID, project.id().value(), "bob@example.com", ProjectPermission.READ)))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                                            UID,
+                                                                            project.id()
+                                                                                   .value(),
+                                                                            "bob@example.com",
+                                                                            ProjectPermission.READ)))
+                                                                                                     .isInstanceOf(PermissionDeniedException.class);
     }
 
     @Test
@@ -316,8 +385,12 @@ class ProjectApplicationServiceTest {
         Project project = ownedProject();
 
         assertThatThrownBy(() -> service.changeAccess(new ChangeAccessCommand(
-                UID, project.id().value(), MEMBER.value(), ProjectPermission.WRITE)))
-                .isInstanceOf(UserNotFoundException.class);
+                                                                              UID,
+                                                                              project.id()
+                                                                                     .value(),
+                                                                              MEMBER.value(),
+                                                                              ProjectPermission.WRITE)))
+                                                                                                        .isInstanceOf(UserNotFoundException.class);
 
         assertThat(project.permissionOf(MEMBER)).isEmpty();
     }
@@ -329,7 +402,11 @@ class ProjectApplicationServiceTest {
         project.pullDomainEvents();
 
         service.changeAccess(new ChangeAccessCommand(
-                UID, project.id().value(), MEMBER.value(), ProjectPermission.WRITE));
+                                                     UID,
+                                                     project.id()
+                                                            .value(),
+                                                     MEMBER.value(),
+                                                     ProjectPermission.WRITE));
 
         assertThat(project.permissionOf(MEMBER)).contains(ProjectPermission.WRITE);
         assertThat(publishedEvents()).isEmpty();
@@ -342,8 +419,12 @@ class ProjectApplicationServiceTest {
         project.pullDomainEvents();
 
         assertThatThrownBy(() -> service.changeAccess(new ChangeAccessCommand(
-                UID, project.id().value(), CALLER.value(), ProjectPermission.READ)))
-                .isInstanceOf(ResourceConflictException.class);
+                                                                              UID,
+                                                                              project.id()
+                                                                                     .value(),
+                                                                              CALLER.value(),
+                                                                              ProjectPermission.READ)))
+                                                                                                       .isInstanceOf(ResourceConflictException.class);
     }
 
     @Test
@@ -351,7 +432,10 @@ class ProjectApplicationServiceTest {
         Project project = projectWhereCallerIs(ProjectPermission.READ);
 
         service.revokeAccess(new RevokeAccessCommand(
-                UID, project.id().value(), CALLER.value()));
+                                                     UID,
+                                                     project.id()
+                                                            .value(),
+                                                     CALLER.value()));
 
         assertThat(project.permissionOf(CALLER)).isEmpty();
     }
@@ -361,8 +445,11 @@ class ProjectApplicationServiceTest {
         Project project = projectWhereCallerIs(ProjectPermission.WRITE);
 
         assertThatThrownBy(() -> service.revokeAccess(new RevokeAccessCommand(
-                UID, project.id().value(), MEMBER.value())))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                                              UID,
+                                                                              project.id()
+                                                                                     .value(),
+                                                                              MEMBER.value())))
+                                                                                               .isInstanceOf(PermissionDeniedException.class);
 
         assertThat(project.permissionOf(MEMBER)).contains(ProjectPermission.OWNER);
     }
@@ -374,7 +461,10 @@ class ProjectApplicationServiceTest {
         project.pullDomainEvents();
 
         service.revokeAccess(new RevokeAccessCommand(
-                UID, project.id().value(), MEMBER.value()));
+                                                     UID,
+                                                     project.id()
+                                                            .value(),
+                                                     MEMBER.value()));
 
         assertThat(project.permissionOf(MEMBER)).isEmpty();
     }
@@ -384,30 +474,39 @@ class ProjectApplicationServiceTest {
         Project project = ownedProject();
 
         assertThatThrownBy(() -> service.revokeAccess(new RevokeAccessCommand(
-                UID, project.id().value(), CALLER.value())))
-                .isInstanceOf(ResourceConflictException.class);
+                                                                              UID,
+                                                                              project.id()
+                                                                                     .value(),
+                                                                              CALLER.value())))
+                                                                                               .isInstanceOf(ResourceConflictException.class);
     }
 
     @Test
     void disableAndActivateRequireOwnership() {
         Project project = projectWhereCallerIs(ProjectPermission.WRITE);
-        UUID id = project.id().value();
+        UUID id = project.id()
+                         .value();
 
         assertThatThrownBy(() -> service.disableProject(new ProjectCommand(UID, id)))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                                                     .isInstanceOf(PermissionDeniedException.class);
         assertThatThrownBy(() -> service.activateProject(new ProjectCommand(UID, id)))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                                                      .isInstanceOf(PermissionDeniedException.class);
     }
 
     @Test
     void disableMakesTheProjectAReadOnlyArchive() {
         Project project = ownedProject();
 
-        service.disableProject(new ProjectCommand(UID, project.id().value()));
+        service.disableProject(new ProjectCommand(UID,
+                                                  project.id()
+                                                         .value()));
 
         assertThat(project.status()).isEqualTo(ProjectStatus.DISABLED);
-        assertThat(service.getProject(new ProjectQuery(UID, project.id().value())).status())
-                .isEqualTo(ProjectStatus.DISABLED);
+        assertThat(service.getProject(new ProjectQuery(UID,
+                                                       project.id()
+                                                              .value()))
+                          .status())
+                                    .isEqualTo(ProjectStatus.DISABLED);
     }
 
     @Test
@@ -416,17 +515,19 @@ class ProjectApplicationServiceTest {
         StoredFile first = fileIn(project.id(), "a.stl");
         StoredFile second = fileIn(project.id(), "b.stl");
         when(files.findAllAvailableByProject(project.id()))
-                .thenReturn(List.of(first, second));
+                                                           .thenReturn(List.of(first, second));
         when(files.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        service.deleteProject(new ProjectCommand(UID, project.id().value()));
+        service.deleteProject(new ProjectCommand(UID,
+                                                 project.id()
+                                                        .value()));
 
         assertThat(project.isDeleted()).isTrue();
         assertThat(first.isDeleted()).isTrue();
         assertThat(second.isDeleted()).isTrue();
         assertThat(publishedEvents())
-                .hasSize(2)
-                .allSatisfy(event -> assertThat(event).isInstanceOf(FileDeleted.class));
+                                     .hasSize(2)
+                                     .allSatisfy(event -> assertThat(event).isInstanceOf(FileDeleted.class));
     }
 
     @Test
@@ -434,21 +535,27 @@ class ProjectApplicationServiceTest {
         Project project = projectWhereCallerIs(ProjectPermission.WRITE);
 
         assertThatThrownBy(() -> service.deleteProject(
-                new ProjectCommand(UID, project.id().value())))
-                .isInstanceOf(PermissionDeniedException.class);
+                                                       new ProjectCommand(UID,
+                                                                          project.id()
+                                                                                 .value())))
+                                                                                            .isInstanceOf(PermissionDeniedException.class);
 
         verify(files, never()).saveAll(any());
     }
 
     private StoredFile fileIn(ProjectId projectId, String name) {
-        return StoredFile.upload(FileId.generate(), CALLER, projectId, new FileName(name),
-                1_024L, Checksum.ofHex("a".repeat(64)), NOW);
+        return StoredFile.upload(FileId.generate(),
+                                 CALLER,
+                                 projectId,
+                                 new FileName(name),
+                                 1_024L,
+                                 Checksum.ofHex("a".repeat(64)),
+                                 NOW);
     }
 
     private List<DomainEvent> publishedEvents() {
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<Collection<? extends DomainEvent>> captor =
-                ArgumentCaptor.forClass(Collection.class);
+        ArgumentCaptor<Collection<? extends DomainEvent>> captor = ArgumentCaptor.forClass(Collection.class);
         verify(eventPublisher).publishAll(captor.capture());
         return List.copyOf(captor.getValue());
     }

@@ -44,10 +44,10 @@ import static org.mockito.Mockito.when;
 class UserApplicationServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-07-19T10:15:30Z");
-    private static final String UID = "firebase-uid-1";
+    private static final String  UID = "firebase-uid-1";
 
     @Mock
-    private UserRepository users;
+    private UserRepository       users;
     @Mock
     private DomainEventPublisher eventPublisher;
 
@@ -56,7 +56,9 @@ class UserApplicationServiceTest {
     @BeforeEach
     void setUp() {
         service = new UserApplicationService(
-                users, eventPublisher, Clock.fixed(NOW, ZoneOffset.UTC));
+                                             users,
+                                             eventPublisher,
+                                             Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private User existingUser() {
@@ -65,23 +67,22 @@ class UserApplicationServiceTest {
 
     private User userWithStatus(UserStatus status) {
         return User.rehydrate(
-                UserId.generate(),
-                new FirebaseUid(UID),
-                new Email("ada@example.com"),
-                new Username("ada"),
-                "Ada Lovelace",
-                UserRole.USER,
-                status,
-                3L,
-                NOW.minusSeconds(86400),
-                NOW.minusSeconds(86400),
-                null);
+                              UserId.generate(),
+                              new FirebaseUid(UID),
+                              new Email("ada@example.com"),
+                              new Username("ada"),
+                              "Ada Lovelace",
+                              UserRole.USER,
+                              status,
+                              3L,
+                              NOW.minusSeconds(86400),
+                              NOW.minusSeconds(86400),
+                              null);
     }
 
     @SuppressWarnings("unchecked")
     private Collection<? extends DomainEvent> publishedEvents() {
-        ArgumentCaptor<Collection<? extends DomainEvent>> captor =
-                ArgumentCaptor.forClass(Collection.class);
+        ArgumentCaptor<Collection<? extends DomainEvent>> captor = ArgumentCaptor.forClass(Collection.class);
         verify(eventPublisher).publishAll(captor.capture());
         return captor.getValue();
     }
@@ -99,7 +100,7 @@ class UserApplicationServiceTest {
         repositoryEchoesSaves();
 
         UserView view = service.resolveCurrentUser(
-                new ResolveCurrentUserCommand(UID, "Ada@Example.com", "Ada Lovelace"));
+                                                   new ResolveCurrentUserCommand(UID, "Ada@Example.com", "Ada Lovelace"));
 
         assertThat(view.firebaseUid()).isEqualTo(UID);
         assertThat(view.email()).isEqualTo("ada@example.com");
@@ -117,7 +118,8 @@ class UserApplicationServiceTest {
 
         service.resolveCurrentUser(new ResolveCurrentUserCommand(UID, "ada@example.com", null));
 
-        assertThat(publishedEvents()).singleElement().isInstanceOf(UserRegistered.class);
+        assertThat(publishedEvents()).singleElement()
+                                     .isInstanceOf(UserRegistered.class);
     }
 
     @Test
@@ -128,7 +130,7 @@ class UserApplicationServiceTest {
         repositoryEchoesSaves();
 
         UserView view = service.resolveCurrentUser(
-                new ResolveCurrentUserCommand(UID, "ada@example.com", null));
+                                                   new ResolveCurrentUserCommand(UID, "ada@example.com", null));
 
         assertThat(view.username()).isEqualTo("ada2");
     }
@@ -139,9 +141,10 @@ class UserApplicationServiceTest {
         when(users.findByFirebaseUid(new FirebaseUid(UID))).thenReturn(Optional.of(existing));
 
         UserView view = service.resolveCurrentUser(
-                new ResolveCurrentUserCommand(UID, "ada@newdomain.com", "Ada Lovelace"));
+                                                   new ResolveCurrentUserCommand(UID, "ada@newdomain.com", "Ada Lovelace"));
 
-        assertThat(view.id()).isEqualTo(existing.id().value());
+        assertThat(view.id()).isEqualTo(existing.id()
+                                                .value());
         assertThat(view.email()).isEqualTo("ada@newdomain.com");
         assertThat(view.lastLoginAt()).isEqualTo(NOW);
         verify(users, never()).existsByUsername(any());
@@ -157,21 +160,23 @@ class UserApplicationServiceTest {
         when(users.findByFirebaseUid(new FirebaseUid(UID))).thenReturn(Optional.of(existing));
 
         service.resolveCurrentUser(
-                new ResolveCurrentUserCommand(UID, "ada@newdomain.com", "Ada Lovelace"));
+                                   new ResolveCurrentUserCommand(UID, "ada@newdomain.com", "Ada Lovelace"));
 
-        verify(users).recordSignIn(eq(existing.id()), eq(new Email("ada@newdomain.com")),
-                any(Instant.class), eq(NOW));
+        verify(users).recordSignIn(eq(existing.id()),
+                                   eq(new Email("ada@newdomain.com")),
+                                   any(Instant.class),
+                                   eq(NOW));
         verify(users, never()).save(any());
     }
 
     @Test
     void aDisabledUserCannotSignIn() {
         when(users.findByFirebaseUid(new FirebaseUid(UID)))
-                .thenReturn(Optional.of(userWithStatus(UserStatus.DISABLED)));
+                                                           .thenReturn(Optional.of(userWithStatus(UserStatus.DISABLED)));
 
         assertThatThrownBy(() -> service.resolveCurrentUser(
-                new ResolveCurrentUserCommand(UID, "ada@example.com", null)))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                            new ResolveCurrentUserCommand(UID, "ada@example.com", null)))
+                                                                                                                         .isInstanceOf(DomainRuleViolationException.class);
     }
 
     /**
@@ -182,11 +187,11 @@ class UserApplicationServiceTest {
     @Test
     void aDeletedUserCannotSignInAndIsNotReProvisioned() {
         when(users.findByFirebaseUid(new FirebaseUid(UID)))
-                .thenReturn(Optional.of(userWithStatus(UserStatus.DELETED)));
+                                                           .thenReturn(Optional.of(userWithStatus(UserStatus.DELETED)));
 
         assertThatThrownBy(() -> service.resolveCurrentUser(
-                new ResolveCurrentUserCommand(UID, "ada@example.com", null)))
-                .isInstanceOf(DomainRuleViolationException.class);
+                                                            new ResolveCurrentUserCommand(UID, "ada@example.com", null)))
+                                                                                                                         .isInstanceOf(DomainRuleViolationException.class);
 
         verify(users, never()).save(any());
     }
@@ -215,10 +220,10 @@ class UserApplicationServiceTest {
     @Test
     void authorizationReportsATombstoneAsInactive() {
         when(users.findByFirebaseUid(new FirebaseUid(UID)))
-                .thenReturn(Optional.of(userWithStatus(UserStatus.DELETED)));
+                                                           .thenReturn(Optional.of(userWithStatus(UserStatus.DELETED)));
 
         assertThat(service.loadAuthorization(UID))
-                .hasValueSatisfying(authorization -> assertThat(authorization.isActive()).isFalse());
+                                                  .hasValueSatisfying(authorization -> assertThat(authorization.isActive()).isFalse());
     }
 
     // --- profile updates -----------------------------------------------------------
@@ -229,8 +234,8 @@ class UserApplicationServiceTest {
         when(users.existsByUsername(new Username("taken"))).thenReturn(true);
 
         assertThatThrownBy(() -> service.updateProfile(
-                new UpdateUserProfileCommand(UID, "taken", null)))
-                .isInstanceOf(UsernameAlreadyTakenException.class);
+                                                       new UpdateUserProfileCommand(UID, "taken", null)))
+                                                                                                         .isInstanceOf(UsernameAlreadyTakenException.class);
 
         verify(users, never()).save(any());
     }
@@ -251,8 +256,8 @@ class UserApplicationServiceTest {
         when(users.findByFirebaseUid(any(FirebaseUid.class))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.updateProfile(
-                new UpdateUserProfileCommand(UID, "ada", null)))
-                .isInstanceOf(UserNotFoundException.class);
+                                                       new UpdateUserProfileCommand(UID, "ada", null)))
+                                                                                                       .isInstanceOf(UserNotFoundException.class);
     }
 
     // --- deletion ------------------------------------------------------------------
@@ -267,11 +272,16 @@ class UserApplicationServiceTest {
 
         ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
         verify(users).save(saved.capture());
-        assertThat(saved.getValue().status()).isEqualTo(UserStatus.DELETED);
-        assertThat(saved.getValue().email().value()).doesNotContain("ada@example.com");
-        assertThat(saved.getValue().displayName()).isNull();
+        assertThat(saved.getValue()
+                        .status()).isEqualTo(UserStatus.DELETED);
+        assertThat(saved.getValue()
+                        .email()
+                        .value()).doesNotContain("ada@example.com");
+        assertThat(saved.getValue()
+                        .displayName()).isNull();
         // Retained: it is the key the authorization lookup rejects the token on.
-        assertThat(saved.getValue().firebaseUid()).isEqualTo(existing.firebaseUid());
+        assertThat(saved.getValue()
+                        .firebaseUid()).isEqualTo(existing.firebaseUid());
     }
 
     @Test
@@ -281,7 +291,8 @@ class UserApplicationServiceTest {
 
         service.deleteAccount(UID);
 
-        assertThat(publishedEvents()).singleElement().isInstanceOf(UserAccountDeleted.class);
+        assertThat(publishedEvents()).singleElement()
+                                     .isInstanceOf(UserAccountDeleted.class);
     }
 
     @Test
@@ -289,7 +300,7 @@ class UserApplicationServiceTest {
         when(users.findByFirebaseUid(any(FirebaseUid.class))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.deleteAccount(UID))
-                .isInstanceOf(UserNotFoundException.class);
+                                                            .isInstanceOf(UserNotFoundException.class);
     }
 
     // --- role assignment -----------------------------------------------------------
@@ -305,14 +316,16 @@ class UserApplicationServiceTest {
         repositoryEchoesSaves();
 
         UserView view = service.assignRole(
-                new AssignUserRoleCommand(existing.id().value(), UserRole.ADMIN));
+                                           new AssignUserRoleCommand(existing.id()
+                                                                             .value(),
+                                                                     UserRole.ADMIN));
 
         assertThat(view.role()).isEqualTo(UserRole.ADMIN);
         assertThat(publishedEvents()).singleElement()
-                .isInstanceOfSatisfying(UserRoleChanged.class, event -> {
-                    assertThat(event.newRole()).isEqualTo(UserRole.ADMIN);
-                    assertThat(event.firebaseUid()).isEqualTo(existing.firebaseUid());
-                });
+                                     .isInstanceOfSatisfying(UserRoleChanged.class, event -> {
+                                         assertThat(event.newRole()).isEqualTo(UserRole.ADMIN);
+                                         assertThat(event.firebaseUid()).isEqualTo(existing.firebaseUid());
+                                     });
     }
 
     @Test
@@ -321,7 +334,7 @@ class UserApplicationServiceTest {
         when(users.findById(missing)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.assignRole(
-                new AssignUserRoleCommand(missing.value(), UserRole.ADMIN)))
-                .isInstanceOf(UserNotFoundException.class);
+                                                    new AssignUserRoleCommand(missing.value(), UserRole.ADMIN)))
+                                                                                                                .isInstanceOf(UserNotFoundException.class);
     }
 }

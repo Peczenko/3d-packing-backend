@@ -42,13 +42,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(TestcontainersConfiguration.class)
 class JooqFileRepositoryIT {
 
-    private static final Checksum CHECKSUM =
-            Checksum.ofHex("d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971");
+    private static final Checksum CHECKSUM = Checksum.ofHex("d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971");
 
     @Autowired
     private DSLContext dsl;
 
-    private UserId owner;
+    private UserId    owner;
     private ProjectId project;
 
     private JooqFileRepository repository() {
@@ -57,9 +56,13 @@ class JooqFileRepositoryIT {
 
     @BeforeEach
     void createOwnerAndProject() {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        User user = User.register(new FirebaseUid("uid-owner"), new Email("owner@example.com"),
-                new Username("owner"), "Owner", now);
+        Instant now = Instant.now()
+                             .truncatedTo(ChronoUnit.MICROS);
+        User user = User.register(new FirebaseUid("uid-owner"),
+                                  new Email("owner@example.com"),
+                                  new Username("owner"),
+                                  "Owner",
+                                  now);
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         owner = user.id();
 
@@ -69,9 +72,15 @@ class JooqFileRepositoryIT {
     }
 
     private StoredFile newFile(String filename) {
-        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        return StoredFile.upload(FileId.generate(), owner, project, new FileName(filename),
-                2_048L, CHECKSUM, now);
+        Instant now = Instant.now()
+                             .truncatedTo(ChronoUnit.MICROS);
+        return StoredFile.upload(FileId.generate(),
+                                 owner,
+                                 project,
+                                 new FileName(filename),
+                                 2_048L,
+                                 CHECKSUM,
+                                 now);
     }
 
     @Test
@@ -109,13 +118,16 @@ class JooqFileRepositoryIT {
         StoredFile file = newFile("bracket.stl");
         repository().save(file);
 
-        StoredFile stale = repository().findById(file.id()).orElseThrow();
+        StoredFile stale = repository().findById(file.id())
+                                       .orElseThrow();
         repository().save(stale);
 
-        file.delete(Instant.now().truncatedTo(ChronoUnit.MICROS));
+        file.delete(Instant.now()
+                           .truncatedTo(ChronoUnit.MICROS));
         assertThatThrownBy(() -> repository().save(file))
-                .isInstanceOf(ConcurrentUpdateException.class)
-                .hasMessageContaining(file.id().toString());
+                                                         .isInstanceOf(ConcurrentUpdateException.class)
+                                                         .hasMessageContaining(file.id()
+                                                                                   .toString());
     }
 
     @Test
@@ -125,17 +137,21 @@ class JooqFileRepositoryIT {
         repository().save(file);
         assertThat(file.version()).isEqualTo(1L);
 
-        file.delete(Instant.now().truncatedTo(ChronoUnit.MICROS));
+        file.delete(Instant.now()
+                           .truncatedTo(ChronoUnit.MICROS));
         repository().save(file);
         assertThat(file.version()).isEqualTo(2L);
-        assertThat(repository().findById(file.id()).orElseThrow().version()).isEqualTo(2L);
+        assertThat(repository().findById(file.id())
+                               .orElseThrow()
+                               .version()).isEqualTo(2L);
     }
 
     @Test
     void deletingIsPersistedAsATombstoneRatherThanARowRemoval() {
         StoredFile file = newFile("bracket.stl");
         repository().save(file);
-        Instant deletedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant deletedAt = Instant.now()
+                                   .truncatedTo(ChronoUnit.MICROS);
 
         file.delete(deletedAt);
         repository().save(file);
@@ -153,19 +169,22 @@ class JooqFileRepositoryIT {
         repository().save(newFile("b.stl"));
         StoredFile removed = newFile("gone.stl");
         repository().save(removed);
-        removed.delete(Instant.now().truncatedTo(ChronoUnit.MICROS));
+        removed.delete(Instant.now()
+                              .truncatedTo(ChronoUnit.MICROS));
         repository().save(removed);
 
         assertThat(repository().findAllAvailableByProject(project))
-                .extracting(file -> file.name().value())
-                .containsExactlyInAnyOrder("a.stl", "b.stl");
+                                                                   .extracting(file -> file.name()
+                                                                                           .value())
+                                                                   .containsExactlyInAnyOrder("a.stl", "b.stl");
     }
 
     @Test
     void saveAllWritesEveryFileAndAdvancesEachVersion() {
         List<StoredFile> batch = List.of(newFile("a.stl"), newFile("b.stl"));
         batch.forEach(file -> repository().save(file));
-        Instant deletedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant deletedAt = Instant.now()
+                                   .truncatedTo(ChronoUnit.MICROS);
         batch.forEach(file -> file.delete(deletedAt));
 
         repository().saveAll(batch);
@@ -179,7 +198,9 @@ class JooqFileRepositoryIT {
         StoredFile file = newFile("bracket.stl");
         repository().save(file);
 
-        file.rename(new FileName("chassis.stl"), Instant.now().truncatedTo(ChronoUnit.MICROS));
+        file.rename(new FileName("chassis.stl"),
+                    Instant.now()
+                           .truncatedTo(ChronoUnit.MICROS));
         repository().save(file);
 
         assertThat(repository().findById(file.id())).hasValueSatisfying(found -> {
@@ -191,24 +212,34 @@ class JooqFileRepositoryIT {
 
     @Test
     void theOwnerForeignKeyRejectsAFileWithNoSuchUser() {
-        StoredFile orphan = StoredFile.upload(FileId.generate(), UserId.generate(), project,
-                new FileName("bracket.stl"), 2_048L, CHECKSUM,
-                Instant.now().truncatedTo(ChronoUnit.MICROS));
+        StoredFile orphan = StoredFile.upload(FileId.generate(),
+                                              UserId.generate(),
+                                              project,
+                                              new FileName("bracket.stl"),
+                                              2_048L,
+                                              CHECKSUM,
+                                              Instant.now()
+                                                     .truncatedTo(ChronoUnit.MICROS));
 
         assertThatThrownBy(() -> repository().save(orphan))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("fk_files_owner_user_id");
+                                                           .isInstanceOf(DataIntegrityViolationException.class)
+                                                           .hasMessageContaining("fk_files_owner_user_id");
     }
 
     @Test
     void theProjectForeignKeyRejectsAFileWithNoSuchProject() {
-        StoredFile orphan = StoredFile.upload(FileId.generate(), owner, ProjectId.generate(),
-                new FileName("bracket.stl"), 2_048L, CHECKSUM,
-                Instant.now().truncatedTo(ChronoUnit.MICROS));
+        StoredFile orphan = StoredFile.upload(FileId.generate(),
+                                              owner,
+                                              ProjectId.generate(),
+                                              new FileName("bracket.stl"),
+                                              2_048L,
+                                              CHECKSUM,
+                                              Instant.now()
+                                                     .truncatedTo(ChronoUnit.MICROS));
 
         assertThatThrownBy(() -> repository().save(orphan))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("fk_files_project_id");
+                                                           .isInstanceOf(DataIntegrityViolationException.class)
+                                                           .hasMessageContaining("fk_files_project_id");
     }
 
     @Test
@@ -217,10 +248,10 @@ class JooqFileRepositoryIT {
         repository().save(file);
 
         assertThatThrownBy(() -> dsl.update(FILES)
-                .set(untyped(FILES.STATUS), "BOGUS")
-                .where(FILES.ID.eq(file.id()))
-                .execute())
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessageContaining("ck_files_status");
+                                    .set(untyped(FILES.STATUS), "BOGUS")
+                                    .where(FILES.ID.eq(file.id()))
+                                    .execute())
+                                               .isInstanceOf(DataIntegrityViolationException.class)
+                                               .hasMessageContaining("ck_files_status");
     }
 }

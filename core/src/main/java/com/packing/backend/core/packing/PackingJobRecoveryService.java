@@ -16,10 +16,10 @@ import java.time.Clock;
 public class PackingJobRecoveryService {
 
     private static final String DISPATCH_EXHAUSTED = "Dispatch exhausted Service Bus delivery attempts";
-    private static final String DISPATCH_EXPIRED = "Dispatch expired before the job started";
+    private static final String DISPATCH_EXPIRED   = "Dispatch expired before the job started";
 
     private final PackingJobRepository jobs;
-    private final Clock clock;
+    private final Clock                clock;
 
     public PackingJobRecoveryService(PackingJobRepository jobs, Clock clock) {
         this.jobs = jobs;
@@ -31,10 +31,6 @@ public class PackingJobRecoveryService {
         EXPIRED
     }
 
-    // Delivery exhaustion is the only stall that proves no worker still holds the dispatch: the
-    // broker only exhausts a message it is about to redeliver, which needs a free lock. Expiry is
-    // orthogonal to the lock and can fall an hour short of maxRuntimeSeconds, so a RUNNING job is
-    // left for its worker and the caller is told not to discard the evidence yet.
     public boolean resolveStalledDispatch(PackingJobId id, DispatchStall stall) {
         PackingJob job = load(id);
         if (stall == DispatchStall.EXPIRED && job.status() == PackingJobStatus.RUNNING) {
@@ -53,8 +49,6 @@ public class PackingJobRecoveryService {
         };
     }
 
-    // A live job's result blob can race a worker that is still writing it, so a QUEUED job is left
-    // for the worker's own started/succeeded events rather than completed from the blob.
     public void recoverResult(PackingJobId id, PackingJobArtifactStore.ResultArtifact result) {
         PackingJob job = load(id);
         if (job.status() != PackingJobStatus.RUNNING) {
@@ -63,19 +57,24 @@ public class PackingJobRecoveryService {
         succeed(job, result);
     }
 
-    // What removes the race here is the result blob existing, not the dead letter: an uploaded blob means the work finished regardless of who still holds the peek-lock.
     public void recoverStalledResult(PackingJobId id, PackingJobArtifactStore.ResultArtifact result) {
         succeed(load(id), result);
     }
 
     private void succeed(PackingJob job, PackingJobArtifactStore.ResultArtifact result) {
-        if (job.succeed(result.fileName(), result.contentType(), result.sizeBytes(), result.checksum(),
-                result.engineVersion(), result.engineChecksum(), clock.instant())) {
+        if (job.succeed(result.fileName(),
+                        result.contentType(),
+                        result.sizeBytes(),
+                        result.checksum(),
+                        result.engineVersion(),
+                        result.engineChecksum(),
+                        clock.instant())) {
             jobs.save(job);
         }
     }
 
     private PackingJob load(PackingJobId id) {
-        return jobs.findById(id).orElseThrow(() -> PackingJobNotFoundException.byId(id));
+        return jobs.findById(id)
+                   .orElseThrow(() -> PackingJobNotFoundException.byId(id));
     }
 }

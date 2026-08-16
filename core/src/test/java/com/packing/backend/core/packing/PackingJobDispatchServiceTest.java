@@ -41,18 +41,20 @@ class PackingJobDispatchServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-01T10:15:30Z");
 
     @Mock
-    private PackingJobRepository jobs;
+    private PackingJobRepository    jobs;
     @Mock
     private PackingJobArtifactStore artifacts;
     @Mock
-    private PackingDispatchSender dispatch;
+    private PackingDispatchSender   dispatch;
 
     private PackingJobDispatchService service;
 
     @BeforeEach
     void setUp() {
-        service = new PackingJobDispatchService(jobs, artifacts, dispatch,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new PackingJobDispatchService(jobs,
+                                                artifacts,
+                                                dispatch,
+                                                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -63,10 +65,13 @@ class PackingJobDispatchServiceTest {
         service.dispatch(job.id());
 
         InOrder order = inOrder(artifacts, dispatch, jobs);
-        order.verify(artifacts).writeRequestIfAbsent(job.id(),
-                PackingRequestEnvelope.versionOne(60, "{\"testField\":true}"));
-        order.verify(dispatch).send(PackingDispatchMessage.versionOne(job.id()));
-        order.verify(jobs).save(job);
+        order.verify(artifacts)
+             .writeRequestIfAbsent(job.id(),
+                                   PackingRequestEnvelope.versionOne(60, "{\"testField\":true}"));
+        order.verify(dispatch)
+             .send(PackingDispatchMessage.versionOne(job.id()));
+        order.verify(jobs)
+             .save(job);
         assertThat(job.dispatchedAt()).isEqualTo(NOW);
     }
 
@@ -78,7 +83,7 @@ class PackingJobDispatchServiceTest {
         service.dispatch(job.id());
 
         verify(artifacts, never()).writeRequestIfAbsent(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
+                                                        org.mockito.ArgumentMatchers.any());
         verify(dispatch, never()).send(org.mockito.ArgumentMatchers.any());
         verify(jobs, never()).save(job);
     }
@@ -91,7 +96,7 @@ class PackingJobDispatchServiceTest {
         service.dispatch(job.id());
 
         verify(artifacts, never()).writeRequestIfAbsent(org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any());
+                                                        org.mockito.ArgumentMatchers.any());
         verify(dispatch, never()).send(org.mockito.ArgumentMatchers.any());
         verify(jobs, never()).save(job);
     }
@@ -101,11 +106,11 @@ class PackingJobDispatchServiceTest {
         PackingJob job = queuedJob();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
         doThrow(new IllegalStateException("queue unavailable")).when(dispatch)
-                .send(PackingDispatchMessage.versionOne(job.id()));
+                                                               .send(PackingDispatchMessage.versionOne(job.id()));
 
         assertThatThrownBy(() -> service.dispatch(job.id()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("queue unavailable");
+                                                            .isInstanceOf(IllegalStateException.class)
+                                                            .hasMessage("queue unavailable");
 
         assertThat(job.dispatchedAt()).isNull();
         verify(jobs, never()).save(job);
@@ -118,23 +123,28 @@ class PackingJobDispatchServiceTest {
         when(jobs.findById(initialAttempt.id())).thenReturn(Optional.of(initialAttempt), Optional.of(retry));
         doAnswer(invocation -> {
             throw new IllegalStateException("database unavailable");
-        }).when(jobs).save(same(initialAttempt));
+        }).when(jobs)
+          .save(same(initialAttempt));
 
         assertThatThrownBy(() -> service.dispatch(initialAttempt.id()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("database unavailable");
+                                                                       .isInstanceOf(IllegalStateException.class)
+                                                                       .hasMessage("database unavailable");
 
         service.dispatch(initialAttempt.id());
 
         ArgumentCaptor<PackingRequestEnvelope> envelopes = ArgumentCaptor.forClass(
-                PackingRequestEnvelope.class);
+                                                                                   PackingRequestEnvelope.class);
         ArgumentCaptor<PackingDispatchMessage> messages = ArgumentCaptor.forClass(
-                PackingDispatchMessage.class);
+                                                                                  PackingDispatchMessage.class);
         verify(artifacts, org.mockito.Mockito.times(2)).writeRequestIfAbsent(
-                org.mockito.ArgumentMatchers.eq(initialAttempt.id()), envelopes.capture());
+                                                                             org.mockito.ArgumentMatchers.eq(initialAttempt.id()),
+                                                                             envelopes.capture());
         verify(dispatch, org.mockito.Mockito.times(2)).send(messages.capture());
         assertThat(envelopes.getAllValues()).containsExactlyElementsOf(
-                java.util.List.of(envelopes.getAllValues().getFirst(), envelopes.getAllValues().getFirst()));
+                                                                       java.util.List.of(envelopes.getAllValues()
+                                                                                                  .getFirst(),
+                                                                                         envelopes.getAllValues()
+                                                                                                  .getFirst()));
         assertThat(messages.getAllValues()).containsOnly(PackingDispatchMessage.versionOne(initialAttempt.id()));
         verify(jobs).save(same(retry));
     }
@@ -151,8 +161,12 @@ class PackingJobDispatchServiceTest {
     }
 
     private static PackingJob queuedJob(PackingJobId id) {
-        return PackingJob.queue(id, ProjectId.generate(), UserId.generate(),
-                "{\"testField\":true}", 60, NOW.minusSeconds(30));
+        return PackingJob.queue(id,
+                                ProjectId.generate(),
+                                UserId.generate(),
+                                "{\"testField\":true}",
+                                60,
+                                NOW.minusSeconds(30));
     }
 
     private static PackingJob dispatchedJob() {

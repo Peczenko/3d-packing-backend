@@ -16,7 +16,7 @@ public record StorageKey(String value) {
         }
         if (value.length() > MAX_LENGTH) {
             throw new DomainRuleViolationException(
-                    "Storage key must be at most " + MAX_LENGTH + " characters");
+                                                   "Storage key must be at most " + MAX_LENGTH + " characters");
         }
         if (value.contains("..")) {
             throw new DomainRuleViolationException("Storage key must not contain '..'");

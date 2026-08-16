@@ -14,10 +14,13 @@ public record FilePageResponse(
 
     public static FilePageResponse from(Page<FileView> page) {
         return new FilePageResponse(
-                page.content().stream().map(FileResponse::from).toList(),
-                page.page(),
-                page.size(),
-                page.totalElements(),
-                page.totalPages());
+                                    page.content()
+                                        .stream()
+                                        .map(FileResponse::from)
+                                        .toList(),
+                                    page.page(),
+                                    page.size(),
+                                    page.totalElements(),
+                                    page.totalPages());
     }
 }

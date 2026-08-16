@@ -23,14 +23,14 @@ import static com.packing.backend.infra.persistence.project.ProjectQueries.MEMBE
 @RequiredArgsConstructor
 public class JooqProjectRepository implements ProjectRepository {
 
-    private final DSLContext dsl;
+    private final DSLContext      dsl;
     private final AggregateWriter writer;
-
 
     @Override
     public Project save(Project project) {
-        writer.upsert(ProjectRecordMapper.TABLE, ProjectRecordMapper.toRecord(project),
-                project.version());
+        writer.upsert(ProjectRecordMapper.TABLE,
+                      ProjectRecordMapper.toRecord(project),
+                      project.version());
         replaceMembers(project);
         project.markPersisted();
         return project;
@@ -39,10 +39,10 @@ public class JooqProjectRepository implements ProjectRepository {
     @Override
     public Optional<Project> findById(ProjectId id) {
         return dsl.select(PROJECTS.asterisk(), MEMBERS)
-                .from(PROJECTS)
-                .where(PROJECTS.ID.eq(id))
-                .fetchOptional()
-                .map(JooqProjectRepository::toProject);
+                  .from(PROJECTS)
+                  .where(PROJECTS.ID.eq(id))
+                  .fetchOptional()
+                  .map(JooqProjectRepository::toProject);
     }
 
     private static Project toProject(Record row) {
@@ -51,8 +51,8 @@ public class JooqProjectRepository implements ProjectRepository {
 
     private void replaceMembers(Project project) {
         dsl.deleteFrom(PROJECT_MEMBERS)
-                .where(PROJECT_MEMBERS.PROJECT_ID.eq(project.id()))
-                .execute();
+           .where(PROJECT_MEMBERS.PROJECT_ID.eq(project.id()))
+           .execute();
 
         List<ProjectMember> members = project.members();
         if (members.isEmpty()) {
@@ -62,9 +62,10 @@ public class JooqProjectRepository implements ProjectRepository {
         List<Query> inserts = new ArrayList<>(members.size());
         for (ProjectMember member : members) {
             inserts.add(dsl.insertInto(PROJECT_MEMBERS)
-                    .set(ProjectRecordMapper.toRecord(project.id(), member)));
+                           .set(ProjectRecordMapper.toRecord(project.id(), member)));
         }
-        dsl.batch(inserts).execute();
+        dsl.batch(inserts)
+           .execute();
     }
 
 }

@@ -10,8 +10,7 @@ import org.springframework.context.annotation.Configuration;
 class ExternalHttpConfig {
 
     @Bean
-    ClientHttpRequestFactoryBuilderCustomizer<HttpComponentsClientHttpRequestFactoryBuilder>
-    disableImplicitHttpRetries() {
+    ClientHttpRequestFactoryBuilderCustomizer<HttpComponentsClientHttpRequestFactoryBuilder> disableImplicitHttpRetries() {
         return builder -> builder.withHttpClientCustomizer(HttpClientBuilder::disableAutomaticRetries);
     }
 }

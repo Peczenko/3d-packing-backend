@@ -34,7 +34,7 @@ class BlobStorageConfigTest {
                     assertThat(context).hasSingleBean(PackingContractCodec.class);
                     assertThat(context).hasSingleBean(PackingJobArtifactStore.class);
                     assertThat(context.getBean(PackingJobArtifactStore.class))
-                            .isInstanceOf(AzurePackingJobArtifactStore.class);
+                                                                              .isInstanceOf(AzurePackingJobArtifactStore.class);
                 });
     }
 
@@ -47,14 +47,14 @@ class BlobStorageConfigTest {
                     PackingJobArtifactStore artifacts = context.getBean(PackingJobArtifactStore.class);
                     assertThat(artifacts).isInstanceOf(UnavailablePackingJobArtifactStore.class);
                     assertThatThrownBy(() -> artifacts.findResult(PackingJobId.generate()))
-                            .isInstanceOf(ExternalServiceException.class);
+                                                                                           .isInstanceOf(ExternalServiceException.class);
                 });
     }
 
     private static ApplicationContextRunner runner() {
         return new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(BlobStorageConfig.class, TestConfiguration.class))
-                .withBean(ObjectMapper.class, ObjectMapper::new);
+                                             .withConfiguration(AutoConfigurations.of(BlobStorageConfig.class, TestConfiguration.class))
+                                             .withBean(ObjectMapper.class, ObjectMapper::new);
     }
 
     @Configuration(proxyBeanMethods = false)

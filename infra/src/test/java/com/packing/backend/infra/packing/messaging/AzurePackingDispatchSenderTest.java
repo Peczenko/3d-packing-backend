@@ -19,16 +19,22 @@ class AzurePackingDispatchSenderTest {
     void publishesTheExactVersionOneDispatchEnvelopeWithMessageMetadata() {
         ServiceBusSenderClient sender = mock(ServiceBusSenderClient.class);
         AzurePackingDispatchSender dispatchSender = new AzurePackingDispatchSender(
-                sender, new PackingContractCodec(new ObjectMapper()));
+                                                                                   sender,
+                                                                                   new PackingContractCodec(new ObjectMapper()));
         PackingDispatchMessage command = PackingDispatchMessage.versionOne(PackingJobId.generate());
 
         dispatchSender.send(command);
 
         ArgumentCaptor<ServiceBusMessage> message = ArgumentCaptor.forClass(ServiceBusMessage.class);
         verify(sender).sendMessage(message.capture());
-        assertThat(message.getValue().getBody().toString())
-                .isEqualTo("{\"messageVersion\":1,\"jobId\":\"" + command.jobId() + "\"}");
-        assertThat(message.getValue().getMessageId()).isEqualTo(command.jobId().toString());
-        assertThat(message.getValue().getContentType()).isEqualTo("application/json");
+        assertThat(message.getValue()
+                          .getBody()
+                          .toString())
+                                      .isEqualTo("{\"messageVersion\":1,\"jobId\":\"" + command.jobId() + "\"}");
+        assertThat(message.getValue()
+                          .getMessageId()).isEqualTo(command.jobId()
+                                                            .toString());
+        assertThat(message.getValue()
+                          .getContentType()).isEqualTo("application/json");
     }
 }

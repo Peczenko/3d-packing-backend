@@ -29,11 +29,11 @@ public class PackingJobResultController {
                                          @PathVariable UUID projectId,
                                          @PathVariable UUID jobId) {
         PackingJobArtifactStore.TemporaryUrl download = jobs.prepareResultDownload(
-                new PackingJobResultQuery(caller.firebaseUid(), projectId, jobId));
+                                                                                   new PackingJobResultQuery(caller.firebaseUid(), projectId, jobId));
         return ResponseEntity.status(HttpStatus.FOUND)
-                .location(download.url())
-                .cacheControl(CacheControl.noStore())
-                .header(HttpHeaders.PRAGMA, "no-cache")
-                .build();
+                             .location(download.url())
+                             .cacheControl(CacheControl.noStore())
+                             .header(HttpHeaders.PRAGMA, "no-cache")
+                             .build();
     }
 }

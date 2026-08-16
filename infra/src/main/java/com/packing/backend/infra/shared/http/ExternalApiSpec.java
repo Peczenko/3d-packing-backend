@@ -25,13 +25,13 @@ public record ExternalApiSpec(
     private static void requireHttpBaseUrl(URI value) {
         if (value == null || !value.isAbsolute()
                 || (!"http".equalsIgnoreCase(value.getScheme())
-                && !"https".equalsIgnoreCase(value.getScheme()))
+                        && !"https".equalsIgnoreCase(value.getScheme()))
                 || value.getHost() == null
                 || value.getUserInfo() != null
                 || value.getQuery() != null
                 || value.getFragment() != null) {
             throw new IllegalArgumentException(
-                    "baseUrl must be an absolute HTTP(S) URI without credentials, query, or fragment");
+                                               "baseUrl must be an absolute HTTP(S) URI without credentials, query, or fragment");
         }
     }
 

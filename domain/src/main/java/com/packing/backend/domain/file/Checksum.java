@@ -15,10 +15,12 @@ public record Checksum(String value) {
         if (value == null || value.isBlank()) {
             throw new DomainRuleViolationException("Checksum must not be blank");
         }
-        value = value.trim().toLowerCase(Locale.ROOT);
-        if (!HEX.matcher(value).matches()) {
+        value = value.trim()
+                     .toLowerCase(Locale.ROOT);
+        if (!HEX.matcher(value)
+                .matches()) {
             throw new DomainRuleViolationException(
-                    "Checksum must be " + HEX_LENGTH + " hexadecimal characters (SHA-256)");
+                                                   "Checksum must be " + HEX_LENGTH + " hexadecimal characters (SHA-256)");
         }
     }
 

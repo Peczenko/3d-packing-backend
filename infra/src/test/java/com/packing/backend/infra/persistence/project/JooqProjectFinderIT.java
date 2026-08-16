@@ -1,7 +1,6 @@
 package com.packing.backend.infra.persistence.project;
 
 import com.packing.backend.core.project.ProjectSummaryView;
-import com.packing.backend.core.project.ProjectView;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.domain.project.Project;
@@ -54,7 +53,8 @@ class JooqProjectFinderIT {
     }
 
     private static Instant now() {
-        return Instant.now().truncatedTo(ChronoUnit.MICROS);
+        return Instant.now()
+                      .truncatedTo(ChronoUnit.MICROS);
     }
 
     @BeforeEach
@@ -65,8 +65,11 @@ class JooqProjectFinderIT {
     }
 
     private UserId persistUser(String uid, String username) {
-        User user = User.register(new FirebaseUid(uid), new Email(username + "@example.com"),
-                new Username(username), "Display of " + username, now());
+        User user = User.register(new FirebaseUid(uid),
+                                  new Email(username + "@example.com"),
+                                  new Username(username),
+                                  "Display of " + username,
+                                  now());
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(user);
         return user.id();
     }
@@ -85,7 +88,8 @@ class JooqProjectFinderIT {
         Page<ProjectSummaryView> page = finder().listForMember(creator, new PageRequest(0, 10));
 
         assertThat(page.content()).extracting(ProjectSummaryView::id)
-                .containsExactly(mine.id().value());
+                                  .containsExactly(mine.id()
+                                                       .value());
         assertThat(page.totalElements()).isEqualTo(1L);
     }
 
@@ -108,22 +112,27 @@ class JooqProjectFinderIT {
         Page<ProjectSummaryView> page = finder().listForMember(creator, new PageRequest(0, 10));
 
         assertThat(page.content()).extracting(ProjectSummaryView::name)
-                .containsExactly("Disabled", "Newer", "Chassis packing");
+                                  .containsExactly("Disabled", "Newer", "Chassis packing");
         assertThat(page.totalElements()).isEqualTo(3L);
     }
 
     @Test
     void listPagesAndReportsTheTotalIndependentlyOfThePageSize() {
         for (int i = 0; i < 5; i++) {
-            repository().save(Project.create(new ProjectName("P" + i), creator,
-                    now().plusSeconds(i)));
+            repository().save(Project.create(new ProjectName("P" + i),
+                                             creator,
+                                             now().plusSeconds(i)));
         }
 
-        assertThat(finder().listForMember(creator, new PageRequest(0, 2)).content()).hasSize(2);
-        assertThat(finder().listForMember(creator, new PageRequest(2, 2)).content()).hasSize(1);
-        assertThat(finder().listForMember(creator, new PageRequest(5, 2)).content()).isEmpty();
-        assertThat(finder().listForMember(creator, new PageRequest(5, 2)).totalElements())
-                .isEqualTo(5L);
+        assertThat(finder().listForMember(creator, new PageRequest(0, 2))
+                           .content()).hasSize(2);
+        assertThat(finder().listForMember(creator, new PageRequest(2, 2))
+                           .content()).hasSize(1);
+        assertThat(finder().listForMember(creator, new PageRequest(5, 2))
+                           .content()).isEmpty();
+        assertThat(finder().listForMember(creator, new PageRequest(5, 2))
+                           .totalElements())
+                                            .isEqualTo(5L);
     }
 
     @Test
@@ -132,13 +141,14 @@ class JooqProjectFinderIT {
         project.grantAccess(member, ProjectPermission.WRITE, creator, now());
         repository().save(project);
 
-        assertThat(finder().listForMember(member, new PageRequest(0, 10)).content())
-                .singleElement()
-                .satisfies(summary -> {
-                    assertThat(summary.memberCount()).isEqualTo(2);
-                    assertThat(summary.myPermission()).isEqualTo(ProjectPermission.WRITE);
-                    assertThat(summary.status()).isEqualTo(ProjectStatus.ACTIVE);
-                });
+        assertThat(finder().listForMember(member, new PageRequest(0, 10))
+                           .content())
+                                      .singleElement()
+                                      .satisfies(summary -> {
+                                          assertThat(summary.memberCount()).isEqualTo(2);
+                                          assertThat(summary.myPermission()).isEqualTo(ProjectPermission.WRITE);
+                                          assertThat(summary.status()).isEqualTo(ProjectStatus.ACTIVE);
+                                      });
     }
 
     @Test
@@ -151,8 +161,8 @@ class JooqProjectFinderIT {
         Page<ProjectSummaryView> page = finder().listForMember(creator, new PageRequest(0, 10));
 
         assertThat(page.content())
-                .extracting(ProjectSummaryView::name, ProjectSummaryView::memberCount)
-                .containsExactly(tuple("Solo", 1), tuple("Chassis packing", 2));
+                                  .extracting(ProjectSummaryView::name, ProjectSummaryView::memberCount)
+                                  .containsExactly(tuple("Solo", 1), tuple("Chassis packing", 2));
     }
 
     @Test
@@ -163,13 +173,14 @@ class JooqProjectFinderIT {
 
         AtomicInteger statements = new AtomicInteger();
         DSLContext counting = dsl.configuration()
-                .derive((ExecuteListenerProvider) () -> new DefaultExecuteListener() {
-                    @Override
-                    public void executeStart(ExecuteContext ctx) {
-                        statements.incrementAndGet();
-                    }
-                })
-                .dsl();
+                                 .derive((ExecuteListenerProvider) () -> new DefaultExecuteListener() {
+
+                                     @Override
+                                     public void executeStart(ExecuteContext ctx) {
+                                         statements.incrementAndGet();
+                                     }
+                                 })
+                                 .dsl();
 
         new JooqProjectFinder(counting).listForMember(creator, new PageRequest(0, 10));
 
@@ -183,15 +194,16 @@ class JooqProjectFinderIT {
         repository().save(project);
 
         assertThat(finder().detailFor(creator, project.id())).hasValueSatisfying(view -> {
-            assertThat(view.id()).isEqualTo(project.id().value());
+            assertThat(view.id()).isEqualTo(project.id()
+                                                   .value());
             assertThat(view.createdBy()).isEqualTo(creator.value());
             assertThat(view.myPermission()).isEqualTo(ProjectPermission.OWNER);
             assertThat(view.members()).hasSize(2);
             assertThat(view.members())
-                    .extracting(m -> m.username(), m -> m.displayName())
-                    .containsExactly(
-                            tuple("creator", "Display of creator"),
-                            tuple("member", "Display of member"));
+                                      .extracting(m -> m.username(), m -> m.displayName())
+                                      .containsExactly(
+                                                       tuple("creator", "Display of creator"),
+                                                       tuple("member", "Display of member"));
         });
     }
 
@@ -201,13 +213,14 @@ class JooqProjectFinderIT {
 
         AtomicInteger statements = new AtomicInteger();
         DSLContext counting = dsl.configuration()
-                .derive((ExecuteListenerProvider) () -> new DefaultExecuteListener() {
-                    @Override
-                    public void executeStart(ExecuteContext ctx) {
-                        statements.incrementAndGet();
-                    }
-                })
-                .dsl();
+                                 .derive((ExecuteListenerProvider) () -> new DefaultExecuteListener() {
+
+                                     @Override
+                                     public void executeStart(ExecuteContext ctx) {
+                                         statements.incrementAndGet();
+                                     }
+                                 })
+                                 .dsl();
 
         assertThat(new JooqProjectFinder(counting).detailFor(creator, project.id())).isPresent();
         assertThat(statements).hasValue(1);
@@ -237,7 +250,6 @@ class JooqProjectFinderIT {
         repository().save(project);
 
         assertThat(finder().detailFor(creator, project.id()))
-                .hasValueSatisfying(view ->
-                        assertThat(view.status()).isEqualTo(ProjectStatus.DISABLED));
+                                                             .hasValueSatisfying(view -> assertThat(view.status()).isEqualTo(ProjectStatus.DISABLED));
     }
 }

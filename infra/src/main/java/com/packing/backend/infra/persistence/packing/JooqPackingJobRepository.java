@@ -16,13 +16,14 @@ import static com.packing.backend.infra.persistence.jooq.tables.PackingJobs.PACK
 @RequiredArgsConstructor
 public class JooqPackingJobRepository implements PackingJobRepository {
 
-    private final DSLContext dsl;
+    private final DSLContext      dsl;
     private final AggregateWriter writer;
 
     @Override
     public PackingJob save(PackingJob job) {
-        writer.upsert(PackingJobRecordMapper.TABLE, PackingJobRecordMapper.toRecord(job),
-                job.version());
+        writer.upsert(PackingJobRecordMapper.TABLE,
+                      PackingJobRecordMapper.toRecord(job),
+                      job.version());
         job.markPersisted();
         return job;
     }
@@ -30,8 +31,8 @@ public class JooqPackingJobRepository implements PackingJobRepository {
     @Override
     public Optional<PackingJob> findById(PackingJobId id) {
         return dsl.selectFrom(PACKING_JOBS)
-                .where(PACKING_JOBS.ID.eq(id))
-                .fetchOptional()
-                .map(PackingJobRecordMapper::toDomain);
+                  .where(PACKING_JOBS.ID.eq(id))
+                  .fetchOptional()
+                  .map(PackingJobRecordMapper::toDomain);
     }
 }

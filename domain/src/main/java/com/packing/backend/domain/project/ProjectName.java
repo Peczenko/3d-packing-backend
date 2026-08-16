@@ -15,7 +15,7 @@ public record ProjectName(String value) {
         value = Normalizer.normalize(value.trim(), Normalizer.Form.NFC);
         if (value.length() > MAX_LENGTH) {
             throw new DomainRuleViolationException(
-                    "Project name must be at most " + MAX_LENGTH + " characters");
+                                                   "Project name must be at most " + MAX_LENGTH + " characters");
         }
         rejectControlCharacters(value);
     }
@@ -25,7 +25,7 @@ public record ProjectName(String value) {
             char c = value.charAt(i);
             if (c < 0x20 || c == 0x7F) {
                 throw new DomainRuleViolationException(
-                        "Project name must not contain control characters");
+                                                       "Project name must not contain control characters");
             }
         }
     }

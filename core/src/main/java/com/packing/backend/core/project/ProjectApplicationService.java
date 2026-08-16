@@ -39,13 +39,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ProjectApplicationService {
 
-    private final ProjectRepository projects;
-    private final ProjectFinder projectFinder;
-    private final UserRepository users;
-    private final ActiveUserLookup activeUsers;
-    private final FileRepository files;
+    private final ProjectRepository    projects;
+    private final ProjectFinder        projectFinder;
+    private final UserRepository       users;
+    private final ActiveUserLookup     activeUsers;
+    private final FileRepository       files;
     private final DomainEventPublisher eventPublisher;
-    private final Clock clock;
+    private final Clock                clock;
 
     public ProjectView createProject(CreateProjectCommand command) {
         Instant now = clock.instant();
@@ -70,97 +70,122 @@ public class ProjectApplicationService {
 
     public ProjectView renameProject(RenameProjectCommand command) {
         Instant now = clock.instant();
-        Access access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.OWNER);
+        Access access = requireAccess(command.firebaseUid(),
+                                      command.projectId(),
+                                      ProjectPermission.OWNER);
 
-        access.project().rename(new ProjectName(command.name()), now);
+        access.project()
+              .rename(new ProjectName(command.name()), now);
         saveAndPublish(access.project());
-        return viewOf(access.caller(), access.project().id());
+        return viewOf(access.caller(),
+                      access.project()
+                            .id());
     }
 
     public void disableProject(ProjectCommand command) {
         Instant now = clock.instant();
-        Access access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.OWNER);
+        Access access = requireAccess(command.firebaseUid(),
+                                      command.projectId(),
+                                      ProjectPermission.OWNER);
 
-        access.project().disable(now);
+        access.project()
+              .disable(now);
         saveAndPublish(access.project());
     }
 
     public void activateProject(ProjectCommand command) {
         Instant now = clock.instant();
-        Access access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.OWNER);
+        Access access = requireAccess(command.firebaseUid(),
+                                      command.projectId(),
+                                      ProjectPermission.OWNER);
 
-        access.project().activate(now);
+        access.project()
+              .activate(now);
         saveAndPublish(access.project());
     }
 
     public void deleteProject(ProjectCommand command) {
         Instant now = clock.instant();
-        Access access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.OWNER);
+        Access access = requireAccess(command.firebaseUid(),
+                                      command.projectId(),
+                                      ProjectPermission.OWNER);
 
         ProjectId projectId = new ProjectId(command.projectId());
         List<StoredFile> contents = files.findAllAvailableByProject(projectId);
         contents.forEach(file -> file.delete(now));
 
-        access.project().delete(now);
+        access.project()
+              .delete(now);
         projects.save(access.project());
 
-        List<DomainEvent> events = new ArrayList<>(access.project().pullDomainEvents());
-        files.saveAll(contents).forEach(file -> events.addAll(file.pullDomainEvents()));
+        List<DomainEvent> events = new ArrayList<>(access.project()
+                                                         .pullDomainEvents());
+        files.saveAll(contents)
+             .forEach(file -> events.addAll(file.pullDomainEvents()));
         eventPublisher.publishAll(events);
     }
 
     public ProjectView grantAccess(GrantAccessCommand command) {
         Instant now = clock.instant();
-        Access access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.OWNER);
+        Access access = requireAccess(command.firebaseUid(),
+                                      command.projectId(),
+                                      ProjectPermission.OWNER);
 
         User member = resolveMember(command.identifier());
-        access.project().grantAccess(member.id(), command.permission(), access.caller(), now);
+        access.project()
+              .grantAccess(member.id(), command.permission(), access.caller(), now);
         saveAndPublish(access.project());
-        return viewOf(access.caller(), access.project().id());
+        return viewOf(access.caller(),
+                      access.project()
+                            .id());
     }
 
     public ProjectView changeAccess(ChangeAccessCommand command) {
         Instant now = clock.instant();
-        Access access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.OWNER);
+        Access access = requireAccess(command.firebaseUid(),
+                                      command.projectId(),
+                                      ProjectPermission.OWNER);
 
         UserId target = new UserId(command.userId());
-        if (access.project().permissionOf(target).isEmpty()) {
+        if (access.project()
+                  .permissionOf(target)
+                  .isEmpty()) {
             throw new UserNotFoundException("No member of this project with id " + target);
         }
 
-        access.project().grantAccess(target, command.permission(), access.caller(), now);
+        access.project()
+              .grantAccess(target, command.permission(), access.caller(), now);
         saveAndPublish(access.project());
-        return viewOf(access.caller(), access.project().id());
+        return viewOf(access.caller(),
+                      access.project()
+                            .id());
     }
 
     public void revokeAccess(RevokeAccessCommand command) {
         Instant now = clock.instant();
-        Access access = requireAccess(command.firebaseUid(), command.projectId(),
-                ProjectPermission.READ);
+        Access access = requireAccess(command.firebaseUid(),
+                                      command.projectId(),
+                                      ProjectPermission.READ);
 
         UserId target = new UserId(command.userId());
         if (!target.equals(access.caller())
-                && !access.permission().allows(ProjectPermission.OWNER)) {
+                && !access.permission()
+                          .allows(ProjectPermission.OWNER)) {
             throw new PermissionDeniedException(
-                    "This action requires OWNER permission on project " + command.projectId());
+                                                "This action requires OWNER permission on project " + command.projectId());
         }
 
-        access.project().revokeAccess(target, now);
+        access.project()
+              .revokeAccess(target, now);
         saveAndPublish(access.project());
     }
 
     private User resolveMember(String identifier) {
         return tryFindByEmail(identifier)
-                .or(() -> tryFindByUsername(identifier))
-                .filter(user -> !user.isDeleted())
-                .orElseThrow(() -> new UserNotFoundException(
-                        "No user matches that identifier"));
+                                         .or(() -> tryFindByUsername(identifier))
+                                         .filter(user -> !user.isDeleted())
+                                         .orElseThrow(() -> new UserNotFoundException(
+                                                                                      "No user matches that identifier"));
     }
 
     private Optional<User> tryFindByEmail(String identifier) {
@@ -184,8 +209,8 @@ public class ProjectApplicationService {
         ProjectId id = new ProjectId(projectId);
 
         Project project = projects.findById(id)
-                .filter(candidate -> !candidate.isDeleted())
-                .orElseThrow(() -> ProjectNotFoundException.byId(id));
+                                  .filter(candidate -> !candidate.isDeleted())
+                                  .orElseThrow(() -> ProjectNotFoundException.byId(id));
 
         return new Access(project, caller, project.requireAccess(caller, required));
     }
@@ -193,7 +218,7 @@ public class ProjectApplicationService {
     private UserId requireActiveCaller(String firebaseUid) {
         FirebaseUid uid = new FirebaseUid(firebaseUid);
         return activeUsers.findActiveUser(uid)
-                .orElseThrow(() -> UserNotFoundException.byFirebaseUid(uid));
+                          .orElseThrow(() -> UserNotFoundException.byFirebaseUid(uid));
     }
 
     private void saveAndPublish(Project project) {
@@ -203,7 +228,7 @@ public class ProjectApplicationService {
 
     private ProjectView viewOf(UserId caller, ProjectId projectId) {
         return projectFinder.detailFor(caller, projectId)
-                .orElseThrow(() -> ProjectNotFoundException.byId(projectId));
+                            .orElseThrow(() -> ProjectNotFoundException.byId(projectId));
     }
 
     private record Access(Project project, UserId caller, ProjectPermission permission) {
@@ -222,15 +247,15 @@ public class ProjectApplicationService {
     }
 
     public record GrantAccessCommand(String firebaseUid,
-                                     UUID projectId,
-                                     String identifier,
-                                     ProjectPermission permission) {
+            UUID projectId,
+            String identifier,
+            ProjectPermission permission) {
     }
 
     public record ChangeAccessCommand(String firebaseUid,
-                                      UUID projectId,
-                                      UUID userId,
-                                      ProjectPermission permission) {
+            UUID projectId,
+            UUID userId,
+            ProjectPermission permission) {
     }
 
     public record RevokeAccessCommand(String firebaseUid, UUID projectId, UUID userId) {

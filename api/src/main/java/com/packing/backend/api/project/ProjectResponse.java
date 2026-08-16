@@ -18,13 +18,18 @@ public record ProjectResponse(
 
     public static ProjectResponse from(ProjectView view) {
         return new ProjectResponse(
-                view.id(),
-                view.name(),
-                view.status().name(),
-                view.createdBy(),
-                view.myPermission().name(),
-                view.members().stream().map(ProjectMemberResponse::from).toList(),
-                view.createdAt(),
-                view.updatedAt());
+                                   view.id(),
+                                   view.name(),
+                                   view.status()
+                                       .name(),
+                                   view.createdBy(),
+                                   view.myPermission()
+                                       .name(),
+                                   view.members()
+                                       .stream()
+                                       .map(ProjectMemberResponse::from)
+                                       .toList(),
+                                   view.createdAt(),
+                                   view.updatedAt());
     }
 }

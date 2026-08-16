@@ -14,10 +14,11 @@ public record ProjectMemberResponse(
 
     public static ProjectMemberResponse from(ProjectMemberView view) {
         return new ProjectMemberResponse(
-                view.userId(),
-                view.username(),
-                view.displayName(),
-                view.permission().name(),
-                view.addedAt());
+                                         view.userId(),
+                                         view.username(),
+                                         view.displayName(),
+                                         view.permission()
+                                             .name(),
+                                         view.addedAt());
     }
 }

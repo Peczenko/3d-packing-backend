@@ -37,7 +37,7 @@ class JooqPackingJobFinderIT {
     @Autowired
     private DSLContext dsl;
 
-    private UserId user;
+    private UserId    user;
     private ProjectId projectA;
     private ProjectId projectB;
 
@@ -45,8 +45,10 @@ class JooqPackingJobFinderIT {
     void createUserAndProjects() {
         Instant now = now();
         User owner = User.register(new FirebaseUid("packing-owner"),
-                new Email("packing-owner@example.com"), new Username("packing-owner"),
-                "Packing Owner", now);
+                                   new Email("packing-owner@example.com"),
+                                   new Username("packing-owner"),
+                                   "Packing Owner",
+                                   now);
         new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(owner);
         user = owner.id();
         projectA = persistProject("Project A", now);
@@ -63,11 +65,13 @@ class JooqPackingJobFinderIT {
         Page<PackingJobView> page = finder().listInProject(projectA, new PageRequest(0, 1));
 
         assertThat(page.totalElements()).isEqualTo(2L);
-        assertThat(page.content()).singleElement().satisfies(view -> {
-            assertThat(view.id()).isEqualTo(newest.id().value());
-            assertThat(view.projectId()).isEqualTo(projectA.value());
-            assertThat(view.createdAt()).isEqualTo(base.plusSeconds(1));
-        });
+        assertThat(page.content()).singleElement()
+                                  .satisfies(view -> {
+                                      assertThat(view.id()).isEqualTo(newest.id()
+                                                                            .value());
+                                      assertThat(view.projectId()).isEqualTo(projectA.value());
+                                      assertThat(view.createdAt()).isEqualTo(base.plusSeconds(1));
+                                  });
     }
 
     @Test
@@ -81,15 +85,16 @@ class JooqPackingJobFinderIT {
     void breaksCreatedAtTiesByDescendingJobId() {
         Instant createdAt = now();
         PackingJobId smallerId = new PackingJobId(
-                UUID.fromString("00000000-0000-0000-0000-000000000001"));
+                                                  UUID.fromString("00000000-0000-0000-0000-000000000001"));
         PackingJobId largerId = new PackingJobId(
-                UUID.fromString("00000000-0000-0000-0000-000000000002"));
+                                                 UUID.fromString("00000000-0000-0000-0000-000000000002"));
         persistJob(projectA, smallerId, createdAt);
         persistJob(projectA, largerId, createdAt);
 
-        assertThat(finder().listInProject(projectA, new PageRequest(0, 1)).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(largerId.value());
+        assertThat(finder().listInProject(projectA, new PageRequest(0, 1))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(largerId.value());
     }
 
     @Test
@@ -110,8 +115,8 @@ class JooqPackingJobFinderIT {
     @Test
     void rejectsANonPositiveRunningJobLimit() {
         org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
-                .isThrownBy(() -> finder().findRunning(0))
-                .withMessage("limit must be positive");
+                                       .isThrownBy(() -> finder().findRunning(0))
+                                       .withMessage("limit must be positive");
     }
 
     private JooqPackingJobFinder finder() {
@@ -129,8 +134,12 @@ class JooqPackingJobFinderIT {
     }
 
     private PackingJob persistJob(ProjectId project, PackingJobId id, Instant createdAt) {
-        PackingJob job = PackingJob.queue(id, project, user,
-                "{\"testField\":42}", 60, createdAt);
+        PackingJob job = PackingJob.queue(id,
+                                          project,
+                                          user,
+                                          "{\"testField\":42}",
+                                          60,
+                                          createdAt);
         persist(job);
         return job;
     }
@@ -146,6 +155,7 @@ class JooqPackingJobFinderIT {
     }
 
     private static Instant now() {
-        return Instant.now().truncatedTo(ChronoUnit.MICROS);
+        return Instant.now()
+                      .truncatedTo(ChronoUnit.MICROS);
     }
 }

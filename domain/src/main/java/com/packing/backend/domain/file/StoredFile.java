@@ -22,19 +22,19 @@ public final class StoredFile extends AggregateRoot {
     @EqualsAndHashCode.Include
     private final FileId id;
 
-    private final UserId ownerId;
-    private final ProjectId projectId;
-    private final StorageKey storageKey;
+    private final UserId      ownerId;
+    private final ProjectId   projectId;
+    private final StorageKey  storageKey;
     private final ModelFormat format;
-    private final long sizeBytes;
-    private final Checksum checksum;
-    private final Instant createdAt;
+    private final long        sizeBytes;
+    private final Checksum    checksum;
+    private final Instant     createdAt;
 
-    private FileName name;
+    private FileName   name;
     private FileStatus status;
-    private long version;
-    private Instant updatedAt;
-    private Instant deletedAt;
+    private long       version;
+    private Instant    updatedAt;
+    private Instant    deletedAt;
 
     private StoredFile(FileId id,
                        UserId ownerId,
@@ -73,19 +73,19 @@ public final class StoredFile extends AggregateRoot {
                                     Instant now) {
         requireValidSize(sizeBytes);
         return new StoredFile(
-                id,
-                ownerId,
-                projectId,
-                name,
-                StorageKey.forFile(id),
-                name.format(),
-                sizeBytes,
-                checksum,
-                FileStatus.AVAILABLE,
-                INITIAL_VERSION,
-                now,
-                now,
-                null);
+                              id,
+                              ownerId,
+                              projectId,
+                              name,
+                              StorageKey.forFile(id),
+                              name.format(),
+                              sizeBytes,
+                              checksum,
+                              FileStatus.AVAILABLE,
+                              INITIAL_VERSION,
+                              now,
+                              now,
+                              null);
     }
 
     public static StoredFile rehydrate(FileId id,
@@ -101,8 +101,19 @@ public final class StoredFile extends AggregateRoot {
                                        Instant createdAt,
                                        Instant updatedAt,
                                        Instant deletedAt) {
-        return new StoredFile(id, ownerId, projectId, name, storageKey, format, sizeBytes,
-                checksum, status, version, createdAt, updatedAt, deletedAt);
+        return new StoredFile(id,
+                              ownerId,
+                              projectId,
+                              name,
+                              storageKey,
+                              format,
+                              sizeBytes,
+                              checksum,
+                              status,
+                              version,
+                              createdAt,
+                              updatedAt,
+                              deletedAt);
     }
 
     public void rename(FileName newName, Instant now) {
@@ -115,8 +126,8 @@ public final class StoredFile extends AggregateRoot {
         }
         if (newName.format() != format) {
             throw new DomainRuleViolationException(
-                    "Cannot rename a " + format + " file to " + newName
-                            + ": the extension must keep the same format");
+                                                   "Cannot rename a " + format + " file to " + newName
+                                                           + ": the extension must keep the same format");
         }
         this.name = newName;
         this.updatedAt = now;
@@ -158,7 +169,7 @@ public final class StoredFile extends AggregateRoot {
         }
         if (sizeBytes > MAX_SIZE_BYTES) {
             throw new DomainRuleViolationException(
-                    "File must be at most " + MAX_SIZE_BYTES + " bytes, got " + sizeBytes);
+                                                   "File must be at most " + MAX_SIZE_BYTES + " bytes, got " + sizeBytes);
         }
     }
 
