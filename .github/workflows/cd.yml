@@ -45,7 +45,7 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 21 (runs Gradle; the JDK 25 toolchain is auto-provisioned)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
