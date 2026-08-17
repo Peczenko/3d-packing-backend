@@ -271,7 +271,6 @@ class ProjectControllerTest {
                .andExpect(jsonPath("$.detail").value("No user matches that identifier"));
     }
 
-    /** PATCH must route to changeAccess, which cannot add anyone who is not already a member. */
     @Test
     void changingAPermissionRoutesToTheMemberOnlyUseCase() throws Exception {
         authenticate();

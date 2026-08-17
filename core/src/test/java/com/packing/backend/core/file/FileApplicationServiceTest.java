@@ -293,7 +293,6 @@ class FileApplicationServiceTest {
         assertThat(download.expiresAt()).isEqualTo(expiry);
     }
 
-    /** Downloads keep working on an archive: DISABLED blocks writes, not reads. */
     @Test
     void prepareDownloadStillWorksWhileTheProjectIsDisabled() {
         access(ProjectPermission.READ, ProjectStatus.DISABLED);

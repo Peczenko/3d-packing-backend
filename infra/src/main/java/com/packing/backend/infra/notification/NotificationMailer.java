@@ -21,8 +21,6 @@ class NotificationMailer {
     private final UserRepository users;
     private final EmailSender    emailSender;
 
-    // occurrence is the committed change being reported, phrased as a clause the log messages
-    // below complete: "Packing job 7 finished as SUCCEEDED but ...".
     void mailTo(UserId recipient, String occurrence, Function<User, EmailMessage> compose) {
         try {
             Optional<User> profile = users.findById(recipient);
@@ -33,8 +31,6 @@ class NotificationMailer {
             }
             emailSender.send(compose.apply(profile.get()));
         } catch (RuntimeException e) {
-            // Every caller runs AFTER_COMMIT: the change this reports is already durable, so a
-            // failed lookup, render or send has nothing left to roll back and must not escape.
             log.error("{} but the notification email could not be sent. The change is committed and "
                     + "readable through the API; only the notification is lost.", occurrence, e);
         }
