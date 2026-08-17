@@ -22,12 +22,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * There is deliberately no integration test for this path: issuing a user delegation SAS
- * needs Azurite started with HTTPS and {@code --oauth basic} against a token it does not
- * genuinely verify, which is a lot of fragile scaffolding for a path that still would not
- * be the real Entra flow.
- */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class UserDelegationBlobSasIssuerTest {

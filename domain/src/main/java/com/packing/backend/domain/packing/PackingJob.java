@@ -1,5 +1,6 @@
 package com.packing.backend.domain.packing;
 
+import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.AggregateRoot;
@@ -198,6 +199,7 @@ public final class PackingJob extends AggregateRoot {
         this.engineChecksum = requiredEngineChecksum;
         status = PackingJobStatus.SUCCEEDED;
         finishedAt = finished;
+        recordFinished(finished);
         return true;
     }
 
@@ -213,6 +215,7 @@ public final class PackingJob extends AggregateRoot {
         engineChecksum = requireSha256(checksum, "engineChecksum");
         status = PackingJobStatus.FAILED;
         finishedAt = Objects.requireNonNull(now, "now");
+        recordFinished(finishedAt);
         return true;
     }
 
@@ -225,11 +228,24 @@ public final class PackingJob extends AggregateRoot {
         failureReason = requiredReason;
         status = PackingJobStatus.FAILED;
         finishedAt = finished;
+        recordFinished(finished);
         return true;
     }
 
     public void markPersisted() {
         version++;
+    }
+
+    private void recordFinished(Instant now) {
+        recordEvent(new PackingJobFinished(id,
+                                           projectId,
+                                           requestedBy,
+                                           status,
+                                           failureReason,
+                                           resultFileName,
+                                           resultSizeBytes,
+                                           startedAt,
+                                           now));
     }
 
     private boolean isTerminal() {

@@ -1,5 +1,6 @@
 package com.packing.backend.domain.packing;
 
+import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
@@ -252,6 +253,67 @@ class PackingJobTest {
 
         assertThat(job.engineChecksum()).isEqualTo(SHA_A);
         assertThat(job.resultChecksum()).isEqualTo(SHA_B);
+    }
+
+    @Test
+    void succeedingRaisesTheEventCarryingEverythingTheNotificationNeeds() {
+        PackingJob job = succeededJob();
+
+        assertThat(job.domainEvents()).last()
+                                      .isEqualTo(new PackingJobFinished(JOB_ID,
+                                                                        PROJECT_ID,
+                                                                        USER_ID,
+                                                                        PackingJobStatus.SUCCEEDED,
+                                                                        null,
+                                                                        "output.bin",
+                                                                        12L,
+                                                                        NOW.plusSeconds(1),
+                                                                        NOW.plusSeconds(2)));
+    }
+
+    @Test
+    void failingRaisesTheEventCarryingTheReason() {
+        PackingJob job = failedJob();
+
+        assertThat(job.domainEvents()).last()
+                                      .isEqualTo(new PackingJobFinished(JOB_ID,
+                                                                        PROJECT_ID,
+                                                                        USER_ID,
+                                                                        PackingJobStatus.FAILED,
+                                                                        "engine exited",
+                                                                        null,
+                                                                        null,
+                                                                        null,
+                                                                        NOW.plusSeconds(1)));
+    }
+
+    @Test
+    void aStalledFailureRaisesTheSameEventWithNoStartTime() {
+        PackingJob job = queuedJob();
+        job.failStalled("dead-lettered", NOW.plusSeconds(1));
+
+        assertThat(job.domainEvents()).last()
+                                      .isEqualTo(new PackingJobFinished(JOB_ID,
+                                                                        PROJECT_ID,
+                                                                        USER_ID,
+                                                                        PackingJobStatus.FAILED,
+                                                                        "dead-lettered",
+                                                                        null,
+                                                                        null,
+                                                                        null,
+                                                                        NOW.plusSeconds(1)));
+    }
+
+    @Test
+    void aTerminalJobRaisesNoSecondFinishedEventHoweverManyTimesTheResultIsRedelivered() {
+        PackingJob job = succeededJob();
+        job.pullDomainEvents();
+
+        job.succeed("output.bin", "application/octet-stream", 12, SHA_B, "packer 0.3.0", SHA_A, NOW.plusSeconds(3));
+        job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(4));
+        job.failStalled("dead-lettered", NOW.plusSeconds(5));
+
+        assertThat(job.domainEvents()).isEmpty();
     }
 
     @Test

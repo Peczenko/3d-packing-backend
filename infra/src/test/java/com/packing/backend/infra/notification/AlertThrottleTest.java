@@ -98,10 +98,6 @@ class AlertThrottleTest {
                            .send()).isTrue();
     }
 
-    /**
-     * A budget spent on suppressed duplicates would defeat the point of having both limits:
-     * the cooldown must reject first, so the hourly ceiling only ever counts sent mail.
-     */
     @Test
     void doesNotSpendBudgetOnFailuresTheCooldownAlreadyRejected() {
         throttle.evaluate(FINGERPRINT);

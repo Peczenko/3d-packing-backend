@@ -35,14 +35,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * Contract test for the controller.
- *
- * <p>Filters are disabled: the real filter chain lives in {@code :app} and is not on this
- * module's classpath by design. The {@code SecurityContextHolder} is populated directly
- * instead, which also exercises {@code CurrentUserArgumentResolver} — MockMvc dispatches
- * on the calling thread, so the thread-local context is visible to the handler.
- */
 @WebMvcTest(controllers = UserController.class)
 @AutoConfigureMockMvc(addFilters = false)
 class UserControllerTest {
@@ -192,12 +184,6 @@ class UserControllerTest {
                .andExpect(status().isForbidden())
                .andExpect(jsonPath("$.title").value("Forbidden"));
     }
-
-    // --- framework client errors ---------------------------------------------------
-    //
-    // ExceptionHandlerExceptionResolver runs before Spring's DefaultHandlerExceptionResolver,
-    // so a bare @ExceptionHandler(Exception.class) intercepts all of these and reports them
-    // as 500. These pin the inherited ResponseEntityExceptionHandler behaviour.
 
     @Test
     void malformedJsonIsABadRequestNotAServerError() throws Exception {

@@ -1,8 +1,6 @@
 description = 'Application layer: application services, commands/results, output ports.'
 
 dependencies {
-    // `api`, not `implementation`: the port signatures in this module expose domain
-    // types, so :api and :infra need them on their COMPILE classpath transitively.
     api project(':domain')
 
     api 'org.springframework:spring-tx'

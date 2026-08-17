@@ -17,7 +17,7 @@ public class BlobStorageConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = PREFIX, name = ENABLED,
-            havingValue = "true", matchIfMissing = true)
+                           havingValue = "true", matchIfMissing = true)
     public BinaryStorage azureBlobBinaryStorage(BlobServiceClient serviceClient,
                                                 BlobSasIssuer sasIssuer,
                                                 BlobStorageProperties properties) {
@@ -32,7 +32,7 @@ public class BlobStorageConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = PREFIX, name = ENABLED,
-            havingValue = "true", matchIfMissing = true)
+                           havingValue = "true", matchIfMissing = true)
     public PackingJobArtifactStore azurePackingJobArtifactStore(BlobServiceClient serviceClient,
                                                                 BlobSasIssuer sasIssuer,
                                                                 BlobStorageProperties properties,
@@ -51,7 +51,7 @@ public class BlobStorageConfig {
 
     @Bean
     @ConditionalOnProperty(prefix = PREFIX, name = SAS_MODE,
-            havingValue = "ACCOUNT_KEY", matchIfMissing = true)
+                           havingValue = "ACCOUNT_KEY", matchIfMissing = true)
     public BlobSasIssuer accountKeyBlobSasIssuer() {
         return new AccountKeyBlobSasIssuer();
     }

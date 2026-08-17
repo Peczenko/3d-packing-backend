@@ -10,7 +10,6 @@ services:
       POSTGRES_USER: ${DB_USERNAME:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      # Override DB_PORT in .env if something already owns 5432 on your machine.
       - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -37,13 +36,6 @@ services:
       retries: 12
 
   servicebus-sql:
-    # Also under "packing": packing-worker depends_on servicebus, and Compose
-    # rejects the whole project when a dependency's profile is not enabled, so
-    # `--profile packing` on its own has to be able to resolve the broker.
-    # The cost: the emulator is now in scope for `--profile packing ... --build`,
-    # which rebuilds its dockerfile_inline image, recreates the container, and
-    # wipes both queues — so a worker run started that way destroys the dispatch
-    # it was meant to handle. Add --no-deps when messages are already in flight.
     profiles: ["messaging", "packing"]
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: packing-servicebus-sql
@@ -119,7 +111,6 @@ services:
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-packing-local}
       FIREBASE_SERVICE_ACCOUNT_B64: ${FIREBASE_SERVICE_ACCOUNT_B64:-}
       FIREBASE_ADMIN_ENABLED: ${FIREBASE_ADMIN_ENABLED:-false}
-      # Inside the Compose network the emulator answers to its service name, not localhost.
       AZURITE_HOST: azurite
       AZURITE_BLOB_PORT: 10000
       SPRING_CLOUD_AZURE_STORAGE_BLOB_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
@@ -132,9 +123,6 @@ services:
     ports:
       - "${APP_PORT:-8080}:8080"
 
-  # One-shot by design: each container takes at most one dispatch and exits, so
-  # concurrency is `--scale packing-worker=5` and never a loop inside the binary.
-  # No container_name, because a named service cannot be scaled.
   packing-worker:
     profiles: ["packing"]
     build:
@@ -148,17 +136,10 @@ services:
       servicebus:
         condition: service_healthy
     environment:
-      # Go env names, deliberately not the app service's Spring ones.
-      # config.Load wants exactly one auth mode per dependency, so the two
-      # connection strings are set and SERVICE_BUS_NAMESPACE / STORAGE_ACCOUNT_URL
-      # stay unset — setting both, or neither, exits 2 at startup.
       SERVICE_BUS_CONNECTION_STRING: Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
       STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
       PACKER_PATH: /usr/local/bin/packer
-      # Distroless has no shell, so /tmp is set explicitly rather than left to
-      # os.TempDir(): a work root the nonroot user cannot create into fails as an
-      # infrastructure error and abandons every message it touches.
       PACKING_WORK_ROOT: /tmp
       PACKING_RECEIVE_TIMEOUT: ${PACKING_RECEIVE_TIMEOUT:-60s}
       PACKING_LOCK_RENEW_INTERVAL: ${PACKING_LOCK_RENEW_INTERVAL:-20s}

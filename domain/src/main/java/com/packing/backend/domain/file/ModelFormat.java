@@ -2,7 +2,6 @@ package com.packing.backend.domain.file;
 
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -66,10 +65,5 @@ public enum ModelFormat {
 
     public Set<String> extensions() {
         return new TreeSet<>(extensions);
-    }
-
-    @Override
-    public String toString() {
-        return name() + Arrays.toString(extensions.toArray());
     }
 }

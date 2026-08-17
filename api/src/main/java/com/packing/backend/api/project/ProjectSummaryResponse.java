@@ -1,6 +1,8 @@
 package com.packing.backend.api.project;
 
 import com.packing.backend.core.project.ProjectSummaryView;
+import com.packing.backend.domain.project.ProjectPermission;
+import com.packing.backend.domain.project.ProjectStatus;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -8,8 +10,8 @@ import java.util.UUID;
 public record ProjectSummaryResponse(
         UUID id,
         String name,
-        String status,
-        String myPermission,
+        ProjectStatus status,
+        ProjectPermission myPermission,
         int memberCount,
         Instant createdAt,
         Instant updatedAt) {
@@ -18,10 +20,8 @@ public record ProjectSummaryResponse(
         return new ProjectSummaryResponse(
                                           view.id(),
                                           view.name(),
-                                          view.status()
-                                              .name(),
-                                          view.myPermission()
-                                              .name(),
+                                          view.status(),
+                                          view.myPermission(),
                                           view.memberCount(),
                                           view.createdAt(),
                                           view.updatedAt());

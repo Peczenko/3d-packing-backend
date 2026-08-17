@@ -60,8 +60,8 @@ class BlobStorageConfigTest {
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(BlobStorageProperties.class)
     @ComponentScan(basePackageClasses = PackingContractCodec.class, useDefaultFilters = false,
-            includeFilters = @ComponentScan.Filter(type = FilterType.ANNOTATION,
-                    classes = Component.class))
+                   includeFilters = @ComponentScan.Filter(type = FilterType.ANNOTATION,
+                                                          classes = Component.class))
     static class TestConfiguration {
     }
 }

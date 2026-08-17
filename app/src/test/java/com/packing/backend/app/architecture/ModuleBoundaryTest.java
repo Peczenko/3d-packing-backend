@@ -9,8 +9,8 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 @AnalyzeClasses(
-        packages = "com.packing.backend",
-        importOptions = ImportOption.DoNotIncludeTests.class)
+                packages = "com.packing.backend",
+                importOptions = ImportOption.DoNotIncludeTests.class)
 class ModuleBoundaryTest {
 
     private static final String DOMAIN = "com.packing.backend.domain..";

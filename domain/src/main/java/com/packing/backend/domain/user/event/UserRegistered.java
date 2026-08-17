@@ -7,7 +7,6 @@ import com.packing.backend.domain.user.UserId;
 
 import java.time.Instant;
 
-/** A local profile was created for a Firebase identity seen for the first time. */
 public record UserRegistered(
         UserId userId,
         FirebaseUid firebaseUid,

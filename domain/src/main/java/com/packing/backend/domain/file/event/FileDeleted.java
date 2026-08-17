@@ -7,10 +7,6 @@ import com.packing.backend.domain.user.UserId;
 
 import java.time.Instant;
 
-/**
- * Carries the {@link StorageKey} so the after-commit listener that removes the blob does
- * not have to read the row back to find it.
- */
 public record FileDeleted(
         FileId fileId,
         StorageKey storageKey,
