@@ -2,15 +2,20 @@ package com.packing.backend.core.packing;
 
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
+import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.project.ProjectId;
+import com.packing.backend.domain.shared.DomainEvent;
 import com.packing.backend.domain.user.UserId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.stereotype.Service;
@@ -19,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,11 +46,17 @@ class PackingWorkerEventServiceTest {
     @Mock
     private PackingJobRepository jobs;
 
+    @Mock
+    private DomainEventPublisher events;
+
+    @Captor
+    private ArgumentCaptor<Collection<? extends DomainEvent>> published;
+
     private PackingWorkerEventService service;
 
     @BeforeEach
     void setUp() {
-        service = new PackingWorkerEventService(jobs, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new PackingWorkerEventService(jobs, events, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -187,18 +199,89 @@ class PackingWorkerEventServiceTest {
     }
 
     @Test
+    void successPublishesTheEventThatNotifiesTheRequester() {
+        PackingJob job = runningJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.apply(succeeded(job.id()));
+
+        verify(events).publishAll(published.capture());
+        assertThat(published.getValue()).singleElement()
+                                        .isEqualTo(new PackingJobFinished(job.id(),
+                                                                          job.projectId(),
+                                                                          job.requestedBy(),
+                                                                          PackingJobStatus.SUCCEEDED,
+                                                                          null,
+                                                                          "result.bin",
+                                                                          1234L,
+                                                                          NOW.minusSeconds(1),
+                                                                          NOW));
+    }
+
+    @Test
+    void failurePublishesTheEventThatNotifiesTheRequester() {
+        PackingJob job = runningJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.apply(failed(job.id()));
+
+        verify(events).publishAll(published.capture());
+        assertThat(published.getValue()).singleElement()
+                                        .isEqualTo(new PackingJobFinished(job.id(),
+                                                                          job.projectId(),
+                                                                          job.requestedBy(),
+                                                                          PackingJobStatus.FAILED,
+                                                                          "engine exited 1",
+                                                                          null,
+                                                                          null,
+                                                                          NOW.minusSeconds(1),
+                                                                          NOW));
+    }
+
+    @Test
+    void aRedeliveredTerminalEventNotifiesNobodyASecondTime() {
+        PackingJob job = runningJob();
+        job.succeed("result.bin",
+                    "application/octet-stream",
+                    1234,
+                    RESULT_CHECKSUM,
+                    FINAL_VERSION,
+                    FINAL_CHECKSUM,
+                    NOW.minusSeconds(1));
+        job.pullDomainEvents();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.apply(succeeded(job.id()));
+
+        verify(events, never()).publishAll(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void startingAJobNotifiesNobody() {
+        PackingJob job = queuedJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.apply(started(job.id()));
+
+        verify(events).publishAll(published.capture());
+        assertThat(published.getValue()).isEmpty();
+    }
+
+    @Test
     void isATransactionalServiceBoundary() {
         assertThat(PackingWorkerEventService.class.isAnnotationPresent(Service.class)).isTrue();
         assertThat(PackingWorkerEventService.class.isAnnotationPresent(Transactional.class)).isTrue();
     }
 
     private static PackingJob queuedJob() {
-        return PackingJob.queue(PackingJobId.generate(),
-                                ProjectId.generate(),
-                                UserId.generate(),
-                                "{\"testField\":true}",
-                                60,
-                                NOW.minusSeconds(30));
+        PackingJob job = PackingJob.queue(PackingJobId.generate(),
+                                          ProjectId.generate(),
+                                          UserId.generate(),
+                                          "{\"testField\":true}",
+                                          60,
+                                          NOW.minusSeconds(30));
+        job.pullDomainEvents();
+        return job;
     }
 
     private static PackingJob runningJob() {

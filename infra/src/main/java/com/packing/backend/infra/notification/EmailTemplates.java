@@ -28,8 +28,18 @@ class EmailTemplates {
     }
 
     String render(String name, Map<String, Object> model) {
+        requireFooterNote(name, model);
         Context context = new Context();
         context.setVariables(model);
         return engine.process(name, context);
+    }
+
+    private static void requireFooterNote(String name, Map<String, Object> model) {
+        Object footerNote = model.get("footerNote");
+        if (footerNote == null || footerNote.toString()
+                                            .isBlank()) {
+            throw new IllegalStateException("mail/" + name + ".html must supply a footerNote: the shared "
+                    + "layout renders the reason the recipient got this mail and has no default.");
+        }
     }
 }

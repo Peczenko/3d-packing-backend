@@ -2,8 +2,10 @@ package com.packing.backend.core.packing;
 
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
+import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,15 +13,12 @@ import java.time.Clock;
 
 @Service
 @Transactional
+@RequiredArgsConstructor
 public class PackingWorkerEventService {
 
     private final PackingJobRepository jobs;
+    private final DomainEventPublisher events;
     private final Clock                clock;
-
-    public PackingWorkerEventService(PackingJobRepository jobs, Clock clock) {
-        this.jobs = jobs;
-        this.clock = clock;
-    }
 
     public void apply(PackingWorkerEvent event) {
         PackingJob job = jobs.findById(event.jobId())
@@ -45,6 +44,7 @@ public class PackingWorkerEventService {
         };
         if (changed) {
             jobs.save(job);
+            events.publishAll(job.pullDomainEvents());
         }
     }
 }

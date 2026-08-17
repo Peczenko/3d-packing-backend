@@ -2,10 +2,12 @@ package com.packing.backend.core.packing;
 
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
+import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,18 +15,15 @@ import java.time.Clock;
 
 @Service
 @Transactional
+@RequiredArgsConstructor
 public class PackingJobRecoveryService {
 
     private static final String DISPATCH_EXHAUSTED = "Dispatch exhausted Service Bus delivery attempts";
     private static final String DISPATCH_EXPIRED   = "Dispatch expired before the job started";
 
     private final PackingJobRepository jobs;
+    private final DomainEventPublisher events;
     private final Clock                clock;
-
-    public PackingJobRecoveryService(PackingJobRepository jobs, Clock clock) {
-        this.jobs = jobs;
-        this.clock = clock;
-    }
 
     public enum DispatchStall {
         DELIVERY_EXHAUSTED,
@@ -37,7 +36,7 @@ public class PackingJobRecoveryService {
             return false;
         }
         if (job.failStalled(reasonFor(stall), clock.instant())) {
-            jobs.save(job);
+            saveAndPublish(job);
         }
         return true;
     }
@@ -69,8 +68,13 @@ public class PackingJobRecoveryService {
                         result.engineVersion(),
                         result.engineChecksum(),
                         clock.instant())) {
-            jobs.save(job);
+            saveAndPublish(job);
         }
+    }
+
+    private void saveAndPublish(PackingJob job) {
+        jobs.save(job);
+        events.publishAll(job.pullDomainEvents());
     }
 
     private PackingJob load(PackingJobId id) {
