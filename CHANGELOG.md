@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.2.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.1.0...v1.2.0) (2026-08-17)
+
+
+### Features
+
+* add swagger docs ([#44](https://github.com/Peczenko/3d-packing-backend/issues/44)) ([b587062](https://github.com/Peczenko/3d-packing-backend/commit/b58706218654938ce0a720432041bb0ec6a272de))
+* send email about packing job status after the job finished, refactor email infra ([#45](https://github.com/Peczenko/3d-packing-backend/issues/45)) ([519ad1e](https://github.com/Peczenko/3d-packing-backend/commit/519ad1e4960b1f9ea44b06906108190c75a99d6e))
+
+
+### Refactoring
+
+* remove redundant comments ([#46](https://github.com/Peczenko/3d-packing-backend/issues/46)) ([ac97dbf](https://github.com/Peczenko/3d-packing-backend/commit/ac97dbf1af62ce1fd0bdb4fdc3fbf9393a0153ad))
+
+
+### CI/CD
+
+* bump actions/checkout from 4 to 7 ([#7](https://github.com/Peczenko/3d-packing-backend/issues/7)) ([831b5ab](https://github.com/Peczenko/3d-packing-backend/commit/831b5abccf592fb7db7d7106751496cde3e5f42b))
+* bump actions/setup-java from 4 to 5 ([#5](https://github.com/Peczenko/3d-packing-backend/issues/5)) ([7e3d78c](https://github.com/Peczenko/3d-packing-backend/commit/7e3d78c870e8f13fe3680bdb4128b108906de6cd))
+* bump docker/build-push-action from 6 to 7 ([#1](https://github.com/Peczenko/3d-packing-backend/issues/1)) ([8e2d81e](https://github.com/Peczenko/3d-packing-backend/commit/8e2d81e189966951b23e1f8e628c2b61d4658b0e))
+* bump docker/login-action from 3 to 4 ([#2](https://github.com/Peczenko/3d-packing-backend/issues/2)) ([1ca7011](https://github.com/Peczenko/3d-packing-backend/commit/1ca70114178f9a470f3d93ad8e681a8c917b8165))
+* bump gradle/actions from 4 to 6 ([#8](https://github.com/Peczenko/3d-packing-backend/issues/8)) ([4f2990c](https://github.com/Peczenko/3d-packing-backend/commit/4f2990c93b2b327279ee3e6772ae23ef41a3badb))
+
+
+### Chores & Dependencies
+
+* bump com.google.firebase:firebase-admin ([#25](https://github.com/Peczenko/3d-packing-backend/issues/25)) ([9e8642f](https://github.com/Peczenko/3d-packing-backend/commit/9e8642fd2b30bc5d69b7c3fbf1e3ba39f3a369ae))
+* bump gradle-wrapper from 8.14.5 to 9.7.0 ([#3](https://github.com/Peczenko/3d-packing-backend/issues/3)) ([507b53a](https://github.com/Peczenko/3d-packing-backend/commit/507b53ae7433b1d48513127e812035e40faf9572))
+* bump org.gradle.toolchains.foojay-resolver-convention from 0.9.0 to 1.0.0 ([#4](https://github.com/Peczenko/3d-packing-backend/issues/4)) ([c8700ef](https://github.com/Peczenko/3d-packing-backend/commit/c8700ef6d3207b23f4c067168276c280e80b0686))
+
 ## [1.1.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.0.0...v1.1.0) (2026-08-16)
 
 
