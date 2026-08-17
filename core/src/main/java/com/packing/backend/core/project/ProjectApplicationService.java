@@ -17,12 +17,10 @@ import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.shared.DomainEvent;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.shared.PermissionDeniedException;
-import com.packing.backend.domain.user.Email;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.UserNotFoundException;
-import com.packing.backend.domain.user.Username;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,7 +29,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -131,7 +128,7 @@ public class ProjectApplicationService {
                                       command.projectId(),
                                       ProjectPermission.OWNER);
 
-        User member = resolveMember(command.identifier());
+        User member = resolveMember(new UserId(command.userId()));
         access.project()
               .grantAccess(member.id(), command.permission(), access.caller(), now);
         saveAndPublish(access.project());
@@ -180,28 +177,14 @@ public class ProjectApplicationService {
         saveAndPublish(access.project());
     }
 
-    private User resolveMember(String identifier) {
-        return tryFindByEmail(identifier)
-                                         .or(() -> tryFindByUsername(identifier))
-                                         .filter(user -> !user.isDeleted())
-                                         .orElseThrow(() -> new UserNotFoundException(
-                                                                                      "No user matches that identifier"));
-    }
-
-    private Optional<User> tryFindByEmail(String identifier) {
-        try {
-            return users.findByEmail(new Email(identifier));
-        } catch (DomainRuleViolationException notAnEmail) {
-            return Optional.empty();
+    private User resolveMember(UserId userId) {
+        User user = users.findById(userId)
+                         .filter(candidate -> !candidate.isDeleted())
+                         .orElseThrow(() -> new UserNotFoundException("No active user matches that id"));
+        if (!user.isActive()) {
+            throw new DomainRuleViolationException("Cannot add a disabled user to a project");
         }
-    }
-
-    private Optional<User> tryFindByUsername(String identifier) {
-        try {
-            return users.findByUsername(new Username(identifier));
-        } catch (DomainRuleViolationException notAUsername) {
-            return Optional.empty();
-        }
+        return user;
     }
 
     private Access requireAccess(String firebaseUid, UUID projectId, ProjectPermission required) {
@@ -248,7 +231,7 @@ public class ProjectApplicationService {
 
     public record GrantAccessCommand(String firebaseUid,
             UUID projectId,
-            String identifier,
+            UUID userId,
             ProjectPermission permission) {
     }
 

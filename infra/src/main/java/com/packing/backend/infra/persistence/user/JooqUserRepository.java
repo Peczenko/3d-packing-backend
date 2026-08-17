@@ -65,22 +65,6 @@ public class JooqUserRepository implements UserRepository {
     }
 
     @Override
-    public Optional<User> findByEmail(Email email) {
-        return dsl.selectFrom(USERS)
-                  .where(USERS.EMAIL.eq(email.value()))
-                  .fetchOptional()
-                  .map(UserRecordMapper::toDomain);
-    }
-
-    @Override
-    public Optional<User> findByUsername(Username username) {
-        return dsl.selectFrom(USERS)
-                  .where(USERS.USERNAME.eq(username.value()))
-                  .fetchOptional()
-                  .map(UserRecordMapper::toDomain);
-    }
-
-    @Override
     public boolean existsByUsername(Username username) {
         return dsl.fetchExists(dsl.selectFrom(USERS)
                                   .where(USERS.USERNAME.eq(username.value())));

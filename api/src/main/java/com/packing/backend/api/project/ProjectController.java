@@ -135,7 +135,7 @@ public class ProjectController {
         return ProjectResponse.from(projects.grantAccess(new GrantAccessCommand(
                                                                                 caller.firebaseUid(),
                                                                                 projectId,
-                                                                                request.identifier(),
+                                                                                request.userId(),
                                                                                 request.permission())));
     }
 
