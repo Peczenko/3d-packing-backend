@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/Peczenko/3d-packing-backend/compare/v1.2.0...v1.2.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* align netty to a single version ([e9444e0](https://github.com/Peczenko/3d-packing-backend/commit/e9444e09cecc71fa939e271bd92f54e1fbc2b07a))
+* align netty to a single version ([bab221a](https://github.com/Peczenko/3d-packing-backend/commit/bab221a82924dbb02083bfbbd7781043b9640257))
+
 ## [1.2.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.1.0...v1.2.0) (2026-08-17)
 
 
