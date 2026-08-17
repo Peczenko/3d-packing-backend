@@ -59,11 +59,15 @@ class JooqUserFinderIT {
         persist("uid-deleted", "deleted@example.com", "john_deleted", "John Deleted", UserStatus.DELETED);
 
         assertThat(finder().search("JOHN", 10))
-                                               .extracting(UserSearchResult::id, UserSearchResult::status)
+                                               .extracting(
+                                                           UserSearchResult::id,
+                                                           UserSearchResult::username,
+                                                           UserSearchResult::displayName,
+                                                           UserSearchResult::status)
                                                .containsExactly(
-                                                                tuple(username.id(), UserStatus.ACTIVE),
-                                                                tuple(display.id(), UserStatus.DISABLED),
-                                                                tuple(email.id(), UserStatus.ACTIVE));
+                                                                tuple(username.id(), "john_builder", "One", UserStatus.ACTIVE),
+                                                                tuple(display.id(), "builder_two", "John Smith", UserStatus.DISABLED),
+                                                                tuple(email.id(), "email_match", "Three", UserStatus.ACTIVE));
     }
 
     @Test

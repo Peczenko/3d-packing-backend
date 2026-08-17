@@ -15,6 +15,8 @@ import com.packing.backend.domain.user.Username;
 import com.packing.backend.domain.user.UsernameAlreadyTakenException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -200,11 +202,12 @@ class UserControllerTest {
                .andExpect(status().isBadRequest());
     }
 
-    @Test
-    void searchRejectsLimitsOutsideTheAllowedRange() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = { 0, 21 })
+    void searchRejectsLimitsOutsideTheAllowedRange(int limit) throws Exception {
         mockMvc.perform(get("/api/v1/users/search")
                                                    .param("pattern", "ada")
-                                                   .param("limit", "21"))
+                                                   .param("limit", Integer.toString(limit)))
                .andExpect(status().isBadRequest());
     }
 
