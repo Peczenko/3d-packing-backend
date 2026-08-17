@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.packing'
-version = '1.1.0' // x-release-please-version
+version = '1.2.1' // x-release-please-version
 description = '3d-packing-backend'
 
 subprojects {
@@ -67,6 +67,7 @@ subprojects {
         ].each { conf ->
             add(conf, platform(libs.spring.boot.bom))
             add(conf, platform(libs.spring.cloud.azure.bom))
+            add(conf, platform(libs.netty.bom))
         }
 
         compileOnly 'org.projectlombok:lombok'
@@ -81,6 +82,7 @@ subprojects {
         dependencies {
             testFixturesApi platform(libs.spring.boot.bom)
             testFixturesApi platform(libs.spring.cloud.azure.bom)
+            testFixturesApi platform(libs.netty.bom)
             testFixturesAnnotationProcessor platform(libs.spring.boot.bom)
             testFixturesCompileOnly 'org.projectlombok:lombok'
             testFixturesAnnotationProcessor 'org.projectlombok:lombok'
