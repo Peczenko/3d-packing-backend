@@ -14,7 +14,6 @@ public interface BinaryStorage {
 
     void delete(StorageKey key);
 
-    /** The URL embeds a credential. It must not be logged, cached or persisted. */
     record TemporaryUrl(URI url, Instant expiresAt) {
     }
 }

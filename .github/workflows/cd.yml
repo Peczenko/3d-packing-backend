@@ -53,8 +53,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      # jOOQ code generation needs a PostgreSQL container, which the image build has no
-      # daemon for. The GitHub runner does, so the jar is built here and COPYed into the image.
       - name: Build the application jar
         run: ./gradlew :app:bootJar --no-daemon
 

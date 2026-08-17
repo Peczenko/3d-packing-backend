@@ -91,8 +91,6 @@ class UserApplicationServiceTest {
         when(users.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
-    // --- just-in-time provisioning -------------------------------------------------
-
     @Test
     void provisionsANewUserOnFirstSight() {
         when(users.findByFirebaseUid(new FirebaseUid(UID))).thenReturn(Optional.empty());
@@ -150,10 +148,6 @@ class UserApplicationServiceTest {
         verify(users, never()).existsByUsername(any());
     }
 
-    /**
-     * The sign-in path must never write the whole aggregate: doing so would carry role,
-     * status and username from a possibly stale read and revert a concurrent change.
-     */
     @Test
     void signingInUsesTheNarrowWriteRatherThanAFullAggregateSave() {
         User existing = existingUser();
@@ -179,11 +173,6 @@ class UserApplicationServiceTest {
                                                                                                                          .isInstanceOf(DomainRuleViolationException.class);
     }
 
-    /**
-     * The tombstone is the whole point of soft deletion: an ID token issued before the
-     * account was deleted stays valid for up to an hour, and must not be able to
-     * re-provision a fresh profile.
-     */
     @Test
     void aDeletedUserCannotSignInAndIsNotReProvisioned() {
         when(users.findByFirebaseUid(new FirebaseUid(UID)))
@@ -195,8 +184,6 @@ class UserApplicationServiceTest {
 
         verify(users, never()).save(any());
     }
-
-    // --- authorization lookup ------------------------------------------------------
 
     @Test
     void authorizationIsReadFromTheStoredRoleNotFromAnyTokenClaim() {
@@ -225,8 +212,6 @@ class UserApplicationServiceTest {
         assertThat(service.loadAuthorization(UID))
                                                   .hasValueSatisfying(authorization -> assertThat(authorization.isActive()).isFalse());
     }
-
-    // --- profile updates -----------------------------------------------------------
 
     @Test
     void rejectsAProfileUpdateThatTakesAnotherUsersUsername() {
@@ -260,8 +245,6 @@ class UserApplicationServiceTest {
                                                                                                        .isInstanceOf(UserNotFoundException.class);
     }
 
-    // --- deletion ------------------------------------------------------------------
-
     @Test
     void deletingAnonymisesTheProfileAndLeavesATombstone() {
         User existing = existingUser();
@@ -279,7 +262,6 @@ class UserApplicationServiceTest {
                         .value()).doesNotContain("ada@example.com");
         assertThat(saved.getValue()
                         .displayName()).isNull();
-        // Retained: it is the key the authorization lookup rejects the token on.
         assertThat(saved.getValue()
                         .firebaseUid()).isEqualTo(existing.firebaseUid());
     }
@@ -303,12 +285,6 @@ class UserApplicationServiceTest {
                                                             .isInstanceOf(UserNotFoundException.class);
     }
 
-    // --- role assignment -----------------------------------------------------------
-
-    /**
-     * Firebase must not be called inside the transaction: a rollback cannot undo a granted
-     * ADMIN claim. The mirroring is driven by this event after commit instead.
-     */
     @Test
     void assigningARolePublishesTheEventAndTouchesNoExternalSystem() {
         User existing = existingUser();
