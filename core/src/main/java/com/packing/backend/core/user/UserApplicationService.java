@@ -2,6 +2,7 @@ package com.packing.backend.core.user;
 
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.in.LoadUserAuthorizationUseCase;
+import com.packing.backend.core.user.port.out.UserFinder;
 import com.packing.backend.core.user.port.out.UserRepository;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.user.Email;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -29,6 +31,7 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
     private static final int MAX_USERNAME_SUFFIX_ATTEMPTS = 20;
 
     private final UserRepository       users;
+    private final UserFinder           userFinder;
     private final DomainEventPublisher eventPublisher;
     private final Clock                clock;
 
@@ -40,6 +43,13 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
                                                            .value(),
                                                        user.role(),
                                                        user.status()));
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserSearchResult> searchUsers(SearchUsersQuery query) {
+        return userFinder.search(query.pattern()
+                                      .trim(),
+                                 query.limit());
     }
 
     public UserView resolveCurrentUser(ResolveCurrentUserCommand command) {
@@ -156,5 +166,8 @@ public class UserApplicationService implements LoadUserAuthorizationUseCase {
     }
 
     public record AssignUserRoleCommand(UUID userId, UserRole role) {
+    }
+
+    public record SearchUsersQuery(String pattern, int limit) {
     }
 }

@@ -4,8 +4,11 @@ import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.user.UserApplicationService;
 import com.packing.backend.core.user.UserApplicationService.AssignUserRoleCommand;
 import com.packing.backend.core.user.UserApplicationService.ResolveCurrentUserCommand;
+import com.packing.backend.core.user.UserApplicationService.SearchUsersQuery;
 import com.packing.backend.core.user.UserApplicationService.UpdateUserProfileCommand;
+import com.packing.backend.core.user.UserSearchResult;
 import com.packing.backend.core.user.UserView;
+import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.UserRole;
 import com.packing.backend.domain.user.UserStatus;
 import com.packing.backend.domain.user.Username;
@@ -157,6 +160,52 @@ class UserControllerTest {
                .andExpect(status().isNoContent());
 
         verify(users).deleteAccount(UID);
+    }
+
+    @Test
+    void searchReturnsCompactUsersWithoutEmailAndUsesTheDefaultLimit() throws Exception {
+        UserId id = UserId.generate();
+        when(users.searchUsers(new SearchUsersQuery("smith", 10)))
+                                                                  .thenReturn(List.of(new UserSearchResult(
+                                                                                                           id,
+                                                                                                           "john_smith",
+                                                                                                           "John Smith",
+                                                                                                           UserStatus.DISABLED)));
+
+        mockMvc.perform(get("/api/v1/users/search").param("pattern", "  smith  "))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$[0].id").value(id.value()
+                                                      .toString()))
+               .andExpect(jsonPath("$[0].username").value("john_smith"))
+               .andExpect(jsonPath("$[0].displayName").value("John Smith"))
+               .andExpect(jsonPath("$[0].status").value("DISABLED"))
+               .andExpect(jsonPath("$[0].email").doesNotExist());
+    }
+
+    @Test
+    void searchPassesAnExplicitLimit() throws Exception {
+        when(users.searchUsers(any())).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/v1/users/search")
+                                                   .param("pattern", "ada")
+                                                   .param("limit", "20"))
+               .andExpect(status().isOk());
+
+        verify(users).searchUsers(new SearchUsersQuery("ada", 20));
+    }
+
+    @Test
+    void searchRejectsAPatternShorterThanThreeCharactersAfterTrimming() throws Exception {
+        mockMvc.perform(get("/api/v1/users/search").param("pattern", " a "))
+               .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void searchRejectsLimitsOutsideTheAllowedRange() throws Exception {
+        mockMvc.perform(get("/api/v1/users/search")
+                                                   .param("pattern", "ada")
+                                                   .param("limit", "21"))
+               .andExpect(status().isBadRequest());
     }
 
     @Test
