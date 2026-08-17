@@ -12,6 +12,7 @@ import com.packing.backend.core.packing.message.PackingDispatchMessage;
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
+import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
@@ -50,6 +51,9 @@ class PackingDeadLetterReconcilerTest {
 
     private static final String  CHECKSUM = "a".repeat(64);
     private static final Instant NOW      = Instant.parse("2026-08-01T12:00:00Z");
+
+    private static final DomainEventPublisher NO_EVENTS = events -> {
+    };
 
     @Mock
     private ServiceBusReceiverClient  dispatchReceiver;
@@ -127,8 +131,8 @@ class PackingDeadLetterReconcilerTest {
                                                                                           resultReceiver,
                                                                                           codec,
                                                                                           artifacts,
-                                                                                          new PackingJobRecoveryService(jobs, clock),
-                                                                                          new PackingWorkerEventService(jobs, clock));
+                                                                                          new PackingJobRecoveryService(jobs, NO_EVENTS, clock),
+                                                                                          new PackingWorkerEventService(jobs, NO_EVENTS, clock));
 
         PackingWorkerEvent started = new PackingWorkerEvent.Started(1, jobId, "packer 0.1.0", CHECKSUM);
         received(dispatchMessage, codec.encodeDispatch(PackingDispatchMessage.versionOne(jobId)));

@@ -14,17 +14,16 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+
+import static com.packing.backend.infra.notification.MailFields.orAbsent;
 
 @Component
 @RequiredArgsConstructor
 class ErrorEmailRenderer {
 
-    private static final int    MAX_STACK_TRACE_CHARS = 20_000;
-    private static final String ABSENT                = "—";
+    private static final int MAX_STACK_TRACE_CHARS = 20_000;
 
     private static volatile String hostname;
 
@@ -34,13 +33,13 @@ class ErrorEmailRenderer {
 
     EmailMessage render(ServerErrorReport report, AlertThrottle.Decision decision,
                         List<String> recipients) {
-        Map<String, String> fields = fields(report, decision);
+        MailFields fields = fields(report, decision);
         String stackTrace = stackTraceOf(report.cause());
 
         return EmailMessage.to(recipients.toArray(String[]::new))
                            .subject(subject(report, decision))
                            .html(html(report, fields, stackTrace))
-                           .text(text(fields, stackTrace))
+                           .text(fields.asText() + "\n\nStack trace\n" + stackTrace)
                            .build();
     }
 
@@ -52,23 +51,24 @@ class ErrorEmailRenderer {
                 + orAbsent(report.httpMethod()) + " " + orAbsent(report.uriTemplate()) + recurrence;
     }
 
-    private Map<String, String> fields(ServerErrorReport report, AlertThrottle.Decision decision) {
-        Map<String, String> fields = new LinkedHashMap<>();
-        fields.put("Trace id", orAbsent(report.traceId()));
-        fields.put("When", orAbsent(report.occurredAt()));
-        fields.put("Status", String.valueOf(report.status()));
+    private MailFields fields(ServerErrorReport report, AlertThrottle.Decision decision) {
+        MailFields fields = new MailFields();
+        fields.put("Trace id", report.traceId());
+        fields.put("When", report.occurredAt());
+        fields.put("Status", report.status());
         fields.put("Request", orAbsent(report.httpMethod()) + " " + orAbsent(report.path()));
-        fields.put("Handler", orAbsent(report.uriTemplate()));
+        fields.put("Handler", report.uriTemplate());
         fields.put("Exception",
                    report.cause() == null
-                                          ? ABSENT
+                                          ? null
                                           : report.cause()
                                                   .getClass()
                                                   .getName());
         fields.put("Message",
-                   report.cause() == null ? ABSENT
-                                          : orAbsent(report.cause()
-                                                           .getMessage()));
+                   report.cause() == null
+                                          ? null
+                                          : report.cause()
+                                                  .getMessage());
         fields.put("User", user(report));
         fields.put("Client", orAbsent(report.clientIp()) + " · " + orAbsent(report.userAgent()));
         fields.put("Build", version() + " · profiles " + profiles() + " · host " + hostname());
@@ -99,7 +99,7 @@ class ErrorEmailRenderer {
                 + " minutes ago)";
     }
 
-    private String html(ServerErrorReport report, Map<String, String> fields, String stackTrace) {
+    private String html(ServerErrorReport report, MailFields fields, String stackTrace) {
         return templates.render("server-error",
                                 Map.of(
                                        "status",
@@ -109,20 +109,12 @@ class ErrorEmailRenderer {
                                        "request",
                                        orAbsent(report.httpMethod()) + " " + orAbsent(report.path()),
                                        "fields",
-                                       fields,
+                                       fields.asMap(),
                                        "stackTrace",
                                        stackTrace,
                                        "footerNote",
                                        "You are receiving this because your address is listed in "
                                                + "app.alerts.recipients."));
-    }
-
-    private String text(Map<String, String> fields, String stackTrace) {
-        String lines = fields.entrySet()
-                             .stream()
-                             .map(field -> field.getKey() + ": " + field.getValue())
-                             .collect(Collectors.joining("\n"));
-        return lines + "\n\nStack trace\n" + stackTrace;
     }
 
     private String stackTraceOf(Throwable cause) {
@@ -145,14 +137,6 @@ class ErrorEmailRenderer {
     private String profiles() {
         String[] active = environment.getActiveProfiles();
         return active.length == 0 ? "default" : String.join(",", active);
-    }
-
-    private String orAbsent(Object value) {
-        if (value == null) {
-            return ABSENT;
-        }
-        String text = value.toString();
-        return text.isBlank() ? ABSENT : text;
     }
 
     private static String hostname() {
