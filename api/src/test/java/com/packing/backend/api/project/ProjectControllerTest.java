@@ -6,12 +6,14 @@ import com.packing.backend.core.project.ProjectApplicationService.ChangeAccessCo
 import com.packing.backend.core.project.ProjectApplicationService.CreateProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.GrantAccessCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ListProjectsCommand;
+import com.packing.backend.core.project.ProjectListCriteria;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.RevokeAccessCommand;
 import com.packing.backend.core.project.ProjectMemberView;
 import com.packing.backend.core.project.ProjectSummaryView;
 import com.packing.backend.core.project.ProjectView;
 import com.packing.backend.core.shared.Page;
+import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectNotFoundException;
 import com.packing.backend.domain.project.ProjectPermission;
@@ -166,11 +168,134 @@ class ProjectControllerTest {
 
         verify(projects).listProjects(command.capture());
         assertThat(command.getValue()
+                          .criteria()
                           .page()
                           .page()).isZero();
         assertThat(command.getValue()
+                          .criteria()
                           .page()
                           .size()).isEqualTo(20);
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(ProjectListCriteria.SortField.CREATED_AT);
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.DESC);
+    }
+
+    @Test
+    void listPassesNormalizedFiltersAndSortingToTheService() throws Exception {
+        authenticate();
+        when(projects.listProjects(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListProjectsCommand> command = ArgumentCaptor.forClass(ListProjectsCommand.class);
+
+        mockMvc.perform(get("/api/v1/projects")
+                                  .param("search", "  packing  ")
+                                  .param("status", "ACTIVE", "DISABLED")
+                                  .param("permission", "WRITE", "OWNER")
+                                  .param("createdFrom", "2026-01-01T02:00:00+02:00")
+                                  .param("createdBefore", "2027-01-01T00:00:00Z")
+                                  .param("updatedFrom", "2026-06-01T00:00:00Z")
+                                  .param("sort", "name")
+                                  .param("direction", "DESC"))
+               .andExpect(status().isOk());
+
+        verify(projects).listProjects(command.capture());
+        ProjectListCriteria criteria = command.getValue().criteria();
+        assertThat(criteria.search()).isEqualTo("packing");
+        assertThat(criteria.statuses()).containsExactlyInAnyOrder(ProjectStatus.ACTIVE, ProjectStatus.DISABLED);
+        assertThat(criteria.permissions()).containsExactlyInAnyOrder(ProjectPermission.WRITE, ProjectPermission.OWNER);
+        assertThat(criteria.createdAt().from()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(criteria.sort()).isEqualTo(ProjectListCriteria.SortField.NAME);
+        assertThat(criteria.direction()).isEqualTo(SortDirection.DESC);
+    }
+
+    @Test
+    void customSortDefaultsToAscending() throws Exception {
+        authenticate();
+        when(projects.listProjects(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListProjectsCommand> command = ArgumentCaptor.forClass(ListProjectsCommand.class);
+
+        mockMvc.perform(get("/api/v1/projects").param("sort", "name"))
+               .andExpect(status().isOk());
+
+        verify(projects).listProjects(command.capture());
+        assertThat(command.getValue().criteria().sort()).isEqualTo(ProjectListCriteria.SortField.NAME);
+        assertThat(command.getValue().criteria().direction()).isEqualTo(SortDirection.ASC);
+    }
+
+    @Test
+    void directionWithoutSortAppliesToCreatedAt() throws Exception {
+        authenticate();
+        when(projects.listProjects(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListProjectsCommand> command = ArgumentCaptor.forClass(ListProjectsCommand.class);
+
+        mockMvc.perform(get("/api/v1/projects").param("direction", "ASC"))
+               .andExpect(status().isOk());
+
+        verify(projects).listProjects(command.capture());
+        assertThat(command.getValue().criteria().sort()).isEqualTo(ProjectListCriteria.SortField.CREATED_AT);
+        assertThat(command.getValue().criteria().direction()).isEqualTo(SortDirection.ASC);
+    }
+
+    @Test
+    void listCollapsesDuplicateFiltersAndTreatsBlankSearchAsAbsent() throws Exception {
+        authenticate();
+        when(projects.listProjects(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListProjectsCommand> command = ArgumentCaptor.forClass(ListProjectsCommand.class);
+
+        mockMvc.perform(get("/api/v1/projects")
+                                  .param("search", "   ")
+                                  .param("status", "ACTIVE", "ACTIVE")
+                                  .param("permission", "READ", "READ"))
+               .andExpect(status().isOk());
+
+        verify(projects).listProjects(command.capture());
+        assertThat(command.getValue().criteria().search()).isNull();
+        assertThat(command.getValue().criteria().statuses()).containsExactly(ProjectStatus.ACTIVE);
+        assertThat(command.getValue().criteria().permissions()).containsExactly(ProjectPermission.READ);
+    }
+
+    @Test
+    void listRejectsInvalidSearchLengths() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects").param("search", " ab "))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects").param("search", " " + "a".repeat(101) + " "))
+               .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listRejectsInvalidFiltersAndRanges() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects").param("status", "DELETED"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects").param("createdFrom", "not-a-timestamp"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects")
+                                  .param("createdFrom", "2026-01-01T00:00:00Z")
+                                  .param("createdBefore", "2026-01-01T00:00:00Z"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects")
+                                  .param("updatedFrom", "2026-01-02T00:00:00Z")
+                                  .param("updatedBefore", "2026-01-01T00:00:00Z"))
+               .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listRejectsUnknownQueryValues() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects").param("sort", "unknown"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects").param("direction", "SIDEWAYS"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects").param("status", "UNKNOWN"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects").param("permission", "ADMIN"))
+               .andExpect(status().isBadRequest());
     }
 
     @Test

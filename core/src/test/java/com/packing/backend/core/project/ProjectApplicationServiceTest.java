@@ -13,6 +13,8 @@ import com.packing.backend.core.project.port.out.ProjectFinder;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
+import com.packing.backend.core.shared.InstantRange;
+import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.core.shared.port.out.ActiveUserLookup;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.out.UserRepository;
@@ -58,6 +60,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -271,21 +274,22 @@ class ProjectApplicationServiceTest {
 
     @Test
     void listProjectsDelegatesToTheFinderWithTheCallersId() {
-        ProjectSummaryView summary = new ProjectSummaryView(UUID.randomUUID(),
-                                                            "Chassis packing",
-                                                            ProjectStatus.ACTIVE,
-                                                            ProjectPermission.OWNER,
-                                                            1,
-                                                            NOW,
-                                                            NOW);
-        when(projectFinder.listForMember(CALLER, new PageRequest(2, 20)))
-                                                                         .thenReturn(new Page<>(List.of(summary), 2, 20, 45L));
+        ProjectListCriteria criteria = new ProjectListCriteria(
+                                                                new PageRequest(2, 20),
+                                                                null,
+                                                                Set.of(),
+                                                                Set.of(),
+                                                                new InstantRange(null, null),
+                                                                new InstantRange(null, null),
+                                                                ProjectListCriteria.SortField.CREATED_AT,
+                                                                SortDirection.DESC);
+        Page<ProjectSummaryView> expected = new Page<>(List.of(), 2, 20, 45L);
+        when(projectFinder.listForMember(CALLER, criteria)).thenReturn(expected);
 
-        Page<ProjectSummaryView> page = service.listProjects(
-                                                             new ListProjectsCommand(UID, new PageRequest(2, 20)));
+        Page<ProjectSummaryView> actual = service.listProjects(new ListProjectsCommand(UID, criteria));
 
-        assertThat(page.content()).containsExactly(summary);
-        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(actual).isSameAs(expected);
+        verify(projectFinder).listForMember(CALLER, criteria);
     }
 
     @Test

@@ -4,7 +4,6 @@ import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.project.port.out.ProjectFinder;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
-import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.port.out.ActiveUserLookup;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.out.UserRepository;
@@ -56,7 +55,7 @@ public class ProjectApplicationService {
     @Transactional(readOnly = true)
     public Page<ProjectSummaryView> listProjects(ListProjectsCommand command) {
         UserId caller = requireActiveCaller(command.firebaseUid());
-        return projectFinder.listForMember(caller, command.page());
+        return projectFinder.listForMember(caller, command.criteria());
     }
 
     @Transactional(readOnly = true)
@@ -244,6 +243,6 @@ public class ProjectApplicationService {
     public record RevokeAccessCommand(String firebaseUid, UUID projectId, UUID userId) {
     }
 
-    public record ListProjectsCommand(String firebaseUid, PageRequest page) {
+    public record ListProjectsCommand(String firebaseUid, ProjectListCriteria criteria) {
     }
 }

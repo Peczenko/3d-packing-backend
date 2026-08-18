@@ -2,6 +2,7 @@ package com.packing.backend.infra.persistence.project;
 
 import com.packing.backend.core.project.ProjectMemberView;
 import com.packing.backend.domain.project.ProjectMember;
+import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.project.ProjectStatus;
 import com.packing.backend.domain.user.UserId;
 import org.jooq.Condition;
@@ -13,6 +14,7 @@ import static com.packing.backend.infra.persistence.jooq.tables.ProjectMembers.P
 import static com.packing.backend.infra.persistence.jooq.tables.Projects.PROJECTS;
 import static com.packing.backend.infra.persistence.jooq.tables.Users.USERS;
 import static org.jooq.impl.DSL.field;
+import static org.jooq.impl.DSL.when;
 import static org.jooq.impl.DSL.multiset;
 import static org.jooq.impl.DSL.select;
 import static org.jooq.impl.DSL.selectCount;
@@ -29,6 +31,14 @@ final class ProjectQueries {
     static final Field<Integer> MEMBER_COUNT = field(selectCount()
                                                                   .from(PROJECT_MEMBERS)
                                                                   .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID)));
+
+    static final Field<Integer> STATUS_RANK = when(PROJECTS.STATUS.eq(ProjectStatus.ACTIVE), 0)
+                                                                 .when(PROJECTS.STATUS.eq(ProjectStatus.DISABLED), 1)
+                                                                 .otherwise(2);
+
+    static final Field<Integer> PERMISSION_RANK = when(PROJECT_MEMBERS.PERMISSION.eq(ProjectPermission.READ), 0)
+                                                                         .when(PROJECT_MEMBERS.PERMISSION.eq(ProjectPermission.WRITE), 1)
+                                                                         .otherwise(2);
 
     static final Field<List<ProjectMemberView>> MEMBER_VIEWS = multiset(
                                                                         select(PROJECT_MEMBERS.USER_ID,
