@@ -228,6 +228,18 @@ class JooqProjectFinderIT {
         match.disable(base.plusSeconds(2));
         repository().save(match);
 
+        Project createdAtBoundary = Project.create(new ProjectName("100% packing_created boundary"),
+                                                    creator,
+                                                    base.plusSeconds(1));
+        createdAtBoundary.grantAccess(member, ProjectPermission.WRITE, creator, base.plusSeconds(1));
+        createdAtBoundary.disable(base.plusSeconds(2));
+        repository().save(createdAtBoundary);
+
+        Project updatedAtBoundary = Project.create(new ProjectName("100% packing_updated boundary"), creator, base);
+        updatedAtBoundary.grantAccess(member, ProjectPermission.WRITE, creator, base.plusSeconds(1));
+        updatedAtBoundary.disable(base.plusSeconds(3));
+        repository().save(updatedAtBoundary);
+
         Project wrongPermission = Project.create(new ProjectName("100% packing_box other"), creator, base);
         wrongPermission.grantAccess(member, ProjectPermission.READ, creator, base.plusSeconds(1));
         wrongPermission.disable(base.plusSeconds(2));
@@ -257,6 +269,26 @@ class JooqProjectFinderIT {
                                   .containsExactly(match.id().value());
         assertThat(page.totalElements()).isEqualTo(1L);
         assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
+                                                            "100% packing_",
+                                                            Set.of(ProjectStatus.DISABLED),
+                                                            Set.of(ProjectPermission.WRITE),
+                                                            new InstantRange(base, base.plusSeconds(1)),
+                                                            new InstantRange(null, null),
+                                                            ProjectListCriteria.SortField.NAME,
+                                                            SortDirection.ASC))
+                           .content()).extracting(ProjectSummaryView::id)
+                                      .containsExactlyInAnyOrder(match.id().value(), updatedAtBoundary.id().value());
+        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
+                                                            "100% packing_",
+                                                            Set.of(ProjectStatus.DISABLED),
+                                                            Set.of(ProjectPermission.WRITE),
+                                                            new InstantRange(null, null),
+                                                            new InstantRange(base.plusSeconds(2), base.plusSeconds(3)),
+                                                            ProjectListCriteria.SortField.NAME,
+                                                            SortDirection.ASC))
+                           .content()).extracting(ProjectSummaryView::id)
+                                      .containsExactlyInAnyOrder(match.id().value(), createdAtBoundary.id().value());
+        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
                                                             "%",
                                                             Set.of(),
                                                             Set.of(),
@@ -266,6 +298,8 @@ class JooqProjectFinderIT {
                                                             SortDirection.ASC))
                            .content()).extracting(ProjectSummaryView::id)
                                       .containsExactlyInAnyOrder(match.id().value(),
+                                                                 createdAtBoundary.id().value(),
+                                                                 updatedAtBoundary.id().value(),
                                                                  wrongPermission.id().value(),
                                                                  wrongStatus.id().value());
         assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
@@ -277,7 +311,9 @@ class JooqProjectFinderIT {
                                                             ProjectListCriteria.SortField.NAME,
                                                             SortDirection.ASC))
                            .content()).extracting(ProjectSummaryView::id)
-                                      .containsExactlyInAnyOrder(match.id().value(), wrongStatus.id().value());
+                                      .containsExactlyInAnyOrder(match.id().value(),
+                                                                 updatedAtBoundary.id().value(),
+                                                                 wrongStatus.id().value());
         assertThat(finder().listForMember(member, criteria(new PageRequest(1, 1),
                                                             "100% packing_",
                                                             Set.of(ProjectStatus.DISABLED),
