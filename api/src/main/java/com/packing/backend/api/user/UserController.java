@@ -5,6 +5,7 @@ import com.packing.backend.api.shared.security.CurrentUser;
 import com.packing.backend.core.user.UserApplicationService;
 import com.packing.backend.core.user.UserApplicationService.AssignUserRoleCommand;
 import com.packing.backend.core.user.UserApplicationService.ResolveCurrentUserCommand;
+import com.packing.backend.core.user.UserApplicationService.SearchUsersQuery;
 import com.packing.backend.core.user.UserApplicationService.UpdateUserProfileCommand;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -15,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/users")
@@ -61,6 +64,16 @@ public class UserController {
         users.deleteAccount(caller.firebaseUid());
         return ResponseEntity.noContent()
                              .build();
+    }
+
+    @GetMapping("/search")
+    @Operation(operationId = "searchUsers", summary = "Search users for autocomplete")
+    @ApiResponse(responseCode = "200", description = "Matching active and disabled users")
+    public List<UserSearchResponse> searchUsers(@Valid @ModelAttribute UserSearchRequest request) {
+        return users.searchUsers(new SearchUsersQuery(request.pattern(), request.limit()))
+                    .stream()
+                    .map(UserSearchResponse::from)
+                    .toList();
     }
 
     @PutMapping("/{userId}/role")

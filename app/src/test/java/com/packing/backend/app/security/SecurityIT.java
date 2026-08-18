@@ -45,6 +45,12 @@ class SecurityIT {
     }
 
     @Test
+    void userSearchRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/users/search").param("pattern", "ada"))
+               .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void unknownApiPathsAlsoRequireAToken() throws Exception {
         mockMvc.perform(get("/api/v1/does-not-exist"))
                .andExpect(status().isUnauthorized());

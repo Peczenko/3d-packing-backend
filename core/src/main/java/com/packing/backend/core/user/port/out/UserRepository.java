@@ -19,9 +19,5 @@ public interface UserRepository {
 
     Optional<User> findByFirebaseUid(FirebaseUid firebaseUid);
 
-    Optional<User> findByEmail(Email email);
-
-    Optional<User> findByUsername(Username username);
-
     boolean existsByUsername(Username username);
 }

@@ -3,7 +3,9 @@ package com.packing.backend.core.user;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.UserApplicationService.AssignUserRoleCommand;
 import com.packing.backend.core.user.UserApplicationService.ResolveCurrentUserCommand;
+import com.packing.backend.core.user.UserApplicationService.SearchUsersQuery;
 import com.packing.backend.core.user.UserApplicationService.UpdateUserProfileCommand;
+import com.packing.backend.core.user.port.out.UserFinder;
 import com.packing.backend.core.user.port.out.UserRepository;
 import com.packing.backend.domain.shared.DomainEvent;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
@@ -30,6 +32,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,6 +52,8 @@ class UserApplicationServiceTest {
     @Mock
     private UserRepository       users;
     @Mock
+    private UserFinder           userFinder;
+    @Mock
     private DomainEventPublisher eventPublisher;
 
     private UserApplicationService service;
@@ -57,6 +62,7 @@ class UserApplicationServiceTest {
     void setUp() {
         service = new UserApplicationService(
                                              users,
+                                             userFinder,
                                              eventPublisher,
                                              Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -211,6 +217,20 @@ class UserApplicationServiceTest {
 
         assertThat(service.loadAuthorization(UID))
                                                   .hasValueSatisfying(authorization -> assertThat(authorization.isActive()).isFalse());
+    }
+
+    @Test
+    void searchUsersTrimsThePatternAndDelegatesToTheFinder() {
+        UserSearchResult result = new UserSearchResult(
+                                                       UserId.generate(),
+                                                       "ada",
+                                                       "Ada Lovelace",
+                                                       UserStatus.ACTIVE);
+        when(userFinder.search("ADA", 10)).thenReturn(List.of(result));
+
+        assertThat(service.searchUsers(new SearchUsersQuery("  ADA  ", 10)))
+                                                                            .containsExactly(result);
+        verify(userFinder).search("ADA", 10);
     }
 
     @Test

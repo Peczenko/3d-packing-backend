@@ -16,6 +16,7 @@ import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectNotFoundException;
 import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.project.ProjectStatus;
+import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.shared.PermissionDeniedException;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.user.UserNotFoundException;
@@ -41,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -230,45 +232,86 @@ class ProjectControllerTest {
     }
 
     @Test
-    void addMemberReturns201AndPassesTheIdentifierThrough() throws Exception {
+    void addMemberReturns201AndPassesTheUserIdThrough() throws Exception {
         authenticate();
-        UUID id = UUID.randomUUID();
-        when(projects.grantAccess(any())).thenReturn(view(id, ProjectPermission.OWNER));
+        UUID projectId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(projects.grantAccess(any())).thenReturn(view(projectId, ProjectPermission.OWNER));
 
-        mockMvc.perform(post("/api/v1/projects/{id}/members", id)
-                                                                 .contentType(MediaType.APPLICATION_JSON)
-                                                                 .content("{\"identifier\":\"bob@example.com\",\"permission\":\"WRITE\"}"))
+        mockMvc.perform(post("/api/v1/projects/{id}/members", projectId)
+                                                                        .contentType(MediaType.APPLICATION_JSON)
+                                                                        .content("{\"userId\":\"" + userId
+                                                                                + "\",\"permission\":\"WRITE\"}"))
                .andExpect(status().isCreated());
 
-        ArgumentCaptor<GrantAccessCommand> command = ArgumentCaptor.forClass(GrantAccessCommand.class);
-        verify(projects).grantAccess(command.capture());
-        assertThat(command.getValue()
-                          .identifier()).isEqualTo("bob@example.com");
-        assertThat(command.getValue()
-                          .permission()).isEqualTo(ProjectPermission.WRITE);
+        verify(projects).grantAccess(new GrantAccessCommand(
+                                                            UID,
+                                                            projectId,
+                                                            userId,
+                                                            ProjectPermission.WRITE));
+    }
+
+    @Test
+    void addMemberRejectsAMissingUserId() throws Exception {
+        authenticate();
+        mockMvc.perform(post("/api/v1/projects/{id}/members", UUID.randomUUID())
+                                                                                .contentType(MediaType.APPLICATION_JSON)
+                                                                                .content("{\"permission\":\"READ\"}"))
+               .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void addMemberRejectsTheLegacyIdentifierOnlyPayloadWithoutCallingTheService() throws Exception {
+        authenticate();
+
+        mockMvc.perform(post("/api/v1/projects/{id}/members", UUID.randomUUID())
+                                                                                .contentType(MediaType.APPLICATION_JSON)
+                                                                                .content("{\"identifier\":\"bob@example.com\"}"))
+               .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(projects);
     }
 
     @Test
     void addMemberRejectsAnUnknownPermission() throws Exception {
         authenticate();
+        UUID userId = UUID.randomUUID();
 
         mockMvc.perform(post("/api/v1/projects/{id}/members", UUID.randomUUID())
                                                                                 .contentType(MediaType.APPLICATION_JSON)
-                                                                                .content("{\"identifier\":\"bob@example.com\",\"permission\":\"GOD\"}"))
+                                                                                .content("{\"userId\":\"" + userId
+                                                                                        + "\",\"permission\":\"GOD\"}"))
                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void addMemberSurfacesAnUnknownIdentifierAs404() throws Exception {
+    void addMemberSurfacesAnUnknownUserIdAs404() throws Exception {
         authenticate();
+        UUID userId = UUID.randomUUID();
         when(projects.grantAccess(any()))
-                                         .thenThrow(new UserNotFoundException("No user matches that identifier"));
+                                         .thenThrow(new UserNotFoundException("No active user matches that id"));
 
         mockMvc.perform(post("/api/v1/projects/{id}/members", UUID.randomUUID())
                                                                                 .contentType(MediaType.APPLICATION_JSON)
-                                                                                .content("{\"identifier\":\"ghost@example.com\",\"permission\":\"READ\"}"))
+                                                                                .content("{\"userId\":\"" + userId
+                                                                                        + "\",\"permission\":\"READ\"}"))
                .andExpect(status().isNotFound())
-               .andExpect(jsonPath("$.detail").value("No user matches that identifier"));
+               .andExpect(jsonPath("$.detail").value("No active user matches that id"));
+    }
+
+    @Test
+    void addMemberSurfacesADisabledUserAs422() throws Exception {
+        authenticate();
+        UUID userId = UUID.randomUUID();
+        when(projects.grantAccess(any()))
+                                         .thenThrow(new DomainRuleViolationException(
+                                                                                     "Cannot add a disabled user to a project"));
+
+        mockMvc.perform(post("/api/v1/projects/{id}/members", UUID.randomUUID())
+                                                                                .contentType(MediaType.APPLICATION_JSON)
+                                                                                .content("{\"userId\":\"" + userId
+                                                                                        + "\",\"permission\":\"READ\"}"))
+               .andExpect(status().isUnprocessableEntity());
     }
 
     @Test
