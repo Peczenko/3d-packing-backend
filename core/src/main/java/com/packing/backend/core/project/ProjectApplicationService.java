@@ -59,6 +59,14 @@ public class ProjectApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public Page<ProjectMemberView> listProjectMembers(ListProjectMembersQuery query) {
+        UserId caller = requireActiveCaller(query.firebaseUid());
+        ProjectId projectId = new ProjectId(query.projectId());
+        viewOf(caller, projectId);
+        return projectFinder.listMembersFor(caller, projectId, query.criteria());
+    }
+
+    @Transactional(readOnly = true)
     public ProjectView getProject(ProjectQuery query) {
         UserId caller = requireActiveCaller(query.firebaseUid());
         return viewOf(caller, new ProjectId(query.projectId()));
@@ -244,5 +252,10 @@ public class ProjectApplicationService {
     }
 
     public record ListProjectsCommand(String firebaseUid, ProjectListCriteria criteria) {
+    }
+
+    public record ListProjectMembersQuery(String firebaseUid,
+            UUID projectId,
+            ProjectMemberListCriteria criteria) {
     }
 }

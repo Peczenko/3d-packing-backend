@@ -5,9 +5,13 @@ import com.packing.backend.core.project.ProjectApplicationService;
 import com.packing.backend.core.project.ProjectApplicationService.ChangeAccessCommand;
 import com.packing.backend.core.project.ProjectApplicationService.CreateProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.GrantAccessCommand;
+import com.packing.backend.core.project.ProjectApplicationService.ListProjectMembersQuery;
 import com.packing.backend.core.project.ProjectApplicationService.ListProjectsCommand;
+import com.packing.backend.core.project.ProjectMemberListCriteria;
 import com.packing.backend.core.project.ProjectListCriteria;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectCommand;
+import com.packing.backend.core.project.ProjectApplicationService.ProjectQuery;
+import com.packing.backend.core.project.ProjectApplicationService.RenameProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.RevokeAccessCommand;
 import com.packing.backend.core.project.ProjectMemberView;
 import com.packing.backend.core.project.ProjectSummaryView;
@@ -89,11 +93,6 @@ class ProjectControllerTest {
                                ProjectStatus.ACTIVE,
                                UUID.randomUUID(),
                                mine,
-                               List.of(new ProjectMemberView(UUID.randomUUID(),
-                                                             "ada",
-                                                             "Ada Lovelace",
-                                                             ProjectPermission.OWNER,
-                                                             NOW)),
                                NOW,
                                NOW);
     }
@@ -112,7 +111,7 @@ class ProjectControllerTest {
                .andExpect(jsonPath("$.name").value("Chassis packing"))
                .andExpect(jsonPath("$.status").value("ACTIVE"))
                .andExpect(jsonPath("$.myPermission").value("OWNER"))
-               .andExpect(jsonPath("$.members.length()").value(1));
+               .andExpect(jsonPath("$.members").doesNotExist());
 
         ArgumentCaptor<CreateProjectCommand> command = ArgumentCaptor.forClass(CreateProjectCommand.class);
         verify(projects).createProject(command.capture());
@@ -318,6 +317,20 @@ class ProjectControllerTest {
     }
 
     @Test
+    void getReturnsTheLeanProjectResponse() throws Exception {
+        authenticate();
+        UUID id = UUID.randomUUID();
+        when(projects.getProject(any())).thenReturn(view(id, ProjectPermission.READ));
+
+        mockMvc.perform(get("/api/v1/projects/{id}", id))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.id").value(id.toString()))
+               .andExpect(jsonPath("$.members").doesNotExist());
+
+        verify(projects).getProject(new ProjectQuery(UID, id));
+    }
+
+    @Test
     void anUnderprivilegedMemberGets403() throws Exception {
         authenticate();
         when(projects.renameProject(any()))
@@ -329,6 +342,22 @@ class ProjectControllerTest {
                .andExpect(status().isForbidden())
                .andExpect(jsonPath("$.title").value("Forbidden"))
                .andExpect(jsonPath("$.detail").value("This action requires OWNER permission"));
+    }
+
+    @Test
+    void renameReturnsTheLeanProjectResponse() throws Exception {
+        authenticate();
+        UUID id = UUID.randomUUID();
+        when(projects.renameProject(any())).thenReturn(view(id, ProjectPermission.OWNER));
+
+        mockMvc.perform(patch("/api/v1/projects/{id}", id)
+                                                        .contentType(MediaType.APPLICATION_JSON)
+                                                        .content("{\"name\":\"New name\"}"))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.name").value("Chassis packing"))
+               .andExpect(jsonPath("$.members").doesNotExist());
+
+        verify(projects).renameProject(new RenameProjectCommand(UID, id, "New name"));
     }
 
     @Test
@@ -367,7 +396,8 @@ class ProjectControllerTest {
                                                                         .contentType(MediaType.APPLICATION_JSON)
                                                                         .content("{\"userId\":\"" + userId
                                                                                 + "\",\"permission\":\"WRITE\"}"))
-               .andExpect(status().isCreated());
+               .andExpect(status().isCreated())
+               .andExpect(jsonPath("$.members").doesNotExist());
 
         verify(projects).grantAccess(new GrantAccessCommand(
                                                             UID,
@@ -449,7 +479,8 @@ class ProjectControllerTest {
         mockMvc.perform(patch("/api/v1/projects/{id}/members/{userId}", id, userId)
                                                                                    .contentType(MediaType.APPLICATION_JSON)
                                                                                    .content("{\"permission\":\"READ\"}"))
-               .andExpect(status().isOk());
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.members").doesNotExist());
 
         ArgumentCaptor<ChangeAccessCommand> command = ArgumentCaptor.forClass(ChangeAccessCommand.class);
         verify(projects).changeAccess(command.capture());
@@ -502,16 +533,99 @@ class ProjectControllerTest {
     }
 
     @Test
-    void membersListsTheRoster() throws Exception {
+    void membersReturnsAPageAndPassesNormalizedFiltersToTheService() throws Exception {
         authenticate();
         UUID id = UUID.randomUUID();
-        when(projects.getProject(any())).thenReturn(view(id, ProjectPermission.READ));
+        ProjectMemberView memberView = new ProjectMemberView(UUID.randomUUID(),
+                                                             "ada",
+                                                             "Ada Lovelace",
+                                                             ProjectPermission.OWNER,
+                                                             NOW);
+        when(projects.listProjectMembers(any())).thenReturn(new Page<>(List.of(memberView), 0, 20, 1L));
+        ArgumentCaptor<ListProjectMembersQuery> command = ArgumentCaptor.forClass(ListProjectMembersQuery.class);
 
-        mockMvc.perform(get("/api/v1/projects/{id}/members", id))
+        mockMvc.perform(get("/api/v1/projects/{id}/members", id)
+                                  .param("search", "  ada  ")
+                                  .param("permission", "READ", "OWNER")
+                                  .param("addedFrom", "2026-01-01T00:00:00Z")
+                                  .param("addedBefore", "2027-01-01T00:00:00Z")
+                                  .param("sort", "username")
+                                  .param("direction", "DESC"))
                .andExpect(status().isOk())
-               .andExpect(jsonPath("$.length()").value(1))
-               .andExpect(jsonPath("$[0].username").value("ada"))
-               .andExpect(jsonPath("$[0].permission").value("OWNER"));
+               .andExpect(jsonPath("$.content[0].username").value("ada"))
+               .andExpect(jsonPath("$.page").value(0))
+               .andExpect(jsonPath("$.totalElements").value(1));
+
+        verify(projects).listProjectMembers(command.capture());
+        ProjectMemberListCriteria criteria = command.getValue().criteria();
+        assertThat(command.getValue().firebaseUid()).isEqualTo(UID);
+        assertThat(command.getValue().projectId()).isEqualTo(id);
+        assertThat(criteria.search()).isEqualTo("ada");
+        assertThat(criteria.permissions()).containsExactlyInAnyOrder(ProjectPermission.READ, ProjectPermission.OWNER);
+        assertThat(criteria.addedAt().from()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(criteria.addedAt().before()).isEqualTo(Instant.parse("2027-01-01T00:00:00Z"));
+        assertThat(criteria.sort()).isEqualTo(ProjectMemberListCriteria.SortField.USERNAME);
+        assertThat(criteria.direction()).isEqualTo(SortDirection.DESC);
+    }
+
+    @Test
+    void memberListDefaultsToAddedAtAscending() throws Exception {
+        authenticate();
+        when(projects.listProjectMembers(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListProjectMembersQuery> command = ArgumentCaptor.forClass(ListProjectMembersQuery.class);
+
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()))
+               .andExpect(status().isOk());
+
+        verify(projects).listProjectMembers(command.capture());
+        assertThat(command.getValue().criteria().sort()).isEqualTo(ProjectMemberListCriteria.SortField.ADDED_AT);
+        assertThat(command.getValue().criteria().direction()).isEqualTo(SortDirection.ASC);
+    }
+
+    @Test
+    void memberListCustomSortDefaultsToAscendingAndDirectionAloneAppliesToAddedAt() throws Exception {
+        authenticate();
+        when(projects.listProjectMembers(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListProjectMembersQuery> command = ArgumentCaptor.forClass(ListProjectMembersQuery.class);
+
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID())
+                                  .param("sort", "displayName"))
+               .andExpect(status().isOk());
+        verify(projects).listProjectMembers(command.capture());
+        assertThat(command.getValue().criteria().sort()).isEqualTo(ProjectMemberListCriteria.SortField.DISPLAY_NAME);
+        assertThat(command.getValue().criteria().direction()).isEqualTo(SortDirection.ASC);
+
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID())
+                                  .param("direction", "DESC"))
+               .andExpect(status().isOk());
+        verify(projects, org.mockito.Mockito.times(2)).listProjectMembers(command.capture());
+        assertThat(command.getAllValues().getLast().criteria().sort()).isEqualTo(ProjectMemberListCriteria.SortField.ADDED_AT);
+        assertThat(command.getAllValues().getLast().criteria().direction()).isEqualTo(SortDirection.DESC);
+    }
+
+    @Test
+    void memberListRejectsInvalidQueryValues() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()).param("search", " ab "))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID())
+                                  .param("search", " " + "a".repeat(101) + " "))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID())
+                                  .param("addedFrom", "2026-01-01T00:00:00Z")
+                                  .param("addedBefore", "2026-01-01T00:00:00Z"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()).param("permission", "ADMIN"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()).param("sort", "unknown"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()).param("direction", "SIDEWAYS"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()).param("page", "-1"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()).param("size", "101"))
+               .andExpect(status().isBadRequest());
     }
 
     @Test

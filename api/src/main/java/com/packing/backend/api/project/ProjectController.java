@@ -6,6 +6,7 @@ import com.packing.backend.core.project.ProjectApplicationService;
 import com.packing.backend.core.project.ProjectApplicationService.ChangeAccessCommand;
 import com.packing.backend.core.project.ProjectApplicationService.CreateProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.GrantAccessCommand;
+import com.packing.backend.core.project.ProjectApplicationService.ListProjectMembersQuery;
 import com.packing.backend.core.project.ProjectApplicationService.ListProjectsCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectQuery;
@@ -29,7 +30,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -112,13 +112,13 @@ public class ProjectController {
     @GetMapping("/{projectId}/members")
     @Operation(operationId = "listProjectMembers", summary = "List the members of a project")
     @ApiResponse(responseCode = "200", description = "Members of the project")
-    public List<ProjectMemberResponse> members(@CurrentUser AuthenticatedUser caller,
-                                               @PathVariable UUID projectId) {
-        return projects.getProject(new ProjectQuery(caller.firebaseUid(), projectId))
-                       .members()
-                       .stream()
-                       .map(ProjectMemberResponse::from)
-                       .toList();
+    public ProjectMemberPageResponse members(@CurrentUser AuthenticatedUser caller,
+                                              @PathVariable UUID projectId,
+                                              @Valid @ModelAttribute ProjectMemberListRequest request) {
+        return ProjectMemberPageResponse.from(projects.listProjectMembers(
+                                                                            new ListProjectMembersQuery(caller.firebaseUid(),
+                                                                                                        projectId,
+                                                                                                        request.toCriteria())));
     }
 
     @PostMapping("/{projectId}/members")
