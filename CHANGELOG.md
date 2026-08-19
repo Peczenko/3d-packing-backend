@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.2.1...v1.3.0) (2026-08-19)
+
+
+### Features
+
+* extend pageable endpoints with collection queries ([#53](https://github.com/Peczenko/3d-packing-backend/issues/53)) ([51e10f3](https://github.com/Peczenko/3d-packing-backend/commit/51e10f3a3d147bcaa57d83dda6c73114df1bcc28))
+* user search autocomplete ([#52](https://github.com/Peczenko/3d-packing-backend/issues/52)) ([a3e7201](https://github.com/Peczenko/3d-packing-backend/commit/a3e720182de1159cc22ce7699dd6e06e6d16509a))
+
 ## [1.2.1](https://github.com/Peczenko/3d-packing-backend/compare/v1.2.0...v1.2.1) (2026-08-17)
 
 
