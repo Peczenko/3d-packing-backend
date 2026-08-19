@@ -17,6 +17,7 @@ import org.jooq.DSLContext;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.SortField;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -44,9 +45,9 @@ public class JooqProjectFinder implements ProjectFinder {
     public Page<ProjectSummaryView> listForMember(UserId caller, ProjectListCriteria criteria) {
         Condition condition = projectListCondition(caller, criteria);
 
-        List<org.jooq.SortField<?>> orderBy = List.of(
-                                                      order(primarySort(criteria.sort()), criteria.direction(), false),
-                                                      order(PROJECTS.ID, criteria.direction(), false));
+        List<SortField<?>> orderBy = List.of(
+                                             order(primarySort(criteria.sort()), criteria.direction(), false),
+                                             order(PROJECTS.ID, criteria.direction(), false));
         return Paging.fetch(dsl,
                             dsl.select(PROJECTS.ID,
                                        PROJECTS.NAME,
@@ -94,8 +95,8 @@ public class JooqProjectFinder implements ProjectFinder {
         };
     }
 
-    private static org.jooq.SortField<?> order(Field<?> field, SortDirection direction, boolean nullsLast) {
-        org.jooq.SortField<?> ordered = direction == SortDirection.ASC ? field.asc() : field.desc();
+    private static SortField<?> order(Field<?> field, SortDirection direction, boolean nullsLast) {
+        SortField<?> ordered = direction == SortDirection.ASC ? field.asc() : field.desc();
         return nullsLast ? ordered.nullsLast() : ordered;
     }
 
@@ -108,9 +109,9 @@ public class JooqProjectFinder implements ProjectFinder {
         Condition condition = memberListCondition(caller, projectId, criteria, members, callerMembership);
 
         boolean displayName = criteria.sort() == ProjectMemberListCriteria.SortField.DISPLAY_NAME;
-        List<org.jooq.SortField<?>> orderBy = List.of(
-                                                      order(memberPrimarySort(criteria.sort(), members), criteria.direction(), displayName),
-                                                      order(members.USER_ID, criteria.direction(), false));
+        List<SortField<?>> orderBy = List.of(
+                                             order(memberPrimarySort(criteria.sort(), members), criteria.direction(), displayName),
+                                             order(members.USER_ID, criteria.direction(), false));
         return Paging.fetch(dsl,
                             dsl.select(members.USER_ID,
                                        USERS.USERNAME,

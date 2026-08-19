@@ -12,6 +12,7 @@ import org.jooq.Condition;
 import org.springframework.stereotype.Repository;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.SortField;
 
 import java.util.List;
 import java.util.Locale;
@@ -30,9 +31,9 @@ public class JooqFileFinder implements FileFinder {
     public Page<FileView> listAvailableInProject(ProjectId projectId, FileListCriteria criteria) {
         Condition condition = listCondition(projectId, criteria);
 
-        List<org.jooq.SortField<?>> orderBy = List.of(
-                                                      order(primarySort(criteria.sort()), criteria.direction()),
-                                                      order(FILES.ID, criteria.direction()));
+        List<SortField<?>> orderBy = List.of(
+                                             order(primarySort(criteria.sort()), criteria.direction()),
+                                             order(FILES.ID, criteria.direction()));
         return Paging.fetch(dsl,
                             dsl.selectFrom(FILES)
                                .where(condition),
@@ -64,7 +65,7 @@ public class JooqFileFinder implements FileFinder {
         };
     }
 
-    private static org.jooq.SortField<?> order(Field<?> field, SortDirection direction) {
+    private static SortField<?> order(Field<?> field, SortDirection direction) {
         return direction == SortDirection.ASC ? field.asc() : field.desc();
     }
 

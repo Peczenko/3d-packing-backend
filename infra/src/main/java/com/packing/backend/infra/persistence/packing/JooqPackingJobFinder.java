@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Condition;
 import org.jooq.Field;
+import org.jooq.SortField;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -35,9 +36,9 @@ public class JooqPackingJobFinder implements PackingJobFinder {
     public Page<PackingJobView> listInProject(ProjectId projectId, PackingJobListCriteria criteria) {
         Condition condition = listCondition(projectId, criteria);
 
-        List<org.jooq.SortField<?>> orderBy = List.of(
-                                                      order(primarySort(criteria.sort()), criteria.direction(), isNullable(criteria.sort())),
-                                                      order(PACKING_JOBS.ID, criteria.direction(), false));
+        List<SortField<?>> orderBy = List.of(
+                                             order(primarySort(criteria.sort()), criteria.direction(), isNullable(criteria.sort())),
+                                             order(PACKING_JOBS.ID, criteria.direction(), false));
         return Paging.fetch(dsl,
                             dsl.select(PackingJobQueries.VIEW_FIELDS)
                                .from(PACKING_JOBS)
@@ -83,8 +84,8 @@ public class JooqPackingJobFinder implements PackingJobFinder {
         };
     }
 
-    private static org.jooq.SortField<?> order(Field<?> field, SortDirection direction, boolean nullsLast) {
-        org.jooq.SortField<?> ordered = direction == SortDirection.ASC ? field.asc() : field.desc();
+    private static SortField<?> order(Field<?> field, SortDirection direction, boolean nullsLast) {
+        SortField<?> ordered = direction == SortDirection.ASC ? field.asc() : field.desc();
         return nullsLast ? ordered.nullsLast() : ordered;
     }
 
