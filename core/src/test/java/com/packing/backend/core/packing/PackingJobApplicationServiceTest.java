@@ -10,7 +10,9 @@ import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.Page;
+import com.packing.backend.core.shared.InstantRange;
 import com.packing.backend.core.shared.PageRequest;
+import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
@@ -39,6 +41,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,6 +62,15 @@ class PackingJobApplicationServiceTest {
     private static final ProjectId   OTHER_PROJECT_ID = ProjectId.generate();
     private static final UserId      USER_ID          = UserId.generate();
     private static final PageRequest PAGE             = new PageRequest(0, 20);
+    private static final PackingJobListCriteria CRITERIA = new PackingJobListCriteria(
+            PAGE,
+            "engine",
+            Set.of(PackingJobStatus.RUNNING),
+            new InstantRange(NOW.minusSeconds(60), NOW.plusSeconds(60)),
+            new InstantRange(null, null),
+            new InstantRange(null, null),
+            PackingJobListCriteria.SortField.CREATED_AT,
+            SortDirection.DESC);
 
     @Mock
     private PackingJobRepository    repository;
@@ -147,22 +159,23 @@ class PackingJobApplicationServiceTest {
     }
 
     @Test
-    void listRequiresReadPermissionAndOnlyQueriesTheRequestedProject() {
+    void listUsesTheAuthorizedProjectIdAndPassesCriteriaUnchangedToTheFinder() {
         Page<PackingJobView> expected = new Page<>(List.of(view(UUID.randomUUID(), PROJECT_ID.value())),
                                                    PAGE.page(),
                                                    PAGE.size(),
                                                    1);
-        givenReadAccess();
-        when(finder.listInProject(PROJECT_ID, PAGE)).thenReturn(expected);
+        when(access.findAccess(new FirebaseUid(FIREBASE_UID), OTHER_PROJECT_ID)).thenReturn(
+                                                                                             Optional.of(projectAccess(ProjectPermission.READ)));
+        when(finder.listInProject(PROJECT_ID, CRITERIA)).thenReturn(expected);
 
         Page<PackingJobView> result = service.list(new ListPackingJobsQuery(
                                                                             FIREBASE_UID,
-                                                                            PROJECT_ID.value(),
-                                                                            PAGE));
+                                                                            OTHER_PROJECT_ID.value(),
+                                                                            CRITERIA));
 
         assertThat(result).isEqualTo(expected);
-        verify(finder).listInProject(PROJECT_ID, PAGE);
-        verify(finder, never()).listInProject(OTHER_PROJECT_ID, PAGE);
+        verify(finder).listInProject(PROJECT_ID, CRITERIA);
+        verify(finder, never()).listInProject(OTHER_PROJECT_ID, CRITERIA);
     }
 
     @Test

@@ -1,8 +1,8 @@
 package com.packing.backend.core.packing.port.out;
 
+import com.packing.backend.core.packing.PackingJobListCriteria;
 import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.core.shared.Page;
-import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.project.ProjectId;
 
@@ -11,7 +11,7 @@ import java.util.Optional;
 
 public interface PackingJobFinder {
 
-    Page<PackingJobView> listInProject(ProjectId projectId, PageRequest page);
+    Page<PackingJobView> listInProject(ProjectId projectId, PackingJobListCriteria criteria);
 
     Optional<PackingJobView> detailInProject(ProjectId projectId, PackingJobId jobId);
 
