@@ -5,11 +5,13 @@ import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.file.FileApplicationService;
 import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
 import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
+import com.packing.backend.core.file.FileListCriteria;
 import com.packing.backend.core.file.FileApplicationService.RenameFileCommand;
 import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.shared.ContentSource;
 import com.packing.backend.core.shared.Page;
+import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.file.FileStatus;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StoredFileNotFoundException;
@@ -21,6 +23,8 @@ import com.packing.backend.domain.shared.ResourceConflictException;
 import org.springframework.http.MediaType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -38,6 +42,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -272,11 +277,129 @@ class ProjectFileControllerTest {
 
         verify(files).listFiles(command.capture());
         assertThat(command.getValue()
+                          .criteria()
                           .page()
                           .page()).isZero();
         assertThat(command.getValue()
+                          .criteria()
                           .page()
                           .size()).isEqualTo(20);
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(FileListCriteria.SortField.CREATED_AT);
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.DESC);
+    }
+
+    @Test
+    void listMapsFiltersAndSortingToCriteria() throws Exception {
+        authenticate();
+        when(files.listFiles(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListFilesCommand> command = ArgumentCaptor.forClass(ListFilesCommand.class);
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT)
+                                                                          .param("search", "  bracket  ")
+                                                                          .param("format", "STL", "STL", "OBJ")
+                                                                          .param("createdFrom", "2026-01-01T00:00:00Z")
+                                                                          .param("createdBefore", "2027-01-01T00:00:00Z")
+                                                                          .param("sort", "sizeBytes")
+                                                                          .param("direction", "DESC"))
+               .andExpect(status().isOk());
+
+        verify(files).listFiles(command.capture());
+        FileListCriteria criteria = command.getValue()
+                                           .criteria();
+        assertThat(criteria.search()).isEqualTo("bracket");
+        assertThat(criteria.formats()).isEqualTo(Set.of(ModelFormat.STL, ModelFormat.OBJ));
+        assertThat(criteria.createdAt()
+                           .from()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(criteria.createdAt()
+                           .before()).isEqualTo(Instant.parse("2027-01-01T00:00:00Z"));
+        assertThat(criteria.sort()).isEqualTo(FileListCriteria.SortField.SIZE_BYTES);
+        assertThat(criteria.direction()).isEqualTo(SortDirection.DESC);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "filename", "format", "sizeBytes", "createdAt" })
+    void listAcceptsEverySupportedSort(String sort) throws Exception {
+        authenticate();
+        when(files.listFiles(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListFilesCommand> command = ArgumentCaptor.forClass(ListFilesCommand.class);
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("sort", sort))
+               .andExpect(status().isOk());
+
+        verify(files).listFiles(command.capture());
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(switch (sort) {
+                              case "filename" -> FileListCriteria.SortField.FILENAME;
+                              case "format" -> FileListCriteria.SortField.FORMAT;
+                              case "sizeBytes" -> FileListCriteria.SortField.SIZE_BYTES;
+                              case "createdAt" -> FileListCriteria.SortField.CREATED_AT;
+                              default -> throw new IllegalStateException("Unexpected sort: " + sort);
+                          });
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.ASC);
+    }
+
+    @Test
+    void listAppliesDirectionAloneToCreatedAt() throws Exception {
+        authenticate();
+        when(files.listFiles(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListFilesCommand> command = ArgumentCaptor.forClass(ListFilesCommand.class);
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("direction", "ASC"))
+               .andExpect(status().isOk());
+
+        verify(files).listFiles(command.capture());
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(FileListCriteria.SortField.CREATED_AT);
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.ASC);
+    }
+
+    @Test
+    void listRejectsInvalidSearchLengths() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("search", "ab"))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("search", "x".repeat(101)))
+               .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listRejectsAnInvalidCreatedAtRange() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT)
+                                                                          .param("createdFrom", "2027-01-01T00:00:00Z")
+                                                                          .param("createdBefore", "2026-01-01T00:00:00Z"))
+               .andExpect(status().isBadRequest());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = { "BAD", "filenamez" })
+    void listRejectsUnknownFormatOrSort(String value) throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("format", value))
+               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("sort", value))
+               .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void listRejectsAnUnknownDirection() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("direction", "SIDEWAYS"))
+               .andExpect(status().isBadRequest());
     }
 
     @Test

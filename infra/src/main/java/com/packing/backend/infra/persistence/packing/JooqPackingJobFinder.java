@@ -1,21 +1,30 @@
 package com.packing.backend.infra.persistence.packing;
 
+import com.packing.backend.core.packing.PackingJobListCriteria;
 import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.shared.Page;
-import com.packing.backend.core.shared.PageRequest;
+import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.infra.persistence.shared.Paging;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Condition;
+import org.jooq.Field;
+import org.jooq.SortField;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import static com.packing.backend.infra.persistence.jooq.tables.PackingJobs.PACKING_JOBS;
+import static com.packing.backend.infra.persistence.packing.PackingJobQueries.SEARCH_TEXT;
+import static com.packing.backend.infra.persistence.packing.PackingJobQueries.STATUS_RANK;
+import static com.packing.backend.infra.persistence.shared.JooqConditions.instantRange;
+import static org.jooq.impl.DSL.lower;
 
 @Repository
 @RequiredArgsConstructor
@@ -24,14 +33,60 @@ public class JooqPackingJobFinder implements PackingJobFinder {
     private final DSLContext dsl;
 
     @Override
-    public Page<PackingJobView> listInProject(ProjectId projectId, PageRequest page) {
+    public Page<PackingJobView> listInProject(ProjectId projectId, PackingJobListCriteria criteria) {
+        Condition condition = listCondition(projectId, criteria);
+
+        List<SortField<?>> orderBy = List.of(
+                                             order(primarySort(criteria.sort()), criteria.direction(), isNullable(criteria.sort())),
+                                             order(PACKING_JOBS.ID, criteria.direction(), false));
         return Paging.fetch(dsl,
                             dsl.select(PackingJobQueries.VIEW_FIELDS)
                                .from(PACKING_JOBS)
-                               .where(PackingJobQueries.inProject(projectId)),
-                            List.of(PACKING_JOBS.CREATED_AT.desc(), PACKING_JOBS.ID.desc()),
-                            page,
+                               .where(condition),
+                            orderBy,
+                            criteria.page(),
                             PackingJobQueries::toView);
+    }
+
+    private static Condition listCondition(ProjectId projectId, PackingJobListCriteria criteria) {
+        Condition condition = PackingJobQueries.inProject(projectId);
+        if (criteria.search() != null) {
+            condition = condition.and(SEARCH_TEXT.contains(criteria.search()
+                                                                   .toLowerCase(Locale.ROOT)));
+        }
+        if (!criteria.statuses()
+                     .isEmpty()) {
+            condition = condition.and(PACKING_JOBS.STATUS.in(criteria.statuses()));
+        }
+        condition = condition.and(instantRange(PACKING_JOBS.CREATED_AT, criteria.createdAt()));
+        condition = condition.and(instantRange(PACKING_JOBS.STARTED_AT, criteria.startedAt()));
+        condition = condition.and(instantRange(PACKING_JOBS.FINISHED_AT, criteria.finishedAt()));
+        return condition;
+    }
+
+    private static Field<?> primarySort(PackingJobListCriteria.SortField sort) {
+        return switch (sort) {
+            case STATUS -> STATUS_RANK;
+            case MAX_RUNTIME_SECONDS -> PACKING_JOBS.MAX_RUNTIME_SECONDS;
+            case ENGINE_VERSION -> lower(PACKING_JOBS.ENGINE_VERSION);
+            case CREATED_AT -> PACKING_JOBS.CREATED_AT;
+            case STARTED_AT -> PACKING_JOBS.STARTED_AT;
+            case FINISHED_AT -> PACKING_JOBS.FINISHED_AT;
+            case RESULT_FILE_NAME -> lower(PACKING_JOBS.RESULT_FILE_NAME);
+            case RESULT_SIZE_BYTES -> PACKING_JOBS.RESULT_SIZE_BYTES;
+        };
+    }
+
+    private static boolean isNullable(PackingJobListCriteria.SortField sort) {
+        return switch (sort) {
+            case ENGINE_VERSION, STARTED_AT, FINISHED_AT, RESULT_FILE_NAME, RESULT_SIZE_BYTES -> true;
+            default -> false;
+        };
+    }
+
+    private static SortField<?> order(Field<?> field, SortDirection direction, boolean nullsLast) {
+        SortField<?> ordered = direction == SortDirection.ASC ? field.asc() : field.desc();
+        return nullsLast ? ordered.nullsLast() : ordered;
     }
 
     @Override

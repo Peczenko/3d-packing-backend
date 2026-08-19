@@ -6,7 +6,6 @@ import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.Page;
-import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
@@ -61,7 +60,7 @@ public class PackingJobApplicationService {
         ProjectAccess project = requireAccess(query.firebaseUid(),
                                               query.projectId(),
                                               ProjectPermission.READ);
-        return finder.listInProject(project.projectId(), query.page());
+        return finder.listInProject(project.projectId(), query.criteria());
     }
 
     @Transactional(readOnly = true)
@@ -112,7 +111,7 @@ public class PackingJobApplicationService {
             long maxRuntimeSeconds) {
     }
 
-    public record ListPackingJobsQuery(String firebaseUid, UUID projectId, PageRequest page) {
+    public record ListPackingJobsQuery(String firebaseUid, UUID projectId, PackingJobListCriteria criteria) {
     }
 
     public record PackingJobQuery(String firebaseUid, UUID projectId, UUID jobId) {

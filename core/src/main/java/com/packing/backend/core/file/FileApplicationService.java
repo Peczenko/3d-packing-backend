@@ -8,7 +8,6 @@ import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAcce
 import com.packing.backend.core.shared.ContentSource;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.core.shared.Page;
-import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
@@ -94,7 +93,7 @@ public class FileApplicationService {
         ProjectAccess access = requireAccess(command.firebaseUid(),
                                              command.projectId(),
                                              ProjectPermission.READ);
-        return fileFinder.listAvailableInProject(access.projectId(), command.page());
+        return fileFinder.listAvailableInProject(access.projectId(), command.criteria());
     }
 
     @Transactional
@@ -184,7 +183,7 @@ public class FileApplicationService {
     public record RenameFileCommand(String firebaseUid, UUID projectId, UUID fileId, String name) {
     }
 
-    public record ListFilesCommand(String firebaseUid, UUID projectId, PageRequest page) {
+    public record ListFilesCommand(String firebaseUid, UUID projectId, FileListCriteria criteria) {
     }
 
     public record DeleteFileCommand(String firebaseUid, UUID projectId, UUID fileId) {

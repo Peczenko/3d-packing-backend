@@ -4,6 +4,7 @@ import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.project.ProjectApplicationService.ChangeAccessCommand;
 import com.packing.backend.core.project.ProjectApplicationService.CreateProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.GrantAccessCommand;
+import com.packing.backend.core.project.ProjectApplicationService.ListProjectMembersQuery;
 import com.packing.backend.core.project.ProjectApplicationService.ListProjectsCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectQuery;
@@ -13,6 +14,8 @@ import com.packing.backend.core.project.port.out.ProjectFinder;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
+import com.packing.backend.core.shared.InstantRange;
+import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.core.shared.port.out.ActiveUserLookup;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.out.UserRepository;
@@ -53,11 +56,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -123,18 +126,6 @@ class ProjectApplicationServiceTest {
     }
 
     private static ProjectView viewOf(Project project, UserId caller) {
-        List<ProjectMemberView> members = project.members()
-                                                 .stream()
-                                                 .map(member -> new ProjectMemberView(member.userId()
-                                                                                            .value(),
-                                                                                      "user" + Math.abs(member.userId()
-                                                                                                              .value()
-                                                                                                              .hashCode()),
-                                                                                      "Display Name",
-                                                                                      member.permission(),
-                                                                                      member.addedAt()))
-                                                 .sorted(Comparator.comparing(ProjectMemberView::addedAt))
-                                                 .toList();
         return new ProjectView(project.id()
                                       .value(),
                                project.name()
@@ -144,7 +135,6 @@ class ProjectApplicationServiceTest {
                                       .value(),
                                project.permissionOf(caller)
                                       .orElseThrow(),
-                               members,
                                project.createdAt(),
                                project.updatedAt());
     }
@@ -195,11 +185,7 @@ class ProjectApplicationServiceTest {
         assertThat(view.status()).isEqualTo(ProjectStatus.ACTIVE);
         assertThat(view.createdBy()).isEqualTo(CALLER.value());
         assertThat(view.myPermission()).isEqualTo(ProjectPermission.OWNER);
-        assertThat(view.members()).singleElement()
-                                  .satisfies(member -> {
-                                      assertThat(member.userId()).isEqualTo(CALLER.value());
-                                      assertThat(member.permission()).isEqualTo(ProjectPermission.OWNER);
-                                  });
+        assertThat(view.createdAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -271,21 +257,69 @@ class ProjectApplicationServiceTest {
 
     @Test
     void listProjectsDelegatesToTheFinderWithTheCallersId() {
-        ProjectSummaryView summary = new ProjectSummaryView(UUID.randomUUID(),
-                                                            "Chassis packing",
-                                                            ProjectStatus.ACTIVE,
-                                                            ProjectPermission.OWNER,
-                                                            1,
-                                                            NOW,
-                                                            NOW);
-        when(projectFinder.listForMember(CALLER, new PageRequest(2, 20)))
-                                                                         .thenReturn(new Page<>(List.of(summary), 2, 20, 45L));
+        ProjectListCriteria criteria = new ProjectListCriteria(
+                                                               new PageRequest(2, 20),
+                                                               null,
+                                                               Set.of(),
+                                                               Set.of(),
+                                                               new InstantRange(null, null),
+                                                               new InstantRange(null, null),
+                                                               ProjectListCriteria.SortField.CREATED_AT,
+                                                               SortDirection.DESC);
+        Page<ProjectSummaryView> expected = new Page<>(List.of(), 2, 20, 45L);
+        when(projectFinder.listForMember(CALLER, criteria)).thenReturn(expected);
 
-        Page<ProjectSummaryView> page = service.listProjects(
-                                                             new ListProjectsCommand(UID, new PageRequest(2, 20)));
+        Page<ProjectSummaryView> actual = service.listProjects(new ListProjectsCommand(UID, criteria));
 
-        assertThat(page.content()).containsExactly(summary);
-        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(actual).isSameAs(expected);
+        verify(projectFinder).listForMember(CALLER, criteria);
+    }
+
+    @Test
+    void listProjectMembersChecksProjectAccessBeforeDelegatingToTheFinder() {
+        Project project = ownedProject();
+        ProjectView projectView = viewOf(project, CALLER);
+        ProjectMemberListCriteria criteria = new ProjectMemberListCriteria(
+                                                                           new PageRequest(0, 20),
+                                                                           null,
+                                                                           Set.of(),
+                                                                           new InstantRange(null, null),
+                                                                           ProjectMemberListCriteria.SortField.ADDED_AT,
+                                                                           SortDirection.ASC);
+        Page<ProjectMemberView> expected = new Page<>(List.of(), 0, 20, 0L);
+        when(projectFinder.detailFor(CALLER, project.id())).thenReturn(Optional.of(projectView));
+        when(projectFinder.listMembersFor(CALLER, project.id(), criteria)).thenReturn(expected);
+
+        Page<ProjectMemberView> actual = service.listProjectMembers(
+                                                                    new ListProjectMembersQuery(UID,
+                                                                                                project.id()
+                                                                                                       .value(),
+                                                                                                criteria));
+
+        assertThat(actual).isSameAs(expected);
+        verify(projectFinder).detailFor(CALLER, project.id());
+        verify(projectFinder).listMembersFor(CALLER, project.id(), criteria);
+    }
+
+    @Test
+    void listProjectMembersDoesNotQueryTheRosterWhenTheCallerCannotAccessTheProject() {
+        ProjectId projectId = ProjectId.generate();
+        ProjectMemberListCriteria criteria = new ProjectMemberListCriteria(
+                                                                           new PageRequest(0, 20),
+                                                                           null,
+                                                                           Set.of(),
+                                                                           new InstantRange(null, null),
+                                                                           ProjectMemberListCriteria.SortField.ADDED_AT,
+                                                                           SortDirection.ASC);
+        when(projectFinder.detailFor(CALLER, projectId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.listProjectMembers(new ListProjectMembersQuery(UID,
+                                                                                        projectId.value(),
+                                                                                        criteria)))
+                                                                                                   .isInstanceOf(ProjectNotFoundException.class);
+
+        verify(projectFinder).detailFor(CALLER, projectId);
+        verify(projectFinder, never()).listMembersFor(CALLER, projectId, criteria);
     }
 
     @Test
@@ -300,7 +334,6 @@ class ProjectApplicationServiceTest {
                                                                       MEMBER.value(),
                                                                       ProjectPermission.WRITE));
 
-        assertThat(view.members()).hasSize(2);
         assertThat(project.permissionOf(MEMBER)).contains(ProjectPermission.WRITE);
     }
 
