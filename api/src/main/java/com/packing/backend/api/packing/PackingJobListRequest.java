@@ -56,23 +56,23 @@ public record PackingJobListRequest(
 
     public PackingJobListCriteria toCriteria() {
         return new PackingJobListCriteria(
-                new PageRequest(page, size),
-                search,
-                status,
-                CollectionQueryParameters.range(createdFrom, createdBefore),
-                CollectionQueryParameters.range(startedFrom, startedBefore),
-                CollectionQueryParameters.range(finishedFrom, finishedBefore),
-                switch (sort) {
-                    case "status" -> PackingJobListCriteria.SortField.STATUS;
-                    case "maxRuntimeSeconds" -> PackingJobListCriteria.SortField.MAX_RUNTIME_SECONDS;
-                    case "engineVersion" -> PackingJobListCriteria.SortField.ENGINE_VERSION;
-                    case "createdAt" -> PackingJobListCriteria.SortField.CREATED_AT;
-                    case "startedAt" -> PackingJobListCriteria.SortField.STARTED_AT;
-                    case "finishedAt" -> PackingJobListCriteria.SortField.FINISHED_AT;
-                    case "resultFileName" -> PackingJobListCriteria.SortField.RESULT_FILE_NAME;
-                    case "resultSizeBytes" -> PackingJobListCriteria.SortField.RESULT_SIZE_BYTES;
-                    default -> throw new IllegalStateException("Unexpected sort: " + sort);
-                },
-                direction);
+                                          new PageRequest(page, size),
+                                          search,
+                                          status,
+                                          CollectionQueryParameters.range(createdFrom, createdBefore),
+                                          CollectionQueryParameters.range(startedFrom, startedBefore),
+                                          CollectionQueryParameters.range(finishedFrom, finishedBefore),
+                                          switch (sort) {
+                                              case "status" -> PackingJobListCriteria.SortField.STATUS;
+                                              case "maxRuntimeSeconds" -> PackingJobListCriteria.SortField.MAX_RUNTIME_SECONDS;
+                                              case "engineVersion" -> PackingJobListCriteria.SortField.ENGINE_VERSION;
+                                              case "createdAt" -> PackingJobListCriteria.SortField.CREATED_AT;
+                                              case "startedAt" -> PackingJobListCriteria.SortField.STARTED_AT;
+                                              case "finishedAt" -> PackingJobListCriteria.SortField.FINISHED_AT;
+                                              case "resultFileName" -> PackingJobListCriteria.SortField.RESULT_FILE_NAME;
+                                              case "resultSizeBytes" -> PackingJobListCriteria.SortField.RESULT_SIZE_BYTES;
+                                              default -> throw new IllegalStateException("Unexpected sort: " + sort);
+                                          },
+                                          direction);
     }
 }

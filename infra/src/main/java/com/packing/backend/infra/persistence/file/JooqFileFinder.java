@@ -30,7 +30,8 @@ public class JooqFileFinder implements FileFinder {
         Condition condition = FileQueries.availableIn(projectId);
         if (criteria.search() != null) {
             condition = condition.and(lower(FILES.ORIGINAL_FILENAME)
-                                              .contains(criteria.search().toLowerCase(Locale.ROOT)));
+                                                                    .contains(criteria.search()
+                                                                                      .toLowerCase(Locale.ROOT)));
         }
         if (!criteria.formats()
                      .isEmpty()) {

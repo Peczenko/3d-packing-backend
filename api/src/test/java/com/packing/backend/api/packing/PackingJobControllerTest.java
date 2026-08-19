@@ -147,16 +147,16 @@ class PackingJobControllerTest {
         when(jobs.list(any())).thenReturn(new Page<>(List.of(view(UUID.randomUUID())), 0, 20, 1));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
-                                                                .param("search", "  engine  ")
-                                                                .param("status", "RUNNING", "FAILED")
-                                                                .param("createdFrom", "2026-01-01T00:00:00Z")
-                                                                .param("createdBefore", "2027-01-01T00:00:00Z")
-                                                                .param("startedFrom", "2026-02-01T00:00:00Z")
-                                                                .param("startedBefore", "2026-12-01T00:00:00Z")
-                                                                .param("finishedFrom", "2026-03-01T00:00:00Z")
-                                                                .param("finishedBefore", "2026-11-01T00:00:00Z")
-                                                                .param("sort", "finishedAt")
-                                                                .param("direction", "DESC"))
+                                                                                    .param("search", "  engine  ")
+                                                                                    .param("status", "RUNNING", "FAILED")
+                                                                                    .param("createdFrom", "2026-01-01T00:00:00Z")
+                                                                                    .param("createdBefore", "2027-01-01T00:00:00Z")
+                                                                                    .param("startedFrom", "2026-02-01T00:00:00Z")
+                                                                                    .param("startedBefore", "2026-12-01T00:00:00Z")
+                                                                                    .param("finishedFrom", "2026-03-01T00:00:00Z")
+                                                                                    .param("finishedBefore", "2026-11-01T00:00:00Z")
+                                                                                    .param("sort", "finishedAt")
+                                                                                    .param("direction", "DESC"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.content.length()").value(1))
                .andExpect(jsonPath("$.page").value(0))
@@ -211,8 +211,12 @@ class PackingJobControllerTest {
 
         ArgumentCaptor<ListPackingJobsQuery> query = ArgumentCaptor.forClass(ListPackingJobsQuery.class);
         verify(jobs).list(query.capture());
-        assertThat(query.getValue().criteria().sort()).isEqualTo(PackingJobListCriteria.SortField.CREATED_AT);
-        assertThat(query.getValue().criteria().direction()).isEqualTo(SortDirection.DESC);
+        assertThat(query.getValue()
+                        .criteria()
+                        .sort()).isEqualTo(PackingJobListCriteria.SortField.CREATED_AT);
+        assertThat(query.getValue()
+                        .criteria()
+                        .direction()).isEqualTo(SortDirection.DESC);
     }
 
     @Test
@@ -220,8 +224,14 @@ class PackingJobControllerTest {
         authenticate();
         when(jobs.list(any())).thenReturn(new Page<>(List.of(), 0, 20, 0));
 
-        List<String> sorts = List.of("status", "maxRuntimeSeconds", "engineVersion", "createdAt", "startedAt",
-                                     "finishedAt", "resultFileName", "resultSizeBytes");
+        List<String> sorts = List.of("status",
+                                     "maxRuntimeSeconds",
+                                     "engineVersion",
+                                     "createdAt",
+                                     "startedAt",
+                                     "finishedAt",
+                                     "resultFileName",
+                                     "resultSizeBytes");
         for (String sort : sorts) {
             mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID).param("sort", sort))
                    .andExpect(status().isOk());
@@ -230,17 +240,19 @@ class PackingJobControllerTest {
         ArgumentCaptor<ListPackingJobsQuery> query = ArgumentCaptor.forClass(ListPackingJobsQuery.class);
         verify(jobs, org.mockito.Mockito.times(sorts.size())).list(query.capture());
         assertThat(query.getAllValues())
-                .extracting(value -> value.criteria().sort())
-                .containsExactly(PackingJobListCriteria.SortField.STATUS,
-                                 PackingJobListCriteria.SortField.MAX_RUNTIME_SECONDS,
-                                 PackingJobListCriteria.SortField.ENGINE_VERSION,
-                                 PackingJobListCriteria.SortField.CREATED_AT,
-                                 PackingJobListCriteria.SortField.STARTED_AT,
-                                 PackingJobListCriteria.SortField.FINISHED_AT,
-                                 PackingJobListCriteria.SortField.RESULT_FILE_NAME,
-                                 PackingJobListCriteria.SortField.RESULT_SIZE_BYTES);
+                                        .extracting(value -> value.criteria()
+                                                                  .sort())
+                                        .containsExactly(PackingJobListCriteria.SortField.STATUS,
+                                                         PackingJobListCriteria.SortField.MAX_RUNTIME_SECONDS,
+                                                         PackingJobListCriteria.SortField.ENGINE_VERSION,
+                                                         PackingJobListCriteria.SortField.CREATED_AT,
+                                                         PackingJobListCriteria.SortField.STARTED_AT,
+                                                         PackingJobListCriteria.SortField.FINISHED_AT,
+                                                         PackingJobListCriteria.SortField.RESULT_FILE_NAME,
+                                                         PackingJobListCriteria.SortField.RESULT_SIZE_BYTES);
         assertThat(query.getAllValues())
-                .allSatisfy(value -> assertThat(value.criteria().direction()).isEqualTo(SortDirection.ASC));
+                                        .allSatisfy(value -> assertThat(value.criteria()
+                                                                             .direction()).isEqualTo(SortDirection.ASC));
     }
 
     @Test
@@ -257,12 +269,12 @@ class PackingJobControllerTest {
         }
         for (String prefix : List.of("created", "started", "finished")) {
             mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
-                                                                    .param(prefix + "From", "2026-01-01T00:00:00Z")
-                                                                    .param(prefix + "Before", "2026-01-01T00:00:00Z"))
+                                                                                        .param(prefix + "From", "2026-01-01T00:00:00Z")
+                                                                                        .param(prefix + "Before", "2026-01-01T00:00:00Z"))
                    .andExpect(status().isBadRequest());
             mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
-                                                                    .param(prefix + "From", "2026-01-02T00:00:00Z")
-                                                                    .param(prefix + "Before", "2026-01-01T00:00:00Z"))
+                                                                                        .param(prefix + "From", "2026-01-02T00:00:00Z")
+                                                                                        .param(prefix + "Before", "2026-01-01T00:00:00Z"))
                    .andExpect(status().isBadRequest());
         }
     }
@@ -275,7 +287,7 @@ class PackingJobControllerTest {
                                           new String[] { "sort", "unknown" },
                                           new String[] { "direction", "SIDEWAYS" })) {
             mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
-                                                                    .param(parameter[0], parameter[1]))
+                                                                                        .param(parameter[0], parameter[1]))
                    .andExpect(status().isBadRequest());
         }
     }

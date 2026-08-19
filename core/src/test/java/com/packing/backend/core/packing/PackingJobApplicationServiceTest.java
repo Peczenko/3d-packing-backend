@@ -56,21 +56,21 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PackingJobApplicationServiceTest {
 
-    private static final Instant     NOW              = Instant.parse("2026-08-01T10:15:30Z");
-    private static final String      FIREBASE_UID     = "firebase-1";
-    private static final ProjectId   PROJECT_ID       = ProjectId.generate();
-    private static final ProjectId   OTHER_PROJECT_ID = ProjectId.generate();
-    private static final UserId      USER_ID          = UserId.generate();
-    private static final PageRequest PAGE             = new PageRequest(0, 20);
-    private static final PackingJobListCriteria CRITERIA = new PackingJobListCriteria(
-            PAGE,
-            "engine",
-            Set.of(PackingJobStatus.RUNNING),
-            new InstantRange(NOW.minusSeconds(60), NOW.plusSeconds(60)),
-            new InstantRange(null, null),
-            new InstantRange(null, null),
-            PackingJobListCriteria.SortField.CREATED_AT,
-            SortDirection.DESC);
+    private static final Instant                NOW              = Instant.parse("2026-08-01T10:15:30Z");
+    private static final String                 FIREBASE_UID     = "firebase-1";
+    private static final ProjectId              PROJECT_ID       = ProjectId.generate();
+    private static final ProjectId              OTHER_PROJECT_ID = ProjectId.generate();
+    private static final UserId                 USER_ID          = UserId.generate();
+    private static final PageRequest            PAGE             = new PageRequest(0, 20);
+    private static final PackingJobListCriteria CRITERIA         = new PackingJobListCriteria(
+                                                                                              PAGE,
+                                                                                              "engine",
+                                                                                              Set.of(PackingJobStatus.RUNNING),
+                                                                                              new InstantRange(NOW.minusSeconds(60), NOW.plusSeconds(60)),
+                                                                                              new InstantRange(null, null),
+                                                                                              new InstantRange(null, null),
+                                                                                              PackingJobListCriteria.SortField.CREATED_AT,
+                                                                                              SortDirection.DESC);
 
     @Mock
     private PackingJobRepository    repository;
@@ -165,7 +165,7 @@ class PackingJobApplicationServiceTest {
                                                    PAGE.size(),
                                                    1);
         when(access.findAccess(new FirebaseUid(FIREBASE_UID), OTHER_PROJECT_ID)).thenReturn(
-                                                                                             Optional.of(projectAccess(ProjectPermission.READ)));
+                                                                                            Optional.of(projectAccess(ProjectPermission.READ)));
         when(finder.listInProject(PROJECT_ID, CRITERIA)).thenReturn(expected);
 
         Page<PackingJobView> result = service.list(new ListPackingJobsQuery(

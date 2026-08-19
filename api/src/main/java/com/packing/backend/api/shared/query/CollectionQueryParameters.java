@@ -38,8 +38,8 @@ public final class CollectionQueryParameters {
 
     public static InstantRange range(OffsetDateTime from, OffsetDateTime before) {
         return new InstantRange(
-                from == null ? null : from.toInstant(),
-                before == null ? null : before.toInstant());
+                                from == null ? null : from.toInstant(),
+                                before == null ? null : before.toInstant());
     }
 
     public static <T> Set<T> values(Set<T> supplied) {

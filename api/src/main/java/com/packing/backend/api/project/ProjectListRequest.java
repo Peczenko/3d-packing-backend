@@ -57,21 +57,21 @@ public record ProjectListRequest(
 
     public ProjectListCriteria toCriteria() {
         return new ProjectListCriteria(
-                new PageRequest(page, size),
-                search,
-                status,
-                permission,
-                CollectionQueryParameters.range(createdFrom, createdBefore),
-                CollectionQueryParameters.range(updatedFrom, updatedBefore),
-                switch (sort) {
-                    case "name" -> ProjectListCriteria.SortField.NAME;
-                    case "status" -> ProjectListCriteria.SortField.STATUS;
-                    case "permission" -> ProjectListCriteria.SortField.PERMISSION;
-                    case "memberCount" -> ProjectListCriteria.SortField.MEMBER_COUNT;
-                    case "createdAt" -> ProjectListCriteria.SortField.CREATED_AT;
-                    case "updatedAt" -> ProjectListCriteria.SortField.UPDATED_AT;
-                    default -> throw new IllegalStateException("Unexpected sort: " + sort);
-                },
-                direction);
+                                       new PageRequest(page, size),
+                                       search,
+                                       status,
+                                       permission,
+                                       CollectionQueryParameters.range(createdFrom, createdBefore),
+                                       CollectionQueryParameters.range(updatedFrom, updatedBefore),
+                                       switch (sort) {
+                                           case "name" -> ProjectListCriteria.SortField.NAME;
+                                           case "status" -> ProjectListCriteria.SortField.STATUS;
+                                           case "permission" -> ProjectListCriteria.SortField.PERMISSION;
+                                           case "memberCount" -> ProjectListCriteria.SortField.MEMBER_COUNT;
+                                           case "createdAt" -> ProjectListCriteria.SortField.CREATED_AT;
+                                           case "updatedAt" -> ProjectListCriteria.SortField.UPDATED_AT;
+                                           default -> throw new IllegalStateException("Unexpected sort: " + sort);
+                                       },
+                                       direction);
     }
 }

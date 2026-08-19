@@ -30,8 +30,8 @@ final class ProjectQueries {
                                                                   .where(PROJECT_MEMBERS.PROJECT_ID.eq(PROJECTS.ID)));
 
     static final Field<Integer> STATUS_RANK = when(PROJECTS.STATUS.eq(ProjectStatus.ACTIVE), 0)
-                                                                 .when(PROJECTS.STATUS.eq(ProjectStatus.DISABLED), 1)
-                                                                 .otherwise(2);
+                                                                                               .when(PROJECTS.STATUS.eq(ProjectStatus.DISABLED), 1)
+                                                                                               .otherwise(2);
 
     private ProjectQueries() {
     }
@@ -46,7 +46,7 @@ final class ProjectQueries {
 
     static Field<Integer> permissionRank(Field<ProjectPermission> permission) {
         return when(permission.eq(ProjectPermission.READ), 0)
-                                                       .when(permission.eq(ProjectPermission.WRITE), 1)
-                                                       .otherwise(2);
+                                                             .when(permission.eq(ProjectPermission.WRITE), 1)
+                                                             .otherwise(2);
     }
 }

@@ -258,14 +258,14 @@ class ProjectApplicationServiceTest {
     @Test
     void listProjectsDelegatesToTheFinderWithTheCallersId() {
         ProjectListCriteria criteria = new ProjectListCriteria(
-                                                                new PageRequest(2, 20),
-                                                                null,
-                                                                Set.of(),
-                                                                Set.of(),
-                                                                new InstantRange(null, null),
-                                                                new InstantRange(null, null),
-                                                                ProjectListCriteria.SortField.CREATED_AT,
-                                                                SortDirection.DESC);
+                                                               new PageRequest(2, 20),
+                                                               null,
+                                                               Set.of(),
+                                                               Set.of(),
+                                                               new InstantRange(null, null),
+                                                               new InstantRange(null, null),
+                                                               ProjectListCriteria.SortField.CREATED_AT,
+                                                               SortDirection.DESC);
         Page<ProjectSummaryView> expected = new Page<>(List.of(), 2, 20, 45L);
         when(projectFinder.listForMember(CALLER, criteria)).thenReturn(expected);
 
@@ -280,20 +280,21 @@ class ProjectApplicationServiceTest {
         Project project = ownedProject();
         ProjectView projectView = viewOf(project, CALLER);
         ProjectMemberListCriteria criteria = new ProjectMemberListCriteria(
-                                                                              new PageRequest(0, 20),
-                                                                              null,
-                                                                              Set.of(),
-                                                                              new InstantRange(null, null),
-                                                                              ProjectMemberListCriteria.SortField.ADDED_AT,
-                                                                              SortDirection.ASC);
+                                                                           new PageRequest(0, 20),
+                                                                           null,
+                                                                           Set.of(),
+                                                                           new InstantRange(null, null),
+                                                                           ProjectMemberListCriteria.SortField.ADDED_AT,
+                                                                           SortDirection.ASC);
         Page<ProjectMemberView> expected = new Page<>(List.of(), 0, 20, 0L);
         when(projectFinder.detailFor(CALLER, project.id())).thenReturn(Optional.of(projectView));
         when(projectFinder.listMembersFor(CALLER, project.id(), criteria)).thenReturn(expected);
 
         Page<ProjectMemberView> actual = service.listProjectMembers(
-                                                                     new ListProjectMembersQuery(UID,
-                                                                                                  project.id().value(),
-                                                                                                  criteria));
+                                                                    new ListProjectMembersQuery(UID,
+                                                                                                project.id()
+                                                                                                       .value(),
+                                                                                                criteria));
 
         assertThat(actual).isSameAs(expected);
         verify(projectFinder).detailFor(CALLER, project.id());
@@ -304,18 +305,18 @@ class ProjectApplicationServiceTest {
     void listProjectMembersDoesNotQueryTheRosterWhenTheCallerCannotAccessTheProject() {
         ProjectId projectId = ProjectId.generate();
         ProjectMemberListCriteria criteria = new ProjectMemberListCriteria(
-                                                                              new PageRequest(0, 20),
-                                                                              null,
-                                                                              Set.of(),
-                                                                              new InstantRange(null, null),
-                                                                              ProjectMemberListCriteria.SortField.ADDED_AT,
-                                                                              SortDirection.ASC);
+                                                                           new PageRequest(0, 20),
+                                                                           null,
+                                                                           Set.of(),
+                                                                           new InstantRange(null, null),
+                                                                           ProjectMemberListCriteria.SortField.ADDED_AT,
+                                                                           SortDirection.ASC);
         when(projectFinder.detailFor(CALLER, projectId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.listProjectMembers(new ListProjectMembersQuery(UID,
-                                                                                         projectId.value(),
-                                                                                         criteria)))
-                                                                                                 .isInstanceOf(ProjectNotFoundException.class);
+                                                                                        projectId.value(),
+                                                                                        criteria)))
+                                                                                                   .isInstanceOf(ProjectNotFoundException.class);
 
         verify(projectFinder).detailFor(CALLER, projectId);
         verify(projectFinder, never()).listMembersFor(CALLER, projectId, criteria);

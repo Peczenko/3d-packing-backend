@@ -113,12 +113,12 @@ public class ProjectController {
     @Operation(operationId = "listProjectMembers", summary = "List the members of a project")
     @ApiResponse(responseCode = "200", description = "Members of the project")
     public ProjectMemberPageResponse members(@CurrentUser AuthenticatedUser caller,
-                                              @PathVariable UUID projectId,
-                                              @Valid @ModelAttribute ProjectMemberListRequest request) {
+                                             @PathVariable UUID projectId,
+                                             @Valid @ModelAttribute ProjectMemberListRequest request) {
         return ProjectMemberPageResponse.from(projects.listProjectMembers(
-                                                                            new ListProjectMembersQuery(caller.firebaseUid(),
-                                                                                                        projectId,
-                                                                                                        request.toCriteria())));
+                                                                          new ListProjectMembersQuery(caller.firebaseUid(),
+                                                                                                      projectId,
+                                                                                                      request.toCriteria())));
     }
 
     @PostMapping("/{projectId}/members")

@@ -42,20 +42,33 @@ public class JooqProjectFinder implements ProjectFinder {
     public Page<ProjectSummaryView> listForMember(UserId caller, ProjectListCriteria criteria) {
         Condition condition = memberIs(caller).and(notDeleted());
         if (criteria.search() != null) {
-            condition = condition.and(lower(PROJECTS.NAME).contains(criteria.search().toLowerCase(Locale.ROOT)));
+            condition = condition.and(lower(PROJECTS.NAME).contains(criteria.search()
+                                                                            .toLowerCase(Locale.ROOT)));
         }
-        if (!criteria.statuses().isEmpty()) {
+        if (!criteria.statuses()
+                     .isEmpty()) {
             condition = condition.and(PROJECTS.STATUS.in(criteria.statuses()));
         }
-        if (!criteria.permissions().isEmpty()) {
+        if (!criteria.permissions()
+                     .isEmpty()) {
             condition = condition.and(PROJECT_MEMBERS.PERMISSION.in(criteria.permissions()));
         }
-        condition = withRange(condition, PROJECTS.CREATED_AT, criteria.createdAt().from(), criteria.createdAt().before());
-        condition = withRange(condition, PROJECTS.UPDATED_AT, criteria.updatedAt().from(), criteria.updatedAt().before());
+        condition = withRange(condition,
+                              PROJECTS.CREATED_AT,
+                              criteria.createdAt()
+                                      .from(),
+                              criteria.createdAt()
+                                      .before());
+        condition = withRange(condition,
+                              PROJECTS.UPDATED_AT,
+                              criteria.updatedAt()
+                                      .from(),
+                              criteria.updatedAt()
+                                      .before());
 
         List<org.jooq.SortField<?>> orderBy = List.of(
-                                                        order(primarySort(criteria.sort()), criteria.direction(), false),
-                                                        order(PROJECTS.ID, criteria.direction(), false));
+                                                      order(primarySort(criteria.sort()), criteria.direction(), false),
+                                                      order(PROJECTS.ID, criteria.direction(), false));
         return Paging.fetch(dsl,
                             dsl.select(PROJECTS.ID,
                                        PROJECTS.NAME,
@@ -106,23 +119,30 @@ public class JooqProjectFinder implements ProjectFinder {
         var members = PROJECT_MEMBERS.as("members");
         var callerMembership = PROJECT_MEMBERS.as("callerMembership");
         Condition condition = members.PROJECT_ID.eq(projectId)
-                                                  .and(callerMembership.PROJECT_ID.eq(members.PROJECT_ID))
-                                                  .and(callerMembership.USER_ID.eq(caller))
-                                                  .and(notDeleted());
+                                                .and(callerMembership.PROJECT_ID.eq(members.PROJECT_ID))
+                                                .and(callerMembership.USER_ID.eq(caller))
+                                                .and(notDeleted());
         if (criteria.search() != null) {
-            String search = criteria.search().toLowerCase(Locale.ROOT);
+            String search = criteria.search()
+                                    .toLowerCase(Locale.ROOT);
             condition = condition.and(lower(USERS.USERNAME).contains(search)
                                                            .or(lower(USERS.DISPLAY_NAME).contains(search)));
         }
-        if (!criteria.permissions().isEmpty()) {
+        if (!criteria.permissions()
+                     .isEmpty()) {
             condition = condition.and(members.PERMISSION.in(criteria.permissions()));
         }
-        condition = withRange(condition, members.ADDED_AT, criteria.addedAt().from(), criteria.addedAt().before());
+        condition = withRange(condition,
+                              members.ADDED_AT,
+                              criteria.addedAt()
+                                      .from(),
+                              criteria.addedAt()
+                                      .before());
 
         boolean displayName = criteria.sort() == ProjectMemberListCriteria.SortField.DISPLAY_NAME;
         List<org.jooq.SortField<?>> orderBy = List.of(
-                                                        order(memberPrimarySort(criteria.sort(), members), criteria.direction(), displayName),
-                                                        order(members.USER_ID, criteria.direction(), false));
+                                                      order(memberPrimarySort(criteria.sort(), members), criteria.direction(), displayName),
+                                                      order(members.USER_ID, criteria.direction(), false));
         return Paging.fetch(dsl,
                             dsl.select(members.USER_ID,
                                        USERS.USERNAME,
@@ -198,7 +218,8 @@ public class JooqProjectFinder implements ProjectFinder {
 
     private static ProjectMemberView toMember(Record row,
                                               com.packing.backend.infra.persistence.jooq.tables.ProjectMembers members) {
-        return new ProjectMemberView(row.get(members.USER_ID).value(),
+        return new ProjectMemberView(row.get(members.USER_ID)
+                                        .value(),
                                      row.get(USERS.USERNAME),
                                      row.get(USERS.DISPLAY_NAME),
                                      row.get(members.PERMISSION),

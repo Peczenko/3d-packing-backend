@@ -34,14 +34,31 @@ public class JooqPackingJobFinder implements PackingJobFinder {
     public Page<PackingJobView> listInProject(ProjectId projectId, PackingJobListCriteria criteria) {
         Condition condition = PackingJobQueries.inProject(projectId);
         if (criteria.search() != null) {
-            condition = condition.and(SEARCH_TEXT.contains(criteria.search().toLowerCase(Locale.ROOT)));
+            condition = condition.and(SEARCH_TEXT.contains(criteria.search()
+                                                                   .toLowerCase(Locale.ROOT)));
         }
-        if (!criteria.statuses().isEmpty()) {
+        if (!criteria.statuses()
+                     .isEmpty()) {
             condition = condition.and(PACKING_JOBS.STATUS.in(criteria.statuses()));
         }
-        condition = withRange(condition, PACKING_JOBS.CREATED_AT, criteria.createdAt().from(), criteria.createdAt().before());
-        condition = withRange(condition, PACKING_JOBS.STARTED_AT, criteria.startedAt().from(), criteria.startedAt().before());
-        condition = withRange(condition, PACKING_JOBS.FINISHED_AT, criteria.finishedAt().from(), criteria.finishedAt().before());
+        condition = withRange(condition,
+                              PACKING_JOBS.CREATED_AT,
+                              criteria.createdAt()
+                                      .from(),
+                              criteria.createdAt()
+                                      .before());
+        condition = withRange(condition,
+                              PACKING_JOBS.STARTED_AT,
+                              criteria.startedAt()
+                                      .from(),
+                              criteria.startedAt()
+                                      .before());
+        condition = withRange(condition,
+                              PACKING_JOBS.FINISHED_AT,
+                              criteria.finishedAt()
+                                      .from(),
+                              criteria.finishedAt()
+                                      .before());
 
         List<org.jooq.SortField<?>> orderBy = List.of(
                                                       order(primarySort(criteria.sort()), criteria.direction(), isNullable(criteria.sort())),

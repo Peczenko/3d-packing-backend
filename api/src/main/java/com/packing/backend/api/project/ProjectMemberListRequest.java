@@ -42,17 +42,17 @@ public record ProjectMemberListRequest(
 
     public ProjectMemberListCriteria toCriteria() {
         return new ProjectMemberListCriteria(
-                                              new PageRequest(page, size),
-                                              search,
-                                              permission,
-                                              CollectionQueryParameters.range(addedFrom, addedBefore),
-                                              switch (sort) {
-                                                  case "username" -> ProjectMemberListCriteria.SortField.USERNAME;
-                                                  case "displayName" -> ProjectMemberListCriteria.SortField.DISPLAY_NAME;
-                                                  case "permission" -> ProjectMemberListCriteria.SortField.PERMISSION;
-                                                  case "addedAt" -> ProjectMemberListCriteria.SortField.ADDED_AT;
-                                                  default -> throw new IllegalStateException("Unexpected sort: " + sort);
-                                              },
-                                              direction);
+                                             new PageRequest(page, size),
+                                             search,
+                                             permission,
+                                             CollectionQueryParameters.range(addedFrom, addedBefore),
+                                             switch (sort) {
+                                                 case "username" -> ProjectMemberListCriteria.SortField.USERNAME;
+                                                 case "displayName" -> ProjectMemberListCriteria.SortField.DISPLAY_NAME;
+                                                 case "permission" -> ProjectMemberListCriteria.SortField.PERMISSION;
+                                                 case "addedAt" -> ProjectMemberListCriteria.SortField.ADDED_AT;
+                                                 default -> throw new IllegalStateException("Unexpected sort: " + sort);
+                                             },
+                                             direction);
     }
 }

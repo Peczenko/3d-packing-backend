@@ -38,11 +38,11 @@ class CollectionQueryParametersTest {
     @Test
     void resolvesDirectionFromParameterPresence() {
         assertThat(CollectionQueryParameters.direction(false, null, SortDirection.DESC))
-                .isEqualTo(SortDirection.DESC);
+                                                                                        .isEqualTo(SortDirection.DESC);
         assertThat(CollectionQueryParameters.direction(true, null, SortDirection.DESC))
-                .isEqualTo(SortDirection.ASC);
+                                                                                       .isEqualTo(SortDirection.ASC);
         assertThat(CollectionQueryParameters.direction(false, SortDirection.ASC, SortDirection.DESC))
-                .isEqualTo(SortDirection.ASC);
+                                                                                                     .isEqualTo(SortDirection.ASC);
     }
 
     @Test
@@ -63,8 +63,8 @@ class CollectionQueryParametersTest {
         OffsetDateTime before = OffsetDateTime.parse("2026-08-19T02:00:00+02:00");
 
         assertThat(CollectionQueryParameters.range(from, before))
-                .isEqualTo(new InstantRange(
-                        Instant.parse("2026-08-18T00:00:00Z"),
-                        Instant.parse("2026-08-19T00:00:00Z")));
+                                                                 .isEqualTo(new InstantRange(
+                                                                                             Instant.parse("2026-08-18T00:00:00Z"),
+                                                                                             Instant.parse("2026-08-19T00:00:00Z")));
     }
 }

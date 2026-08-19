@@ -134,13 +134,23 @@ class JooqPackingJobFinderIT {
         PackingJob failure = persistJob(projectA, PackingJobStatus.FAILED, 60, "other", base.plusSeconds(2), base, base, null, null, "engine exploded");
         persistJob(projectA, PackingJobStatus.QUEUED, 60, null, base.plusSeconds(3), null, null, null, null, null);
 
-        Page<PackingJobView> page = finder().listInProject(projectA, criteria(new PageRequest(0, 10), "ENGINE", Set.of(),
-                                                                                new InstantRange(null, null), new InstantRange(null, null),
-                                                                                new InstantRange(null, null), PackingJobListCriteria.SortField.CREATED_AT,
-                                                                                SortDirection.ASC));
+        Page<PackingJobView> page = finder().listInProject(projectA,
+                                                           criteria(new PageRequest(0, 10),
+                                                                    "ENGINE",
+                                                                    Set.of(),
+                                                                    new InstantRange(null, null),
+                                                                    new InstantRange(null, null),
+                                                                    new InstantRange(null, null),
+                                                                    PackingJobListCriteria.SortField.CREATED_AT,
+                                                                    SortDirection.ASC));
 
         assertThat(page.content()).extracting(PackingJobView::id)
-                                  .containsExactly(engine.id().value(), file.id().value(), failure.id().value());
+                                  .containsExactly(engine.id()
+                                                         .value(),
+                                                   file.id()
+                                                       .value(),
+                                                   failure.id()
+                                                          .value());
         assertThat(page.totalElements()).isEqualTo(3L);
     }
 
@@ -151,12 +161,19 @@ class JooqPackingJobFinderIT {
         persistJob(projectA, PackingJobStatus.RUNNING, 60, "Packer 100XXready", base.plusSeconds(1), base, null, null, null, null);
         persistJob(projectA, PackingJobStatus.RUNNING, 60, "Packer 100%Xready", base.plusSeconds(2), base, null, null, null, null);
 
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), "100%_READY", Set.of(),
-                                                              new InstantRange(null, null), new InstantRange(null, null),
-                                                              new InstantRange(null, null), PackingJobListCriteria.SortField.CREATED_AT,
-                                                              SortDirection.ASC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(exact.id().value());
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   "100%_READY",
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   PackingJobListCriteria.SortField.CREATED_AT,
+                                                   SortDirection.ASC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(exact.id()
+                                                            .value());
     }
 
     @Test
@@ -167,15 +184,20 @@ class JooqPackingJobFinderIT {
         persistJob(projectA, PackingJobStatus.RUNNING, 60, "engine", base.plusSeconds(2), base.plusSeconds(12), base.plusSeconds(22), null, null, null);
         persistJob(projectA, PackingJobStatus.SUCCEEDED, 60, "engine", base, base.plusSeconds(10), base.plusSeconds(20), "result.glb", 1L, null);
 
-        PackingJobListCriteria criteria = criteria(new PageRequest(0, 10), null, Set.of(PackingJobStatus.RUNNING, PackingJobStatus.FAILED),
-                                                    new InstantRange(base, base.plusSeconds(2)),
-                                                    new InstantRange(base.plusSeconds(10), base.plusSeconds(12)),
-                                                    new InstantRange(base.plusSeconds(20), base.plusSeconds(22)),
-                                                    PackingJobListCriteria.SortField.CREATED_AT, SortDirection.ASC);
+        PackingJobListCriteria criteria = criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(PackingJobStatus.RUNNING, PackingJobStatus.FAILED),
+                                                   new InstantRange(base, base.plusSeconds(2)),
+                                                   new InstantRange(base.plusSeconds(10), base.plusSeconds(12)),
+                                                   new InstantRange(base.plusSeconds(20), base.plusSeconds(22)),
+                                                   PackingJobListCriteria.SortField.CREATED_AT,
+                                                   SortDirection.ASC);
 
-        assertThat(finder().listInProject(projectA, criteria).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(matching.id().value());
+        assertThat(finder().listInProject(projectA, criteria)
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(matching.id()
+                                                               .value());
     }
 
     @Test
@@ -185,21 +207,43 @@ class JooqPackingJobFinderIT {
         PackingJob running = persistJob(projectA, PackingJobStatus.RUNNING, 60, "engine", base.plusSeconds(1), base.plusSeconds(1), null, null, null, null);
         PackingJob finished = persistJob(projectA, PackingJobStatus.SUCCEEDED, 60, "engine", base.plusSeconds(2), base.plusSeconds(2), base.plusSeconds(2), "result.glb", 1L, null);
 
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10))).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(finished.id().value(), running.id().value(), queued.id().value());
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                              new InstantRange(null, null), new InstantRange(base, null),
-                                                              new InstantRange(null, null), PackingJobListCriteria.SortField.CREATED_AT,
-                                                              SortDirection.ASC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(running.id().value(), finished.id().value());
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                              new InstantRange(null, null), new InstantRange(null, null),
-                                                              new InstantRange(base, null), PackingJobListCriteria.SortField.CREATED_AT,
-                                                              SortDirection.ASC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(finished.id().value());
+        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10)))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(finished.id()
+                                                               .value(),
+                                                       running.id()
+                                                              .value(),
+                                                       queued.id()
+                                                             .value());
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(base, null),
+                                                   new InstantRange(null, null),
+                                                   PackingJobListCriteria.SortField.CREATED_AT,
+                                                   SortDirection.ASC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(running.id()
+                                                              .value(),
+                                                       finished.id()
+                                                               .value());
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(base, null),
+                                                   PackingJobListCriteria.SortField.CREATED_AT,
+                                                   SortDirection.ASC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(finished.id()
+                                                               .value());
     }
 
     @Test
@@ -207,8 +251,22 @@ class JooqPackingJobFinderIT {
         Instant base = now();
         PackingJob first = persistJob(projectA, PackingJobStatus.QUEUED, 10, "alpha", base, base, base, "alpha.glb", 100L, null);
         PackingJob second = persistJob(projectA, PackingJobStatus.RUNNING, 20, "Bravo", base.plusSeconds(1), base.plusSeconds(1), base.plusSeconds(1), "Bravo.glb", 200L, null);
-        PackingJob third = persistJob(projectA, PackingJobStatus.SUCCEEDED, 30, "charlie", base.plusSeconds(2), base.plusSeconds(2), base.plusSeconds(2), "charlie.glb", 300L, null);
-        List<UUID> ascending = List.of(first.id().value(), second.id().value(), third.id().value());
+        PackingJob third = persistJob(projectA,
+                                      PackingJobStatus.SUCCEEDED,
+                                      30,
+                                      "charlie",
+                                      base.plusSeconds(2),
+                                      base.plusSeconds(2),
+                                      base.plusSeconds(2),
+                                      "charlie.glb",
+                                      300L,
+                                      null);
+        List<UUID> ascending = List.of(first.id()
+                                            .value(),
+                                       second.id()
+                                             .value(),
+                                       third.id()
+                                            .value());
 
         for (PackingJobListCriteria.SortField sort : PackingJobListCriteria.SortField.values()) {
             assertSorted(sort, ascending);
@@ -223,62 +281,148 @@ class JooqPackingJobFinderIT {
         PackingJob succeeded = persistJob(projectA, PackingJobStatus.SUCCEEDED, 60, null, base.plusSeconds(2), base, base, "charlie.glb", 1L, null);
         PackingJob failed = persistJob(projectA, PackingJobStatus.FAILED, 60, null, base.plusSeconds(3), base, base, null, null, "failed");
 
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                              new InstantRange(null, null), new InstantRange(null, null),
-                                                              new InstantRange(null, null), PackingJobListCriteria.SortField.STATUS,
-                                                              SortDirection.ASC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(queued.id().value(), running.id().value(), succeeded.id().value(), failed.id().value());
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                              new InstantRange(null, null), new InstantRange(null, null),
-                                                              new InstantRange(null, null), PackingJobListCriteria.SortField.ENGINE_VERSION,
-                                                              SortDirection.ASC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(running.id().value(), queued.id().value(),
-                                 List.of(succeeded.id().value(), failed.id().value())
-                                     .stream()
-                                     .sorted(Comparator.comparing(UUID::toString))
-                                     .findFirst()
-                                     .orElseThrow(),
-                                 List.of(succeeded.id().value(), failed.id().value())
-                                     .stream()
-                                     .sorted(Comparator.comparing(UUID::toString))
-                                     .skip(1)
-                                     .findFirst()
-                                     .orElseThrow());
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   PackingJobListCriteria.SortField.STATUS,
+                                                   SortDirection.ASC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(queued.id()
+                                                             .value(),
+                                                       running.id()
+                                                              .value(),
+                                                       succeeded.id()
+                                                                .value(),
+                                                       failed.id()
+                                                             .value());
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   PackingJobListCriteria.SortField.ENGINE_VERSION,
+                                                   SortDirection.ASC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(running.id()
+                                                              .value(),
+                                                       queued.id()
+                                                             .value(),
+                                                       List.of(succeeded.id()
+                                                                        .value(),
+                                                               failed.id()
+                                                                     .value())
+                                                           .stream()
+                                                           .sorted(Comparator.comparing(UUID::toString))
+                                                           .findFirst()
+                                                           .orElseThrow(),
+                                                       List.of(succeeded.id()
+                                                                        .value(),
+                                                               failed.id()
+                                                                     .value())
+                                                           .stream()
+                                                           .sorted(Comparator.comparing(UUID::toString))
+                                                           .skip(1)
+                                                           .findFirst()
+                                                           .orElseThrow());
     }
 
     @Test
     void sortsEveryNullableFieldWithNullsLastInBothDirections() {
         Instant base = now();
         for (PackingJobListCriteria.SortField sort : List.of(PackingJobListCriteria.SortField.ENGINE_VERSION,
-                                                              PackingJobListCriteria.SortField.STARTED_AT,
-                                                              PackingJobListCriteria.SortField.FINISHED_AT,
-                                                              PackingJobListCriteria.SortField.RESULT_FILE_NAME,
-                                                              PackingJobListCriteria.SortField.RESULT_SIZE_BYTES)) {
+                                                             PackingJobListCriteria.SortField.STARTED_AT,
+                                                             PackingJobListCriteria.SortField.FINISHED_AT,
+                                                             PackingJobListCriteria.SortField.RESULT_FILE_NAME,
+                                                             PackingJobListCriteria.SortField.RESULT_SIZE_BYTES)) {
             ProjectId project = persistProject(sort.name(), base);
-            PackingJob populated = persistJob(project, PackingJobStatus.SUCCEEDED, 60, "engine", base, base, base,
-                                               "result.glb", 1L, null);
+            PackingJob populated = persistJob(project,
+                                              PackingJobStatus.SUCCEEDED,
+                                              60,
+                                              "engine",
+                                              base,
+                                              base,
+                                              base,
+                                              "result.glb",
+                                              1L,
+                                              null);
             PackingJob empty = switch (sort) {
-                case ENGINE_VERSION -> persistJob(project, PackingJobStatus.SUCCEEDED, 60, null, base.plusSeconds(1), base, base,
-                                                   "result.glb", 1L, null);
-                case STARTED_AT -> persistJob(project, PackingJobStatus.SUCCEEDED, 60, "engine", base.plusSeconds(1), null, base,
-                                               "result.glb", 1L, null);
-                case FINISHED_AT -> persistJob(project, PackingJobStatus.RUNNING, 60, "engine", base.plusSeconds(1), base, null,
-                                                "result.glb", 1L, null);
-                case RESULT_FILE_NAME -> persistJob(project, PackingJobStatus.FAILED, 60, "engine", base.plusSeconds(1), base, base,
-                                                     null, null, "failed");
-                case RESULT_SIZE_BYTES -> persistJob(project, PackingJobStatus.SUCCEEDED, 60, "engine", base.plusSeconds(1), base, base,
-                                                      "result.glb", null, null);
+                case ENGINE_VERSION -> persistJob(project,
+                                                  PackingJobStatus.SUCCEEDED,
+                                                  60,
+                                                  null,
+                                                  base.plusSeconds(1),
+                                                  base,
+                                                  base,
+                                                  "result.glb",
+                                                  1L,
+                                                  null);
+                case STARTED_AT -> persistJob(project,
+                                              PackingJobStatus.SUCCEEDED,
+                                              60,
+                                              "engine",
+                                              base.plusSeconds(1),
+                                              null,
+                                              base,
+                                              "result.glb",
+                                              1L,
+                                              null);
+                case FINISHED_AT -> persistJob(project,
+                                               PackingJobStatus.RUNNING,
+                                               60,
+                                               "engine",
+                                               base.plusSeconds(1),
+                                               base,
+                                               null,
+                                               "result.glb",
+                                               1L,
+                                               null);
+                case RESULT_FILE_NAME -> persistJob(project,
+                                                    PackingJobStatus.FAILED,
+                                                    60,
+                                                    "engine",
+                                                    base.plusSeconds(1),
+                                                    base,
+                                                    base,
+                                                    null,
+                                                    null,
+                                                    "failed");
+                case RESULT_SIZE_BYTES -> persistJob(project,
+                                                     PackingJobStatus.SUCCEEDED,
+                                                     60,
+                                                     "engine",
+                                                     base.plusSeconds(1),
+                                                     base,
+                                                     base,
+                                                     "result.glb",
+                                                     null,
+                                                     null);
                 default -> throw new IllegalStateException("Unexpected nullable sort: " + sort);
             };
 
             for (SortDirection direction : SortDirection.values()) {
-                assertThat(finder().listInProject(project, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                                     new InstantRange(null, null), new InstantRange(null, null),
-                                                                     new InstantRange(null, null), sort, direction)).content())
-                        .extracting(PackingJobView::id)
-                        .containsExactly(populated.id().value(), empty.id().value());
+                assertThat(finder().listInProject(project,
+                                                  criteria(new PageRequest(0, 10),
+                                                           null,
+                                                           Set.of(),
+                                                           new InstantRange(null, null),
+                                                           new InstantRange(null, null),
+                                                           new InstantRange(null, null),
+                                                           sort,
+                                                           direction))
+                                   .content())
+                                              .extracting(PackingJobView::id)
+                                              .containsExactly(populated.id()
+                                                                        .value(),
+                                                               empty.id()
+                                                                    .value());
             }
         }
     }
@@ -291,18 +435,30 @@ class JooqPackingJobFinderIT {
         persistJob(projectA, smaller, PackingJobStatus.RUNNING, 60, "engine", createdAt, createdAt, null, null, null, null);
         persistJob(projectA, larger, PackingJobStatus.RUNNING, 60, "Engine", createdAt, createdAt, null, null, null, null);
 
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                              new InstantRange(null, null), new InstantRange(null, null),
-                                                              new InstantRange(null, null), PackingJobListCriteria.SortField.ENGINE_VERSION,
-                                                              SortDirection.ASC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(smaller.value(), larger.value());
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                              new InstantRange(null, null), new InstantRange(null, null),
-                                                              new InstantRange(null, null), PackingJobListCriteria.SortField.ENGINE_VERSION,
-                                                              SortDirection.DESC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactly(larger.value(), smaller.value());
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   PackingJobListCriteria.SortField.ENGINE_VERSION,
+                                                   SortDirection.ASC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(smaller.value(), larger.value());
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   PackingJobListCriteria.SortField.ENGINE_VERSION,
+                                                   SortDirection.DESC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactly(larger.value(), smaller.value());
     }
 
     private JooqPackingJobFinder finder() {
@@ -408,27 +564,41 @@ class JooqPackingJobFinderIT {
     }
 
     private static PackingJobListCriteria criteria(PageRequest page,
-                                                    String search,
-                                                    Set<PackingJobStatus> statuses,
-                                                    InstantRange createdAt,
-                                                    InstantRange startedAt,
-                                                    InstantRange finishedAt,
-                                                    PackingJobListCriteria.SortField sort,
-                                                    SortDirection direction) {
+                                                   String search,
+                                                   Set<PackingJobStatus> statuses,
+                                                   InstantRange createdAt,
+                                                   InstantRange startedAt,
+                                                   InstantRange finishedAt,
+                                                   PackingJobListCriteria.SortField sort,
+                                                   SortDirection direction) {
         return new PackingJobListCriteria(page, search, statuses, createdAt, startedAt, finishedAt, sort, direction);
     }
 
     private void assertSorted(PackingJobListCriteria.SortField sort, List<UUID> ascending) {
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                             new InstantRange(null, null), new InstantRange(null, null),
-                                                             new InstantRange(null, null), sort, SortDirection.ASC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactlyElementsOf(ascending);
-        assertThat(finder().listInProject(projectA, criteria(new PageRequest(0, 10), null, Set.of(),
-                                                             new InstantRange(null, null), new InstantRange(null, null),
-                                                             new InstantRange(null, null), sort, SortDirection.DESC)).content())
-                .extracting(PackingJobView::id)
-                .containsExactlyElementsOf(ascending.reversed());
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   sort,
+                                                   SortDirection.ASC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactlyElementsOf(ascending);
+        assertThat(finder().listInProject(projectA,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   sort,
+                                                   SortDirection.DESC))
+                           .content())
+                                      .extracting(PackingJobView::id)
+                                      .containsExactlyElementsOf(ascending.reversed());
     }
 
     private static Instant now() {

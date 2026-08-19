@@ -244,8 +244,8 @@ class JooqProjectFinderIT {
         repository().save(match);
 
         Project createdAtBoundary = Project.create(new ProjectName("100% packing_created boundary"),
-                                                    creator,
-                                                    base.plusSeconds(1));
+                                                   creator,
+                                                   base.plusSeconds(1));
         createdAtBoundary.grantAccess(member, ProjectPermission.WRITE, creator, base.plusSeconds(1));
         createdAtBoundary.disable(base.plusSeconds(2));
         repository().save(createdAtBoundary);
@@ -269,74 +269,94 @@ class JooqProjectFinderIT {
         repository().save(noPercent);
 
         ProjectListCriteria filtered = criteria(
-                                                 new PageRequest(0, 10),
-                                                 "100% packing_",
-                                                 Set.of(ProjectStatus.DISABLED),
-                                                 Set.of(ProjectPermission.WRITE, ProjectPermission.OWNER),
-                                                 new InstantRange(base, base.plusSeconds(1)),
-                                                 new InstantRange(base.plusSeconds(2), base.plusSeconds(3)),
-                                                 ProjectListCriteria.SortField.NAME,
-                                                 SortDirection.ASC);
+                                                new PageRequest(0, 10),
+                                                "100% packing_",
+                                                Set.of(ProjectStatus.DISABLED),
+                                                Set.of(ProjectPermission.WRITE, ProjectPermission.OWNER),
+                                                new InstantRange(base, base.plusSeconds(1)),
+                                                new InstantRange(base.plusSeconds(2), base.plusSeconds(3)),
+                                                ProjectListCriteria.SortField.NAME,
+                                                SortDirection.ASC);
 
         Page<ProjectSummaryView> page = finder().listForMember(member, filtered);
 
         assertThat(page.content()).extracting(ProjectSummaryView::id)
-                                  .containsExactly(match.id().value());
+                                  .containsExactly(match.id()
+                                                        .value());
         assertThat(page.totalElements()).isEqualTo(1L);
-        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
-                                                            "100% packing_",
-                                                            Set.of(ProjectStatus.DISABLED),
-                                                            Set.of(ProjectPermission.WRITE),
-                                                            new InstantRange(base, base.plusSeconds(1)),
-                                                            new InstantRange(null, null),
-                                                            ProjectListCriteria.SortField.NAME,
-                                                            SortDirection.ASC))
+        assertThat(finder().listForMember(member,
+                                          criteria(new PageRequest(0, 10),
+                                                   "100% packing_",
+                                                   Set.of(ProjectStatus.DISABLED),
+                                                   Set.of(ProjectPermission.WRITE),
+                                                   new InstantRange(base, base.plusSeconds(1)),
+                                                   new InstantRange(null, null),
+                                                   ProjectListCriteria.SortField.NAME,
+                                                   SortDirection.ASC))
                            .content()).extracting(ProjectSummaryView::id)
-                                      .containsExactlyInAnyOrder(match.id().value(), updatedAtBoundary.id().value());
-        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
-                                                            "100% packing_",
-                                                            Set.of(ProjectStatus.DISABLED),
-                                                            Set.of(ProjectPermission.WRITE),
-                                                            new InstantRange(null, null),
-                                                            new InstantRange(base.plusSeconds(2), base.plusSeconds(3)),
-                                                            ProjectListCriteria.SortField.NAME,
-                                                            SortDirection.ASC))
+                                      .containsExactlyInAnyOrder(match.id()
+                                                                      .value(),
+                                                                 updatedAtBoundary.id()
+                                                                                  .value());
+        assertThat(finder().listForMember(member,
+                                          criteria(new PageRequest(0, 10),
+                                                   "100% packing_",
+                                                   Set.of(ProjectStatus.DISABLED),
+                                                   Set.of(ProjectPermission.WRITE),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(base.plusSeconds(2), base.plusSeconds(3)),
+                                                   ProjectListCriteria.SortField.NAME,
+                                                   SortDirection.ASC))
                            .content()).extracting(ProjectSummaryView::id)
-                                      .containsExactlyInAnyOrder(match.id().value(), createdAtBoundary.id().value());
-        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
-                                                            "%",
-                                                            Set.of(),
-                                                            Set.of(),
-                                                            new InstantRange(null, null),
-                                                            new InstantRange(null, null),
-                                                            ProjectListCriteria.SortField.NAME,
-                                                            SortDirection.ASC))
+                                      .containsExactlyInAnyOrder(match.id()
+                                                                      .value(),
+                                                                 createdAtBoundary.id()
+                                                                                  .value());
+        assertThat(finder().listForMember(member,
+                                          criteria(new PageRequest(0, 10),
+                                                   "%",
+                                                   Set.of(),
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   ProjectListCriteria.SortField.NAME,
+                                                   SortDirection.ASC))
                            .content()).extracting(ProjectSummaryView::id)
-                                      .containsExactlyInAnyOrder(match.id().value(),
-                                                                 createdAtBoundary.id().value(),
-                                                                 updatedAtBoundary.id().value(),
-                                                                 wrongPermission.id().value(),
-                                                                 wrongStatus.id().value());
-        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
-                                                            "100% packing_",
-                                                            Set.of(ProjectStatus.ACTIVE, ProjectStatus.DISABLED),
-                                                            Set.of(ProjectPermission.WRITE, ProjectPermission.OWNER),
-                                                            new InstantRange(base, base.plusSeconds(1)),
-                                                            new InstantRange(null, null),
-                                                            ProjectListCriteria.SortField.NAME,
-                                                            SortDirection.ASC))
+                                      .containsExactlyInAnyOrder(match.id()
+                                                                      .value(),
+                                                                 createdAtBoundary.id()
+                                                                                  .value(),
+                                                                 updatedAtBoundary.id()
+                                                                                  .value(),
+                                                                 wrongPermission.id()
+                                                                                .value(),
+                                                                 wrongStatus.id()
+                                                                            .value());
+        assertThat(finder().listForMember(member,
+                                          criteria(new PageRequest(0, 10),
+                                                   "100% packing_",
+                                                   Set.of(ProjectStatus.ACTIVE, ProjectStatus.DISABLED),
+                                                   Set.of(ProjectPermission.WRITE, ProjectPermission.OWNER),
+                                                   new InstantRange(base, base.plusSeconds(1)),
+                                                   new InstantRange(null, null),
+                                                   ProjectListCriteria.SortField.NAME,
+                                                   SortDirection.ASC))
                            .content()).extracting(ProjectSummaryView::id)
-                                      .containsExactlyInAnyOrder(match.id().value(),
-                                                                 updatedAtBoundary.id().value(),
-                                                                 wrongStatus.id().value());
-        assertThat(finder().listForMember(member, criteria(new PageRequest(1, 1),
-                                                            "100% packing_",
-                                                            Set.of(ProjectStatus.DISABLED),
-                                                            Set.of(ProjectPermission.WRITE),
-                                                            new InstantRange(base, base.plusSeconds(1)),
-                                                            new InstantRange(base.plusSeconds(2), base.plusSeconds(3)),
-                                                            ProjectListCriteria.SortField.NAME,
-                                                            SortDirection.ASC))
+                                      .containsExactlyInAnyOrder(match.id()
+                                                                      .value(),
+                                                                 updatedAtBoundary.id()
+                                                                                  .value(),
+                                                                 wrongStatus.id()
+                                                                            .value());
+        assertThat(finder().listForMember(member,
+                                          criteria(new PageRequest(1, 1),
+                                                   "100% packing_",
+                                                   Set.of(ProjectStatus.DISABLED),
+                                                   Set.of(ProjectPermission.WRITE),
+                                                   new InstantRange(base, base.plusSeconds(1)),
+                                                   new InstantRange(base.plusSeconds(2), base.plusSeconds(3)),
+                                                   ProjectListCriteria.SortField.NAME,
+                                                   SortDirection.ASC))
                            .content()).isEmpty();
     }
 
@@ -359,24 +379,26 @@ class JooqProjectFinderIT {
         repository().save(charlie);
 
         for (ProjectListCriteria.SortField sort : ProjectListCriteria.SortField.values()) {
-            Page<ProjectSummaryView> ascending = finder().listForMember(member, criteria(
-                                                                                            new PageRequest(0, 10),
-                                                                                            null,
-                                                                                            Set.of(),
-                                                                                            Set.of(),
-                                                                                            new InstantRange(null, null),
-                                                                                            new InstantRange(null, null),
-                                                                                            sort,
-                                                                                            SortDirection.ASC));
-            Page<ProjectSummaryView> descending = finder().listForMember(member, criteria(
-                                                                                             new PageRequest(0, 10),
-                                                                                             null,
-                                                                                             Set.of(),
-                                                                                             Set.of(),
-                                                                                             new InstantRange(null, null),
-                                                                                             new InstantRange(null, null),
-                                                                                             sort,
-                                                                                             SortDirection.DESC));
+            Page<ProjectSummaryView> ascending = finder().listForMember(member,
+                                                                        criteria(
+                                                                                 new PageRequest(0, 10),
+                                                                                 null,
+                                                                                 Set.of(),
+                                                                                 Set.of(),
+                                                                                 new InstantRange(null, null),
+                                                                                 new InstantRange(null, null),
+                                                                                 sort,
+                                                                                 SortDirection.ASC));
+            Page<ProjectSummaryView> descending = finder().listForMember(member,
+                                                                         criteria(
+                                                                                  new PageRequest(0, 10),
+                                                                                  null,
+                                                                                  Set.of(),
+                                                                                  Set.of(),
+                                                                                  new InstantRange(null, null),
+                                                                                  new InstantRange(null, null),
+                                                                                  sort,
+                                                                                  SortDirection.DESC));
 
             assertThat(descending.content()).extracting(ProjectSummaryView::id)
                                             .containsExactlyElementsOf(ascending.content()
@@ -386,39 +408,42 @@ class JooqProjectFinderIT {
                                                                                 .reversed());
         }
 
-        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
-                                                            null,
-                                                            Set.of(),
-                                                            Set.of(),
-                                                            new InstantRange(null, null),
-                                                            new InstantRange(null, null),
-                                                            ProjectListCriteria.SortField.NAME,
-                                                            SortDirection.ASC))
+        assertThat(finder().listForMember(member,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   ProjectListCriteria.SortField.NAME,
+                                                   SortDirection.ASC))
                            .content())
-                                         .extracting(ProjectSummaryView::name)
-                                         .containsExactly("alpha", "Bravo", "charlie");
-        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
-                                                            null,
-                                                            Set.of(),
-                                                            Set.of(),
-                                                            new InstantRange(null, null),
-                                                            new InstantRange(null, null),
-                                                            ProjectListCriteria.SortField.STATUS,
-                                                            SortDirection.ASC))
+                                      .extracting(ProjectSummaryView::name)
+                                      .containsExactly("alpha", "Bravo", "charlie");
+        assertThat(finder().listForMember(member,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   ProjectListCriteria.SortField.STATUS,
+                                                   SortDirection.ASC))
                            .content())
-                                         .extracting(ProjectSummaryView::status)
-                                         .containsExactly(ProjectStatus.ACTIVE, ProjectStatus.ACTIVE, ProjectStatus.DISABLED);
-        assertThat(finder().listForMember(member, criteria(new PageRequest(0, 10),
-                                                            null,
-                                                            Set.of(),
-                                                            Set.of(),
-                                                            new InstantRange(null, null),
-                                                            new InstantRange(null, null),
-                                                            ProjectListCriteria.SortField.PERMISSION,
-                                                            SortDirection.ASC))
+                                      .extracting(ProjectSummaryView::status)
+                                      .containsExactly(ProjectStatus.ACTIVE, ProjectStatus.ACTIVE, ProjectStatus.DISABLED);
+        assertThat(finder().listForMember(member,
+                                          criteria(new PageRequest(0, 10),
+                                                   null,
+                                                   Set.of(),
+                                                   Set.of(),
+                                                   new InstantRange(null, null),
+                                                   new InstantRange(null, null),
+                                                   ProjectListCriteria.SortField.PERMISSION,
+                                                   SortDirection.ASC))
                            .content())
-                                         .extracting(ProjectSummaryView::myPermission)
-                                         .containsExactly(ProjectPermission.READ, ProjectPermission.WRITE, ProjectPermission.OWNER);
+                                      .extracting(ProjectSummaryView::myPermission)
+                                      .containsExactly(ProjectPermission.READ, ProjectPermission.WRITE, ProjectPermission.OWNER);
     }
 
     @Test
@@ -431,14 +456,14 @@ class JooqProjectFinderIT {
         repository().save(other);
 
         Page<ProjectMemberView> page = finder().listMembersFor(
-                                                                creator,
-                                                                project.id(),
-                                                                memberCriteria(new PageRequest(0, 20),
-                                                                               null,
-                                                                               Set.of(),
-                                                                               new InstantRange(null, null),
-                                                                               ProjectMemberListCriteria.SortField.ADDED_AT,
-                                                                               SortDirection.ASC));
+                                                               creator,
+                                                               project.id(),
+                                                               memberCriteria(new PageRequest(0, 20),
+                                                                              null,
+                                                                              Set.of(),
+                                                                              new InstantRange(null, null),
+                                                                              ProjectMemberListCriteria.SortField.ADDED_AT,
+                                                                              SortDirection.ASC));
 
         assertThat(page.content()).extracting(ProjectMemberView::userId)
                                   .containsExactly(creator.value(), member.value());
@@ -473,16 +498,17 @@ class JooqProjectFinderIT {
         repository().save(project);
 
         Page<ProjectMemberView> filtered = finder().listMembersFor(
-                                                                    creator,
-                                                                    project.id(),
-                                                                    memberCriteria(new PageRequest(0, 20),
-                                                                                   "ADA%_",
-                                                                                   Set.of(ProjectPermission.READ, ProjectPermission.OWNER),
-                                                                                   new InstantRange(base, base.plusSeconds(2)),
-                                                                                   ProjectMemberListCriteria.SortField.USERNAME,
-                                                                                   SortDirection.ASC));
+                                                                   creator,
+                                                                   project.id(),
+                                                                   memberCriteria(new PageRequest(0, 20),
+                                                                                  "ADA%_",
+                                                                                  Set.of(ProjectPermission.READ, ProjectPermission.OWNER),
+                                                                                  new InstantRange(base, base.plusSeconds(2)),
+                                                                                  ProjectMemberListCriteria.SortField.USERNAME,
+                                                                                  SortDirection.ASC));
 
-        assertThat(filtered.content()).extracting(ProjectMemberView::userId).containsExactly(matching.value());
+        assertThat(filtered.content()).extracting(ProjectMemberView::userId)
+                                      .containsExactly(matching.value());
         assertThat(filtered.totalElements()).isEqualTo(1L);
         assertThat(finder().listMembersFor(creator,
                                            project.id(),
@@ -492,7 +518,8 @@ class JooqProjectFinderIT {
                                                           new InstantRange(null, null),
                                                           ProjectMemberListCriteria.SortField.USERNAME,
                                                           SortDirection.ASC))
-                           .content()).extracting(ProjectMemberView::userId).containsExactly(matching.value());
+                           .content()).extracting(ProjectMemberView::userId)
+                                      .containsExactly(matching.value());
     }
 
     @Test
@@ -509,6 +536,15 @@ class JooqProjectFinderIT {
 
         for (ProjectMemberListCriteria.SortField sort : ProjectMemberListCriteria.SortField.values()) {
             Page<ProjectMemberView> ascending = finder().listMembersFor(
+                                                                        creator,
+                                                                        project.id(),
+                                                                        memberCriteria(new PageRequest(0, 20),
+                                                                                       null,
+                                                                                       Set.of(),
+                                                                                       new InstantRange(null, null),
+                                                                                       sort,
+                                                                                       SortDirection.ASC));
+            Page<ProjectMemberView> descending = finder().listMembersFor(
                                                                          creator,
                                                                          project.id(),
                                                                          memberCriteria(new PageRequest(0, 20),
@@ -516,21 +552,14 @@ class JooqProjectFinderIT {
                                                                                         Set.of(),
                                                                                         new InstantRange(null, null),
                                                                                         sort,
-                                                                                        SortDirection.ASC));
-            Page<ProjectMemberView> descending = finder().listMembersFor(
-                                                                          creator,
-                                                                          project.id(),
-                                                                          memberCriteria(new PageRequest(0, 20),
-                                                                                         null,
-                                                                                         Set.of(),
-                                                                                         new InstantRange(null, null),
-                                                                                         sort,
-                                                                                         SortDirection.DESC));
+                                                                                        SortDirection.DESC));
             if (sort == ProjectMemberListCriteria.SortField.DISPLAY_NAME) {
                 assertThat(ascending.content()).extracting(ProjectMemberView::userId)
-                                             .last().isEqualTo(nullDisplay.value());
+                                               .last()
+                                               .isEqualTo(nullDisplay.value());
                 assertThat(descending.content()).extracting(ProjectMemberView::userId)
-                                              .last().isEqualTo(nullDisplay.value());
+                                                .last()
+                                                .isEqualTo(nullDisplay.value());
             } else {
                 assertThat(descending.content()).extracting(ProjectMemberView::userId)
                                                 .containsExactlyElementsOf(ascending.content()
@@ -563,16 +592,17 @@ class JooqProjectFinderIT {
                                                           ProjectMemberListCriteria.SortField.DISPLAY_NAME,
                                                           SortDirection.ASC))
                            .content()).extracting(ProjectMemberView::userId)
-                                      .last().isEqualTo(nullDisplay.value());
+                                      .last()
+                                      .isEqualTo(nullDisplay.value());
         Page<ProjectMemberView> secondPage = finder().listMembersFor(
-                                                                      creator,
-                                                                      project.id(),
-                                                                      memberCriteria(new PageRequest(1, 2),
-                                                                                     null,
-                                                                                     Set.of(),
-                                                                                     new InstantRange(null, null),
-                                                                                     ProjectMemberListCriteria.SortField.ADDED_AT,
-                                                                                     SortDirection.ASC));
+                                                                     creator,
+                                                                     project.id(),
+                                                                     memberCriteria(new PageRequest(1, 2),
+                                                                                    null,
+                                                                                    Set.of(),
+                                                                                    new InstantRange(null, null),
+                                                                                    ProjectMemberListCriteria.SortField.ADDED_AT,
+                                                                                    SortDirection.ASC));
         assertThat(secondPage.content()).hasSize(2);
         assertThat(secondPage.totalElements()).isEqualTo(4L);
     }

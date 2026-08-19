@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 
 class InstantRangeTest {
 
-    private static final Instant FROM = Instant.parse("2026-08-18T00:00:00Z");
+    private static final Instant FROM   = Instant.parse("2026-08-18T00:00:00Z");
     private static final Instant BEFORE = Instant.parse("2026-08-19T00:00:00Z");
 
     @Test
@@ -23,10 +23,10 @@ class InstantRangeTest {
     @Test
     void rejectsEqualOrReversedBounds() {
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new InstantRange(FROM, FROM))
-                .withMessage("from must be before before");
+                                            .isThrownBy(() -> new InstantRange(FROM, FROM))
+                                            .withMessage("from must be before before");
         assertThatIllegalArgumentException()
-                .isThrownBy(() -> new InstantRange(BEFORE, FROM))
-                .withMessage("from must be before before");
+                                            .isThrownBy(() -> new InstantRange(BEFORE, FROM))
+                                            .withMessage("from must be before before");
     }
 }

@@ -189,22 +189,24 @@ class ProjectControllerTest {
         ArgumentCaptor<ListProjectsCommand> command = ArgumentCaptor.forClass(ListProjectsCommand.class);
 
         mockMvc.perform(get("/api/v1/projects")
-                                  .param("search", "  packing  ")
-                                  .param("status", "ACTIVE", "DISABLED")
-                                  .param("permission", "WRITE", "OWNER")
-                                  .param("createdFrom", "2026-01-01T02:00:00+02:00")
-                                  .param("createdBefore", "2027-01-01T00:00:00Z")
-                                  .param("updatedFrom", "2026-06-01T00:00:00Z")
-                                  .param("sort", "name")
-                                  .param("direction", "DESC"))
+                                               .param("search", "  packing  ")
+                                               .param("status", "ACTIVE", "DISABLED")
+                                               .param("permission", "WRITE", "OWNER")
+                                               .param("createdFrom", "2026-01-01T02:00:00+02:00")
+                                               .param("createdBefore", "2027-01-01T00:00:00Z")
+                                               .param("updatedFrom", "2026-06-01T00:00:00Z")
+                                               .param("sort", "name")
+                                               .param("direction", "DESC"))
                .andExpect(status().isOk());
 
         verify(projects).listProjects(command.capture());
-        ProjectListCriteria criteria = command.getValue().criteria();
+        ProjectListCriteria criteria = command.getValue()
+                                              .criteria();
         assertThat(criteria.search()).isEqualTo("packing");
         assertThat(criteria.statuses()).containsExactlyInAnyOrder(ProjectStatus.ACTIVE, ProjectStatus.DISABLED);
         assertThat(criteria.permissions()).containsExactlyInAnyOrder(ProjectPermission.WRITE, ProjectPermission.OWNER);
-        assertThat(criteria.createdAt().from()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(criteria.createdAt()
+                           .from()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
         assertThat(criteria.sort()).isEqualTo(ProjectListCriteria.SortField.NAME);
         assertThat(criteria.direction()).isEqualTo(SortDirection.DESC);
     }
@@ -219,8 +221,12 @@ class ProjectControllerTest {
                .andExpect(status().isOk());
 
         verify(projects).listProjects(command.capture());
-        assertThat(command.getValue().criteria().sort()).isEqualTo(ProjectListCriteria.SortField.NAME);
-        assertThat(command.getValue().criteria().direction()).isEqualTo(SortDirection.ASC);
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(ProjectListCriteria.SortField.NAME);
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.ASC);
     }
 
     @Test
@@ -233,8 +239,12 @@ class ProjectControllerTest {
                .andExpect(status().isOk());
 
         verify(projects).listProjects(command.capture());
-        assertThat(command.getValue().criteria().sort()).isEqualTo(ProjectListCriteria.SortField.CREATED_AT);
-        assertThat(command.getValue().criteria().direction()).isEqualTo(SortDirection.ASC);
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(ProjectListCriteria.SortField.CREATED_AT);
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.ASC);
     }
 
     @Test
@@ -244,15 +254,21 @@ class ProjectControllerTest {
         ArgumentCaptor<ListProjectsCommand> command = ArgumentCaptor.forClass(ListProjectsCommand.class);
 
         mockMvc.perform(get("/api/v1/projects")
-                                  .param("search", "   ")
-                                  .param("status", "ACTIVE", "ACTIVE")
-                                  .param("permission", "READ", "READ"))
+                                               .param("search", "   ")
+                                               .param("status", "ACTIVE", "ACTIVE")
+                                               .param("permission", "READ", "READ"))
                .andExpect(status().isOk());
 
         verify(projects).listProjects(command.capture());
-        assertThat(command.getValue().criteria().search()).isNull();
-        assertThat(command.getValue().criteria().statuses()).containsExactly(ProjectStatus.ACTIVE);
-        assertThat(command.getValue().criteria().permissions()).containsExactly(ProjectPermission.READ);
+        assertThat(command.getValue()
+                          .criteria()
+                          .search()).isNull();
+        assertThat(command.getValue()
+                          .criteria()
+                          .statuses()).containsExactly(ProjectStatus.ACTIVE);
+        assertThat(command.getValue()
+                          .criteria()
+                          .permissions()).containsExactly(ProjectPermission.READ);
     }
 
     @Test
@@ -274,12 +290,12 @@ class ProjectControllerTest {
         mockMvc.perform(get("/api/v1/projects").param("createdFrom", "not-a-timestamp"))
                .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/projects")
-                                  .param("createdFrom", "2026-01-01T00:00:00Z")
-                                  .param("createdBefore", "2026-01-01T00:00:00Z"))
+                                               .param("createdFrom", "2026-01-01T00:00:00Z")
+                                               .param("createdBefore", "2026-01-01T00:00:00Z"))
                .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/projects")
-                                  .param("updatedFrom", "2026-01-02T00:00:00Z")
-                                  .param("updatedBefore", "2026-01-01T00:00:00Z"))
+                                               .param("updatedFrom", "2026-01-02T00:00:00Z")
+                                               .param("updatedBefore", "2026-01-01T00:00:00Z"))
                .andExpect(status().isBadRequest());
     }
 
@@ -351,8 +367,8 @@ class ProjectControllerTest {
         when(projects.renameProject(any())).thenReturn(view(id, ProjectPermission.OWNER));
 
         mockMvc.perform(patch("/api/v1/projects/{id}", id)
-                                                        .contentType(MediaType.APPLICATION_JSON)
-                                                        .content("{\"name\":\"New name\"}"))
+                                                          .contentType(MediaType.APPLICATION_JSON)
+                                                          .content("{\"name\":\"New name\"}"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.name").value("Chassis packing"))
                .andExpect(jsonPath("$.members").doesNotExist());
@@ -545,25 +561,30 @@ class ProjectControllerTest {
         ArgumentCaptor<ListProjectMembersQuery> command = ArgumentCaptor.forClass(ListProjectMembersQuery.class);
 
         mockMvc.perform(get("/api/v1/projects/{id}/members", id)
-                                  .param("search", "  ada  ")
-                                  .param("permission", "READ", "OWNER")
-                                  .param("addedFrom", "2026-01-01T00:00:00Z")
-                                  .param("addedBefore", "2027-01-01T00:00:00Z")
-                                  .param("sort", "username")
-                                  .param("direction", "DESC"))
+                                                                .param("search", "  ada  ")
+                                                                .param("permission", "READ", "OWNER")
+                                                                .param("addedFrom", "2026-01-01T00:00:00Z")
+                                                                .param("addedBefore", "2027-01-01T00:00:00Z")
+                                                                .param("sort", "username")
+                                                                .param("direction", "DESC"))
                .andExpect(status().isOk())
                .andExpect(jsonPath("$.content[0].username").value("ada"))
                .andExpect(jsonPath("$.page").value(0))
                .andExpect(jsonPath("$.totalElements").value(1));
 
         verify(projects).listProjectMembers(command.capture());
-        ProjectMemberListCriteria criteria = command.getValue().criteria();
-        assertThat(command.getValue().firebaseUid()).isEqualTo(UID);
-        assertThat(command.getValue().projectId()).isEqualTo(id);
+        ProjectMemberListCriteria criteria = command.getValue()
+                                                    .criteria();
+        assertThat(command.getValue()
+                          .firebaseUid()).isEqualTo(UID);
+        assertThat(command.getValue()
+                          .projectId()).isEqualTo(id);
         assertThat(criteria.search()).isEqualTo("ada");
         assertThat(criteria.permissions()).containsExactlyInAnyOrder(ProjectPermission.READ, ProjectPermission.OWNER);
-        assertThat(criteria.addedAt().from()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
-        assertThat(criteria.addedAt().before()).isEqualTo(Instant.parse("2027-01-01T00:00:00Z"));
+        assertThat(criteria.addedAt()
+                           .from()).isEqualTo(Instant.parse("2026-01-01T00:00:00Z"));
+        assertThat(criteria.addedAt()
+                           .before()).isEqualTo(Instant.parse("2027-01-01T00:00:00Z"));
         assertThat(criteria.sort()).isEqualTo(ProjectMemberListCriteria.SortField.USERNAME);
         assertThat(criteria.direction()).isEqualTo(SortDirection.DESC);
     }
@@ -578,8 +599,12 @@ class ProjectControllerTest {
                .andExpect(status().isOk());
 
         verify(projects).listProjectMembers(command.capture());
-        assertThat(command.getValue().criteria().sort()).isEqualTo(ProjectMemberListCriteria.SortField.ADDED_AT);
-        assertThat(command.getValue().criteria().direction()).isEqualTo(SortDirection.ASC);
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(ProjectMemberListCriteria.SortField.ADDED_AT);
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.ASC);
     }
 
     @Test
@@ -589,18 +614,28 @@ class ProjectControllerTest {
         ArgumentCaptor<ListProjectMembersQuery> command = ArgumentCaptor.forClass(ListProjectMembersQuery.class);
 
         mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID())
-                                  .param("sort", "displayName"))
+                                                                               .param("sort", "displayName"))
                .andExpect(status().isOk());
         verify(projects).listProjectMembers(command.capture());
-        assertThat(command.getValue().criteria().sort()).isEqualTo(ProjectMemberListCriteria.SortField.DISPLAY_NAME);
-        assertThat(command.getValue().criteria().direction()).isEqualTo(SortDirection.ASC);
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(ProjectMemberListCriteria.SortField.DISPLAY_NAME);
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.ASC);
 
         mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID())
-                                  .param("direction", "DESC"))
+                                                                               .param("direction", "DESC"))
                .andExpect(status().isOk());
         verify(projects, org.mockito.Mockito.times(2)).listProjectMembers(command.capture());
-        assertThat(command.getAllValues().getLast().criteria().sort()).isEqualTo(ProjectMemberListCriteria.SortField.ADDED_AT);
-        assertThat(command.getAllValues().getLast().criteria().direction()).isEqualTo(SortDirection.DESC);
+        assertThat(command.getAllValues()
+                          .getLast()
+                          .criteria()
+                          .sort()).isEqualTo(ProjectMemberListCriteria.SortField.ADDED_AT);
+        assertThat(command.getAllValues()
+                          .getLast()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.DESC);
     }
 
     @Test
@@ -610,11 +645,11 @@ class ProjectControllerTest {
         mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()).param("search", " ab "))
                .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID())
-                                  .param("search", " " + "a".repeat(101) + " "))
+                                                                               .param("search", " " + "a".repeat(101) + " "))
                .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID())
-                                  .param("addedFrom", "2026-01-01T00:00:00Z")
-                                  .param("addedBefore", "2026-01-01T00:00:00Z"))
+                                                                               .param("addedFrom", "2026-01-01T00:00:00Z")
+                                                                               .param("addedBefore", "2026-01-01T00:00:00Z"))
                .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/projects/{id}/members", UUID.randomUUID()).param("permission", "ADMIN"))
                .andExpect(status().isBadRequest());

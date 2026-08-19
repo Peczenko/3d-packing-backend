@@ -242,13 +242,13 @@ class JooqFileFinderIT {
         persistFile(project, "percent%underXscore.stl", base.plusSeconds(2));
 
         Page<FileView> page = finder().listAvailableInProject(
-                                                                project,
-                                                                criteria(new PageRequest(0, 10),
-                                                                         "PERCENT%UNDER_",
-                                                                         Set.of(ModelFormat.STL),
-                                                                         new InstantRange(null, null),
-                                                                         FileListCriteria.SortField.CREATED_AT,
-                                                                         SortDirection.ASC));
+                                                              project,
+                                                              criteria(new PageRequest(0, 10),
+                                                                       "PERCENT%UNDER_",
+                                                                       Set.of(ModelFormat.STL),
+                                                                       new InstantRange(null, null),
+                                                                       FileListCriteria.SortField.CREATED_AT,
+                                                                       SortDirection.ASC));
 
         assertThat(page.content()).extracting(FileView::filename)
                                   .containsExactly("percent%under_score.stl");
@@ -262,15 +262,16 @@ class JooqFileFinderIT {
         persistFile(project, "bracket-at-before.stl", base.plusSeconds(1));
 
         Page<FileView> page = finder().listAvailableInProject(
-                                                                project,
-                                                                criteria(new PageRequest(0, 10),
-                                                                         "bracket",
-                                                                         Set.of(ModelFormat.STL),
-                                                                         new InstantRange(base, base.plusSeconds(1)),
-                                                                         FileListCriteria.SortField.CREATED_AT,
-                                                                         SortDirection.ASC));
+                                                              project,
+                                                              criteria(new PageRequest(0, 10),
+                                                                       "bracket",
+                                                                       Set.of(ModelFormat.STL),
+                                                                       new InstantRange(base, base.plusSeconds(1)),
+                                                                       FileListCriteria.SortField.CREATED_AT,
+                                                                       SortDirection.ASC));
 
-        assertThat(page.content()).extracting(FileView::filename).containsExactly("bracket-in-range.stl");
+        assertThat(page.content()).extracting(FileView::filename)
+                                  .containsExactly("bracket-in-range.stl");
         assertThat(page.totalElements()).isEqualTo(1L);
     }
 

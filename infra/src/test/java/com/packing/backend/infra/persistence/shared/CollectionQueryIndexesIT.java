@@ -41,21 +41,21 @@ class CollectionQueryIndexesIT {
     @Test
     void createsTheExtensionAndIndexesUsedByCollectionQueries() {
         assertThat(dsl.fetchValue(
-                "select count(*)::integer from pg_extension where extname = 'pg_trgm'",
-                Integer.class)).isEqualTo(1);
+                                  "select count(*)::integer from pg_extension where extname = 'pg_trgm'",
+                                  Integer.class)).isEqualTo(1);
 
         assertThat(dsl.fetch(
-                "select indexname from pg_indexes where schemaname = 'public'")
+                             "select indexname from pg_indexes where schemaname = 'public'")
                       .getValues("indexname", String.class))
-                .contains(
-                        "ix_projects_name_trgm",
-                        "ix_files_filename_trgm",
-                        "ix_packing_jobs_search_trgm",
-                        "ix_users_username_trgm",
-                        "ix_users_display_name_trgm",
-                        "ix_project_members_project_added",
-                        "ix_packing_jobs_project_started",
-                        "ix_packing_jobs_project_finished");
+                                                            .contains(
+                                                                      "ix_projects_name_trgm",
+                                                                      "ix_files_filename_trgm",
+                                                                      "ix_packing_jobs_search_trgm",
+                                                                      "ix_users_username_trgm",
+                                                                      "ix_users_display_name_trgm",
+                                                                      "ix_project_members_project_added",
+                                                                      "ix_packing_jobs_project_started",
+                                                                      "ix_packing_jobs_project_finished");
     }
 
     @Test
@@ -68,7 +68,8 @@ class CollectionQueryIndexesIT {
                                          @Override
                                          public void executeStart(ExecuteContext ctx) {
                                              executedSql.add(ctx.sql());
-                                             bindValues.addAll(ctx.query().getBindValues());
+                                             bindValues.addAll(ctx.query()
+                                                                  .getBindValues());
                                          }
                                      })
                                      .dsl();
@@ -79,27 +80,42 @@ class CollectionQueryIndexesIT {
         new JooqFileFinder(capturingDsl).listAvailableInProject(ProjectId.generate(), fileCriteria("MiXeD%_CaSe"));
 
         assertThat(String.join("\n", executedSql))
-                .contains("lower(\"projects\".\"name\") like", "lower(\"users\".\"username\") like",
-                          "lower(\"users\".\"display_name\") like", "lower(\"files\".\"original_filename\") like")
-                .contains("escape '!'")
-                .doesNotContain(" ilike ");
-        assertThat(bindValues).contains("mixed%_case").doesNotContain("MiXeD%_CaSe");
+                                                  .contains("lower(\"projects\".\"name\") like",
+                                                            "lower(\"users\".\"username\") like",
+                                                            "lower(\"users\".\"display_name\") like",
+                                                            "lower(\"files\".\"original_filename\") like")
+                                                  .contains("escape '!'")
+                                                  .doesNotContain(" ilike ");
+        assertThat(bindValues).contains("mixed%_case")
+                              .doesNotContain("MiXeD%_CaSe");
     }
 
     private static ProjectListCriteria projectCriteria(String search) {
-        return new ProjectListCriteria(new PageRequest(0, 20), search, Set.of(), Set.of(),
-                                       new InstantRange(null, null), new InstantRange(null, null),
-                                       ProjectListCriteria.SortField.CREATED_AT, SortDirection.DESC);
+        return new ProjectListCriteria(new PageRequest(0, 20),
+                                       search,
+                                       Set.of(),
+                                       Set.of(),
+                                       new InstantRange(null, null),
+                                       new InstantRange(null, null),
+                                       ProjectListCriteria.SortField.CREATED_AT,
+                                       SortDirection.DESC);
     }
 
     private static ProjectMemberListCriteria memberCriteria(String search) {
-        return new ProjectMemberListCriteria(new PageRequest(0, 20), search, Set.of(),
+        return new ProjectMemberListCriteria(new PageRequest(0, 20),
+                                             search,
+                                             Set.of(),
                                              new InstantRange(null, null),
-                                             ProjectMemberListCriteria.SortField.ADDED_AT, SortDirection.ASC);
+                                             ProjectMemberListCriteria.SortField.ADDED_AT,
+                                             SortDirection.ASC);
     }
 
     private static FileListCriteria fileCriteria(String search) {
-        return new FileListCriteria(new PageRequest(0, 20), search, Set.of(), new InstantRange(null, null),
-                                    FileListCriteria.SortField.CREATED_AT, SortDirection.DESC);
+        return new FileListCriteria(new PageRequest(0, 20),
+                                    search,
+                                    Set.of(),
+                                    new InstantRange(null, null),
+                                    FileListCriteria.SortField.CREATED_AT,
+                                    SortDirection.DESC);
     }
 }
