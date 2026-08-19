@@ -235,24 +235,42 @@ class JooqFileFinderIT {
     }
 
     @Test
-    void filtersByLiteralCaseInsensitiveFilenameFormatsAndCreatedAtRange() {
+    void treatsPercentAndUnderscoreAsLiteralCaseInsensitiveFilenameCharacters() {
         Instant base = now();
         persistFile(project, "percent%under_score.stl", base);
-        persistFile(project, "percentXunderX.obj", base.plusSeconds(1));
-        persistFile(project, "bracket.obj", base.plusSeconds(2));
-        persistFile(project, "bracket.stl", base.plusSeconds(3));
+        persistFile(project, "percentXunder_score.stl", base.plusSeconds(1));
+        persistFile(project, "percent%underXscore.stl", base.plusSeconds(2));
 
         Page<FileView> page = finder().listAvailableInProject(
-                                                              project,
-                                                              criteria(new PageRequest(0, 10),
-                                                                       "PERCENT%UNDER_",
-                                                                       Set.of(ModelFormat.STL, ModelFormat.OBJ),
-                                                                       new InstantRange(base, base.plusSeconds(1)),
-                                                                       FileListCriteria.SortField.CREATED_AT,
-                                                                       SortDirection.ASC));
+                                                                project,
+                                                                criteria(new PageRequest(0, 10),
+                                                                         "PERCENT%UNDER_",
+                                                                         Set.of(ModelFormat.STL),
+                                                                         new InstantRange(null, null),
+                                                                         FileListCriteria.SortField.CREATED_AT,
+                                                                         SortDirection.ASC));
 
         assertThat(page.content()).extracting(FileView::filename)
                                   .containsExactly("percent%under_score.stl");
+        assertThat(page.totalElements()).isEqualTo(1L);
+    }
+
+    @Test
+    void excludesAnOtherwiseMatchingFileAtTheExclusiveCreatedBeforeBoundary() {
+        Instant base = now();
+        persistFile(project, "bracket-in-range.stl", base);
+        persistFile(project, "bracket-at-before.stl", base.plusSeconds(1));
+
+        Page<FileView> page = finder().listAvailableInProject(
+                                                                project,
+                                                                criteria(new PageRequest(0, 10),
+                                                                         "bracket",
+                                                                         Set.of(ModelFormat.STL),
+                                                                         new InstantRange(base, base.plusSeconds(1)),
+                                                                         FileListCriteria.SortField.CREATED_AT,
+                                                                         SortDirection.ASC));
+
+        assertThat(page.content()).extracting(FileView::filename).containsExactly("bracket-in-range.stl");
         assertThat(page.totalElements()).isEqualTo(1L);
     }
 
@@ -283,7 +301,7 @@ class JooqFileFinderIT {
                                        second.id()
                                              .value())
                                    .stream()
-                                   .sorted(Comparator.naturalOrder())
+                                   .sorted(Comparator.comparing(UUID::toString))
                                    .toList();
 
         Page<FileView> asc = finder().listAvailableInProject(project,

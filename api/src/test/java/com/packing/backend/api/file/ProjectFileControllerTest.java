@@ -346,6 +346,24 @@ class ProjectFileControllerTest {
     }
 
     @Test
+    void listAppliesDirectionAloneToCreatedAt() throws Exception {
+        authenticate();
+        when(files.listFiles(any())).thenReturn(new Page<>(List.of(), 0, 20, 0L));
+        ArgumentCaptor<ListFilesCommand> command = ArgumentCaptor.forClass(ListFilesCommand.class);
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/files", PROJECT).param("direction", "ASC"))
+               .andExpect(status().isOk());
+
+        verify(files).listFiles(command.capture());
+        assertThat(command.getValue()
+                          .criteria()
+                          .sort()).isEqualTo(FileListCriteria.SortField.CREATED_AT);
+        assertThat(command.getValue()
+                          .criteria()
+                          .direction()).isEqualTo(SortDirection.ASC);
+    }
+
+    @Test
     void listRejectsInvalidSearchLengths() throws Exception {
         authenticate();
 
