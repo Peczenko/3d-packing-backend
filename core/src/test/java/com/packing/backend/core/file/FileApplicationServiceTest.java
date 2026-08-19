@@ -11,12 +11,15 @@ import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.ContentSource;
+import com.packing.backend.core.shared.InstantRange;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
+import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
+import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StorageKey;
 import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.file.StoredFileNotFoundException;
@@ -49,6 +52,7 @@ import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -354,20 +358,33 @@ class FileApplicationServiceTest {
 
     @Test
     void listFilesPassesThroughThePageFromTheFinder() {
-        access(ProjectPermission.READ);
+        ProjectId authorizedProject = ProjectId.generate();
+        when(projectAccess.findAccess(new FirebaseUid(UID), PROJECT))
+                                                                     .thenReturn(Optional.of(new ProjectAccess(
+                                                                                                               CALLER,
+                                                                                                               authorizedProject,
+                                                                                                               ProjectStatus.ACTIVE,
+                                                                                                               ProjectPermission.READ)));
+        FileListCriteria criteria = new FileListCriteria(
+                                                         new PageRequest(2, 20),
+                                                         "bracket",
+                                                         Set.of(ModelFormat.STL, ModelFormat.OBJ),
+                                                         new InstantRange(NOW.minusSeconds(60), NOW.plusSeconds(60)),
+                                                         FileListCriteria.SortField.SIZE_BYTES,
+                                                         SortDirection.DESC);
         FileId id = FileId.generate();
         Page<FileView> finderPage = new Page<>(
                                                List.of(FileView.from(storedFile(id, PROJECT))),
                                                2,
                                                20,
                                                45L);
-        when(fileFinder.listAvailableInProject(PROJECT, new PageRequest(2, 20)))
-                                                                                .thenReturn(finderPage);
+        when(fileFinder.listAvailableInProject(authorizedProject, criteria)).thenReturn(finderPage);
 
         Page<FileView> page = service.listFiles(
-                                                new ListFilesCommand(UID, PROJECT.value(), new PageRequest(2, 20)));
+                                                new ListFilesCommand(UID, PROJECT.value(), criteria));
 
         assertThat(page).isSameAs(finderPage);
+        verify(fileFinder).listAvailableInProject(authorizedProject, criteria);
     }
 
     @Test
@@ -375,8 +392,15 @@ class FileApplicationServiceTest {
         noAccess();
 
         assertThatThrownBy(() -> service.listFiles(
-                                                   new ListFilesCommand(UID, PROJECT.value(), new PageRequest(0, 20))))
-                                                                                                                       .isInstanceOf(ProjectNotFoundException.class);
+                                                   new ListFilesCommand(UID,
+                                                                        PROJECT.value(),
+                                                                        new FileListCriteria(new PageRequest(0, 20),
+                                                                                             null,
+                                                                                             Set.of(),
+                                                                                             new InstantRange(null, null),
+                                                                                             FileListCriteria.SortField.CREATED_AT,
+                                                                                             SortDirection.DESC))))
+                                                                                                                   .isInstanceOf(ProjectNotFoundException.class);
 
         verify(fileFinder, never()).listAvailableInProject(any(), any());
     }
