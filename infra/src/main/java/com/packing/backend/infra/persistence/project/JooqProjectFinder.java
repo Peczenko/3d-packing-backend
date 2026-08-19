@@ -10,6 +10,7 @@ import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.user.UserId;
+import com.packing.backend.infra.persistence.jooq.tables.ProjectMembers;
 import com.packing.backend.infra.persistence.shared.Paging;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -30,6 +31,7 @@ import static com.packing.backend.infra.persistence.project.ProjectQueries.STATU
 import static com.packing.backend.infra.persistence.project.ProjectQueries.memberIs;
 import static com.packing.backend.infra.persistence.project.ProjectQueries.notDeleted;
 import static com.packing.backend.infra.persistence.project.ProjectQueries.permissionRank;
+import static com.packing.backend.infra.persistence.shared.JooqConditions.instantRange;
 import static org.jooq.impl.DSL.lower;
 
 @Repository
@@ -40,31 +42,7 @@ public class JooqProjectFinder implements ProjectFinder {
 
     @Override
     public Page<ProjectSummaryView> listForMember(UserId caller, ProjectListCriteria criteria) {
-        Condition condition = memberIs(caller).and(notDeleted());
-        if (criteria.search() != null) {
-            condition = condition.and(lower(PROJECTS.NAME).contains(criteria.search()
-                                                                            .toLowerCase(Locale.ROOT)));
-        }
-        if (!criteria.statuses()
-                     .isEmpty()) {
-            condition = condition.and(PROJECTS.STATUS.in(criteria.statuses()));
-        }
-        if (!criteria.permissions()
-                     .isEmpty()) {
-            condition = condition.and(PROJECT_MEMBERS.PERMISSION.in(criteria.permissions()));
-        }
-        condition = withRange(condition,
-                              PROJECTS.CREATED_AT,
-                              criteria.createdAt()
-                                      .from(),
-                              criteria.createdAt()
-                                      .before());
-        condition = withRange(condition,
-                              PROJECTS.UPDATED_AT,
-                              criteria.updatedAt()
-                                      .from(),
-                              criteria.updatedAt()
-                                      .before());
+        Condition condition = projectListCondition(caller, criteria);
 
         List<org.jooq.SortField<?>> orderBy = List.of(
                                                       order(primarySort(criteria.sort()), criteria.direction(), false),
@@ -86,6 +64,25 @@ public class JooqProjectFinder implements ProjectFinder {
                             JooqProjectFinder::toSummary);
     }
 
+    private static Condition projectListCondition(UserId caller, ProjectListCriteria criteria) {
+        Condition condition = memberIs(caller).and(notDeleted());
+        if (criteria.search() != null) {
+            condition = condition.and(lower(PROJECTS.NAME).contains(criteria.search()
+                                                                            .toLowerCase(Locale.ROOT)));
+        }
+        if (!criteria.statuses()
+                     .isEmpty()) {
+            condition = condition.and(PROJECTS.STATUS.in(criteria.statuses()));
+        }
+        if (!criteria.permissions()
+                     .isEmpty()) {
+            condition = condition.and(PROJECT_MEMBERS.PERMISSION.in(criteria.permissions()));
+        }
+        condition = condition.and(instantRange(PROJECTS.CREATED_AT, criteria.createdAt()));
+        condition = condition.and(instantRange(PROJECTS.UPDATED_AT, criteria.updatedAt()));
+        return condition;
+    }
+
     private static Field<?> primarySort(ProjectListCriteria.SortField sort) {
         return switch (sort) {
             case NAME -> lower(PROJECTS.NAME);
@@ -102,42 +99,13 @@ public class JooqProjectFinder implements ProjectFinder {
         return nullsLast ? ordered.nullsLast() : ordered;
     }
 
-    private static <T> Condition withRange(Condition condition, Field<T> field, T from, T before) {
-        if (from != null) {
-            condition = condition.and(field.ge(from));
-        }
-        if (before != null) {
-            condition = condition.and(field.lt(before));
-        }
-        return condition;
-    }
-
     @Override
     public Page<ProjectMemberView> listMembersFor(UserId caller,
                                                   ProjectId projectId,
                                                   ProjectMemberListCriteria criteria) {
         var members = PROJECT_MEMBERS.as("members");
         var callerMembership = PROJECT_MEMBERS.as("callerMembership");
-        Condition condition = members.PROJECT_ID.eq(projectId)
-                                                .and(callerMembership.PROJECT_ID.eq(members.PROJECT_ID))
-                                                .and(callerMembership.USER_ID.eq(caller))
-                                                .and(notDeleted());
-        if (criteria.search() != null) {
-            String search = criteria.search()
-                                    .toLowerCase(Locale.ROOT);
-            condition = condition.and(lower(USERS.USERNAME).contains(search)
-                                                           .or(lower(USERS.DISPLAY_NAME).contains(search)));
-        }
-        if (!criteria.permissions()
-                     .isEmpty()) {
-            condition = condition.and(members.PERMISSION.in(criteria.permissions()));
-        }
-        condition = withRange(condition,
-                              members.ADDED_AT,
-                              criteria.addedAt()
-                                      .from(),
-                              criteria.addedAt()
-                                      .before());
+        Condition condition = memberListCondition(caller, projectId, criteria, members, callerMembership);
 
         boolean displayName = criteria.sort() == ProjectMemberListCriteria.SortField.DISPLAY_NAME;
         List<org.jooq.SortField<?>> orderBy = List.of(
@@ -162,8 +130,30 @@ public class JooqProjectFinder implements ProjectFinder {
                             row -> toMember(row, members));
     }
 
+    private static Condition memberListCondition(UserId caller,
+                                                 ProjectId projectId,
+                                                 ProjectMemberListCriteria criteria,
+                                                 ProjectMembers members,
+                                                 ProjectMembers callerMembership) {
+        Condition condition = members.PROJECT_ID.eq(projectId)
+                                                .and(callerMembership.PROJECT_ID.eq(members.PROJECT_ID))
+                                                .and(callerMembership.USER_ID.eq(caller))
+                                                .and(notDeleted());
+        if (criteria.search() != null) {
+            String search = criteria.search()
+                                    .toLowerCase(Locale.ROOT);
+            condition = condition.and(lower(USERS.USERNAME).contains(search)
+                                                           .or(lower(USERS.DISPLAY_NAME).contains(search)));
+        }
+        if (!criteria.permissions()
+                     .isEmpty()) {
+            condition = condition.and(members.PERMISSION.in(criteria.permissions()));
+        }
+        return condition.and(instantRange(members.ADDED_AT, criteria.addedAt()));
+    }
+
     private static Field<?> memberPrimarySort(ProjectMemberListCriteria.SortField sort,
-                                              com.packing.backend.infra.persistence.jooq.tables.ProjectMembers members) {
+                                              ProjectMembers members) {
         return switch (sort) {
             case USERNAME -> lower(USERS.USERNAME);
             case DISPLAY_NAME -> lower(USERS.DISPLAY_NAME);
@@ -216,8 +206,7 @@ public class JooqProjectFinder implements ProjectFinder {
                                row.get(PROJECTS.UPDATED_AT));
     }
 
-    private static ProjectMemberView toMember(Record row,
-                                              com.packing.backend.infra.persistence.jooq.tables.ProjectMembers members) {
+    private static ProjectMemberView toMember(Record row, ProjectMembers members) {
         return new ProjectMemberView(row.get(members.USER_ID)
                                         .value(),
                                      row.get(USERS.USERNAME),

@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 
 import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
+import static com.packing.backend.infra.persistence.shared.JooqConditions.instantRange;
 import static org.jooq.impl.DSL.lower;
 
 @Repository
@@ -27,22 +28,7 @@ public class JooqFileFinder implements FileFinder {
 
     @Override
     public Page<FileView> listAvailableInProject(ProjectId projectId, FileListCriteria criteria) {
-        Condition condition = FileQueries.availableIn(projectId);
-        if (criteria.search() != null) {
-            condition = condition.and(lower(FILES.ORIGINAL_FILENAME)
-                                                                    .contains(criteria.search()
-                                                                                      .toLowerCase(Locale.ROOT)));
-        }
-        if (!criteria.formats()
-                     .isEmpty()) {
-            condition = condition.and(FILES.FORMAT.in(criteria.formats()));
-        }
-        condition = withRange(condition,
-                              FILES.CREATED_AT,
-                              criteria.createdAt()
-                                      .from(),
-                              criteria.createdAt()
-                                      .before());
+        Condition condition = listCondition(projectId, criteria);
 
         List<org.jooq.SortField<?>> orderBy = List.of(
                                                       order(primarySort(criteria.sort()), criteria.direction()),
@@ -53,6 +39,20 @@ public class JooqFileFinder implements FileFinder {
                             orderBy,
                             criteria.page(),
                             record -> FileView.from(FileRecordMapper.toDomain(record)));
+    }
+
+    private static Condition listCondition(ProjectId projectId, FileListCriteria criteria) {
+        Condition condition = FileQueries.availableIn(projectId);
+        if (criteria.search() != null) {
+            condition = condition.and(lower(FILES.ORIGINAL_FILENAME)
+                                                                    .contains(criteria.search()
+                                                                                      .toLowerCase(Locale.ROOT)));
+        }
+        if (!criteria.formats()
+                     .isEmpty()) {
+            condition = condition.and(FILES.FORMAT.in(criteria.formats()));
+        }
+        return condition.and(instantRange(FILES.CREATED_AT, criteria.createdAt()));
     }
 
     private static Field<?> primarySort(FileListCriteria.SortField sort) {
@@ -68,13 +68,4 @@ public class JooqFileFinder implements FileFinder {
         return direction == SortDirection.ASC ? field.asc() : field.desc();
     }
 
-    private static <T> Condition withRange(Condition condition, Field<T> field, T from, T before) {
-        if (from != null) {
-            condition = condition.and(field.ge(from));
-        }
-        if (before != null) {
-            condition = condition.and(field.lt(before));
-        }
-        return condition;
-    }
 }

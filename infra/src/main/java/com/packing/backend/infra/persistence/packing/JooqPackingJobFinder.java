@@ -22,6 +22,7 @@ import java.util.Optional;
 import static com.packing.backend.infra.persistence.jooq.tables.PackingJobs.PACKING_JOBS;
 import static com.packing.backend.infra.persistence.packing.PackingJobQueries.SEARCH_TEXT;
 import static com.packing.backend.infra.persistence.packing.PackingJobQueries.STATUS_RANK;
+import static com.packing.backend.infra.persistence.shared.JooqConditions.instantRange;
 import static org.jooq.impl.DSL.lower;
 
 @Repository
@@ -32,33 +33,7 @@ public class JooqPackingJobFinder implements PackingJobFinder {
 
     @Override
     public Page<PackingJobView> listInProject(ProjectId projectId, PackingJobListCriteria criteria) {
-        Condition condition = PackingJobQueries.inProject(projectId);
-        if (criteria.search() != null) {
-            condition = condition.and(SEARCH_TEXT.contains(criteria.search()
-                                                                   .toLowerCase(Locale.ROOT)));
-        }
-        if (!criteria.statuses()
-                     .isEmpty()) {
-            condition = condition.and(PACKING_JOBS.STATUS.in(criteria.statuses()));
-        }
-        condition = withRange(condition,
-                              PACKING_JOBS.CREATED_AT,
-                              criteria.createdAt()
-                                      .from(),
-                              criteria.createdAt()
-                                      .before());
-        condition = withRange(condition,
-                              PACKING_JOBS.STARTED_AT,
-                              criteria.startedAt()
-                                      .from(),
-                              criteria.startedAt()
-                                      .before());
-        condition = withRange(condition,
-                              PACKING_JOBS.FINISHED_AT,
-                              criteria.finishedAt()
-                                      .from(),
-                              criteria.finishedAt()
-                                      .before());
+        Condition condition = listCondition(projectId, criteria);
 
         List<org.jooq.SortField<?>> orderBy = List.of(
                                                       order(primarySort(criteria.sort()), criteria.direction(), isNullable(criteria.sort())),
@@ -70,6 +45,22 @@ public class JooqPackingJobFinder implements PackingJobFinder {
                             orderBy,
                             criteria.page(),
                             PackingJobQueries::toView);
+    }
+
+    private static Condition listCondition(ProjectId projectId, PackingJobListCriteria criteria) {
+        Condition condition = PackingJobQueries.inProject(projectId);
+        if (criteria.search() != null) {
+            condition = condition.and(SEARCH_TEXT.contains(criteria.search()
+                                                                   .toLowerCase(Locale.ROOT)));
+        }
+        if (!criteria.statuses()
+                     .isEmpty()) {
+            condition = condition.and(PACKING_JOBS.STATUS.in(criteria.statuses()));
+        }
+        condition = condition.and(instantRange(PACKING_JOBS.CREATED_AT, criteria.createdAt()));
+        condition = condition.and(instantRange(PACKING_JOBS.STARTED_AT, criteria.startedAt()));
+        condition = condition.and(instantRange(PACKING_JOBS.FINISHED_AT, criteria.finishedAt()));
+        return condition;
     }
 
     private static Field<?> primarySort(PackingJobListCriteria.SortField sort) {
@@ -95,16 +86,6 @@ public class JooqPackingJobFinder implements PackingJobFinder {
     private static org.jooq.SortField<?> order(Field<?> field, SortDirection direction, boolean nullsLast) {
         org.jooq.SortField<?> ordered = direction == SortDirection.ASC ? field.asc() : field.desc();
         return nullsLast ? ordered.nullsLast() : ordered;
-    }
-
-    private static <T> Condition withRange(Condition condition, Field<T> field, T from, T before) {
-        if (from != null) {
-            condition = condition.and(field.ge(from));
-        }
-        if (before != null) {
-            condition = condition.and(field.lt(before));
-        }
-        return condition;
     }
 
     @Override
