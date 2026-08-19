@@ -14,6 +14,7 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 
 import java.util.List;
+import java.util.Locale;
 
 import static com.packing.backend.infra.persistence.jooq.tables.Files.FILES;
 import static org.jooq.impl.DSL.lower;
@@ -28,7 +29,8 @@ public class JooqFileFinder implements FileFinder {
     public Page<FileView> listAvailableInProject(ProjectId projectId, FileListCriteria criteria) {
         Condition condition = FileQueries.availableIn(projectId);
         if (criteria.search() != null) {
-            condition = condition.and(FILES.ORIGINAL_FILENAME.containsIgnoreCase(criteria.search()));
+            condition = condition.and(lower(FILES.ORIGINAL_FILENAME)
+                                              .contains(criteria.search().toLowerCase(Locale.ROOT)));
         }
         if (!criteria.formats()
                      .isEmpty()) {

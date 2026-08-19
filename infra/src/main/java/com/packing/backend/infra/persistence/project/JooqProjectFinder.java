@@ -19,6 +19,7 @@ import org.jooq.Record;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import static com.packing.backend.infra.persistence.jooq.tables.ProjectMembers.PROJECT_MEMBERS;
@@ -41,7 +42,7 @@ public class JooqProjectFinder implements ProjectFinder {
     public Page<ProjectSummaryView> listForMember(UserId caller, ProjectListCriteria criteria) {
         Condition condition = memberIs(caller).and(notDeleted());
         if (criteria.search() != null) {
-            condition = condition.and(PROJECTS.NAME.containsIgnoreCase(criteria.search()));
+            condition = condition.and(lower(PROJECTS.NAME).contains(criteria.search().toLowerCase(Locale.ROOT)));
         }
         if (!criteria.statuses().isEmpty()) {
             condition = condition.and(PROJECTS.STATUS.in(criteria.statuses()));
@@ -109,8 +110,9 @@ public class JooqProjectFinder implements ProjectFinder {
                                                   .and(callerMembership.USER_ID.eq(caller))
                                                   .and(notDeleted());
         if (criteria.search() != null) {
-            condition = condition.and(USERS.USERNAME.containsIgnoreCase(criteria.search())
-                                                  .or(USERS.DISPLAY_NAME.containsIgnoreCase(criteria.search())));
+            String search = criteria.search().toLowerCase(Locale.ROOT);
+            condition = condition.and(lower(USERS.USERNAME).contains(search)
+                                                           .or(lower(USERS.DISPLAY_NAME).contains(search)));
         }
         if (!criteria.permissions().isEmpty()) {
             condition = condition.and(members.PERMISSION.in(criteria.permissions()));
