@@ -4,7 +4,6 @@ import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.project.port.out.ProjectFinder;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
-import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.port.out.ActiveUserLookup;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.out.UserRepository;
@@ -17,12 +16,10 @@ import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.shared.DomainEvent;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.shared.PermissionDeniedException;
-import com.packing.backend.domain.user.Email;
 import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.UserNotFoundException;
-import com.packing.backend.domain.user.Username;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,7 +28,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -59,7 +55,15 @@ public class ProjectApplicationService {
     @Transactional(readOnly = true)
     public Page<ProjectSummaryView> listProjects(ListProjectsCommand command) {
         UserId caller = requireActiveCaller(command.firebaseUid());
-        return projectFinder.listForMember(caller, command.page());
+        return projectFinder.listForMember(caller, command.criteria());
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ProjectMemberView> listProjectMembers(ListProjectMembersQuery query) {
+        UserId caller = requireActiveCaller(query.firebaseUid());
+        ProjectId projectId = new ProjectId(query.projectId());
+        viewOf(caller, projectId);
+        return projectFinder.listMembersFor(caller, projectId, query.criteria());
     }
 
     @Transactional(readOnly = true)
@@ -131,7 +135,7 @@ public class ProjectApplicationService {
                                       command.projectId(),
                                       ProjectPermission.OWNER);
 
-        User member = resolveMember(command.identifier());
+        User member = resolveMember(new UserId(command.userId()));
         access.project()
               .grantAccess(member.id(), command.permission(), access.caller(), now);
         saveAndPublish(access.project());
@@ -180,28 +184,14 @@ public class ProjectApplicationService {
         saveAndPublish(access.project());
     }
 
-    private User resolveMember(String identifier) {
-        return tryFindByEmail(identifier)
-                                         .or(() -> tryFindByUsername(identifier))
-                                         .filter(user -> !user.isDeleted())
-                                         .orElseThrow(() -> new UserNotFoundException(
-                                                                                      "No user matches that identifier"));
-    }
-
-    private Optional<User> tryFindByEmail(String identifier) {
-        try {
-            return users.findByEmail(new Email(identifier));
-        } catch (DomainRuleViolationException notAnEmail) {
-            return Optional.empty();
+    private User resolveMember(UserId userId) {
+        User user = users.findById(userId)
+                         .filter(candidate -> !candidate.isDeleted())
+                         .orElseThrow(() -> new UserNotFoundException("No active user matches that id"));
+        if (!user.isActive()) {
+            throw new DomainRuleViolationException("Cannot add a disabled user to a project");
         }
-    }
-
-    private Optional<User> tryFindByUsername(String identifier) {
-        try {
-            return users.findByUsername(new Username(identifier));
-        } catch (DomainRuleViolationException notAUsername) {
-            return Optional.empty();
-        }
+        return user;
     }
 
     private Access requireAccess(String firebaseUid, UUID projectId, ProjectPermission required) {
@@ -248,7 +238,7 @@ public class ProjectApplicationService {
 
     public record GrantAccessCommand(String firebaseUid,
             UUID projectId,
-            String identifier,
+            UUID userId,
             ProjectPermission permission) {
     }
 
@@ -261,6 +251,11 @@ public class ProjectApplicationService {
     public record RevokeAccessCommand(String firebaseUid, UUID projectId, UUID userId) {
     }
 
-    public record ListProjectsCommand(String firebaseUid, PageRequest page) {
+    public record ListProjectsCommand(String firebaseUid, ProjectListCriteria criteria) {
+    }
+
+    public record ListProjectMembersQuery(String firebaseUid,
+            UUID projectId,
+            ProjectMemberListCriteria criteria) {
     }
 }

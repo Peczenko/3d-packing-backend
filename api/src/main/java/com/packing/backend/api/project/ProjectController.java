@@ -6,33 +6,31 @@ import com.packing.backend.core.project.ProjectApplicationService;
 import com.packing.backend.core.project.ProjectApplicationService.ChangeAccessCommand;
 import com.packing.backend.core.project.ProjectApplicationService.CreateProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.GrantAccessCommand;
+import com.packing.backend.core.project.ProjectApplicationService.ListProjectMembersQuery;
 import com.packing.backend.core.project.ProjectApplicationService.ListProjectsCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectQuery;
 import com.packing.backend.core.project.ProjectApplicationService.RenameProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.RevokeAccessCommand;
-import com.packing.backend.core.shared.PageRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -58,10 +56,9 @@ public class ProjectController {
     @ApiResponse(responseCode = "200", description = "Page of projects")
     public ProjectPageResponse list(
                                     @CurrentUser AuthenticatedUser caller,
-                                    @RequestParam(defaultValue = "0") @Min(0) int page,
-                                    @RequestParam(defaultValue = "20") @Min(1) @Max(PageRequest.MAX_SIZE) int size) {
+                                    @Valid @ParameterObject @ModelAttribute ProjectListRequest request) {
         return ProjectPageResponse.from(projects.listProjects(
-                                                              new ListProjectsCommand(caller.firebaseUid(), new PageRequest(page, size))));
+                                                              new ListProjectsCommand(caller.firebaseUid(), request.toCriteria())));
     }
 
     @GetMapping("/{projectId}")
@@ -116,13 +113,13 @@ public class ProjectController {
     @GetMapping("/{projectId}/members")
     @Operation(operationId = "listProjectMembers", summary = "List the members of a project")
     @ApiResponse(responseCode = "200", description = "Members of the project")
-    public List<ProjectMemberResponse> members(@CurrentUser AuthenticatedUser caller,
-                                               @PathVariable UUID projectId) {
-        return projects.getProject(new ProjectQuery(caller.firebaseUid(), projectId))
-                       .members()
-                       .stream()
-                       .map(ProjectMemberResponse::from)
-                       .toList();
+    public ProjectMemberPageResponse members(@CurrentUser AuthenticatedUser caller,
+                                             @PathVariable UUID projectId,
+                                             @Valid @ParameterObject @ModelAttribute ProjectMemberListRequest request) {
+        return ProjectMemberPageResponse.from(projects.listProjectMembers(
+                                                                          new ListProjectMembersQuery(caller.firebaseUid(),
+                                                                                                      projectId,
+                                                                                                      request.toCriteria())));
     }
 
     @PostMapping("/{projectId}/members")
@@ -135,7 +132,7 @@ public class ProjectController {
         return ProjectResponse.from(projects.grantAccess(new GrantAccessCommand(
                                                                                 caller.firebaseUid(),
                                                                                 projectId,
-                                                                                request.identifier(),
+                                                                                request.userId(),
                                                                                 request.permission())));
     }
 

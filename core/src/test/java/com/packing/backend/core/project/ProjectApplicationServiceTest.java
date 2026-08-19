@@ -4,6 +4,7 @@ import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.project.ProjectApplicationService.ChangeAccessCommand;
 import com.packing.backend.core.project.ProjectApplicationService.CreateProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.GrantAccessCommand;
+import com.packing.backend.core.project.ProjectApplicationService.ListProjectMembersQuery;
 import com.packing.backend.core.project.ProjectApplicationService.ListProjectsCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectCommand;
 import com.packing.backend.core.project.ProjectApplicationService.ProjectQuery;
@@ -13,6 +14,8 @@ import com.packing.backend.core.project.port.out.ProjectFinder;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
+import com.packing.backend.core.shared.InstantRange;
+import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.core.shared.port.out.ActiveUserLookup;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.out.UserRepository;
@@ -29,6 +32,7 @@ import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.project.ProjectStatus;
 import com.packing.backend.domain.project.event.ProjectAccessGranted;
 import com.packing.backend.domain.shared.DomainEvent;
+import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.shared.PermissionDeniedException;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.user.Email;
@@ -36,6 +40,8 @@ import com.packing.backend.domain.user.FirebaseUid;
 import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.UserId;
 import com.packing.backend.domain.user.UserNotFoundException;
+import com.packing.backend.domain.user.UserRole;
+import com.packing.backend.domain.user.UserStatus;
 import com.packing.backend.domain.user.Username;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,11 +56,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -120,18 +126,6 @@ class ProjectApplicationServiceTest {
     }
 
     private static ProjectView viewOf(Project project, UserId caller) {
-        List<ProjectMemberView> members = project.members()
-                                                 .stream()
-                                                 .map(member -> new ProjectMemberView(member.userId()
-                                                                                            .value(),
-                                                                                      "user" + Math.abs(member.userId()
-                                                                                                              .value()
-                                                                                                              .hashCode()),
-                                                                                      "Display Name",
-                                                                                      member.permission(),
-                                                                                      member.addedAt()))
-                                                 .sorted(Comparator.comparing(ProjectMemberView::addedAt))
-                                                 .toList();
         return new ProjectView(project.id()
                                       .value(),
                                project.name()
@@ -141,27 +135,29 @@ class ProjectApplicationServiceTest {
                                       .value(),
                                project.permissionOf(caller)
                                       .orElseThrow(),
-                               members,
                                project.createdAt(),
                                project.updatedAt());
     }
 
     private static User userWithId(UserId id) {
-        User user = User.rehydrate(id,
-                                   new FirebaseUid("uid-" + id.value()),
-                                   new Email("u" + Math.abs(id.value()
-                                                              .hashCode())
-                                           + "@example.com"),
-                                   Username.suggestionFrom("user" + Math.abs(id.value()
-                                                                               .hashCode())),
-                                   "Display Name",
-                                   com.packing.backend.domain.user.UserRole.USER,
-                                   com.packing.backend.domain.user.UserStatus.ACTIVE,
-                                   1L,
-                                   NOW,
-                                   NOW,
-                                   null);
-        return user;
+        return userWithId(id, UserStatus.ACTIVE);
+    }
+
+    private static User userWithId(UserId id, UserStatus status) {
+        return User.rehydrate(id,
+                              new FirebaseUid("uid-" + id.value()),
+                              new Email("u" + Math.abs(id.value()
+                                                         .hashCode())
+                                      + "@example.com"),
+                              Username.suggestionFrom("user" + Math.abs(id.value()
+                                                                          .hashCode())),
+                              "Display Name",
+                              UserRole.USER,
+                              status,
+                              1L,
+                              NOW,
+                              NOW,
+                              null);
     }
 
     private Project ownedProject() {
@@ -189,11 +185,7 @@ class ProjectApplicationServiceTest {
         assertThat(view.status()).isEqualTo(ProjectStatus.ACTIVE);
         assertThat(view.createdBy()).isEqualTo(CALLER.value());
         assertThat(view.myPermission()).isEqualTo(ProjectPermission.OWNER);
-        assertThat(view.members()).singleElement()
-                                  .satisfies(member -> {
-                                      assertThat(member.userId()).isEqualTo(CALLER.value());
-                                      assertThat(member.permission()).isEqualTo(ProjectPermission.OWNER);
-                                  });
+        assertThat(view.createdAt()).isEqualTo(NOW);
     }
 
     @Test
@@ -265,68 +257,144 @@ class ProjectApplicationServiceTest {
 
     @Test
     void listProjectsDelegatesToTheFinderWithTheCallersId() {
-        ProjectSummaryView summary = new ProjectSummaryView(UUID.randomUUID(),
-                                                            "Chassis packing",
-                                                            ProjectStatus.ACTIVE,
-                                                            ProjectPermission.OWNER,
-                                                            1,
-                                                            NOW,
-                                                            NOW);
-        when(projectFinder.listForMember(CALLER, new PageRequest(2, 20)))
-                                                                         .thenReturn(new Page<>(List.of(summary), 2, 20, 45L));
+        ProjectListCriteria criteria = new ProjectListCriteria(
+                                                               new PageRequest(2, 20),
+                                                               null,
+                                                               Set.of(),
+                                                               Set.of(),
+                                                               new InstantRange(null, null),
+                                                               new InstantRange(null, null),
+                                                               ProjectListCriteria.SortField.CREATED_AT,
+                                                               SortDirection.DESC);
+        Page<ProjectSummaryView> expected = new Page<>(List.of(), 2, 20, 45L);
+        when(projectFinder.listForMember(CALLER, criteria)).thenReturn(expected);
 
-        Page<ProjectSummaryView> page = service.listProjects(
-                                                             new ListProjectsCommand(UID, new PageRequest(2, 20)));
+        Page<ProjectSummaryView> actual = service.listProjects(new ListProjectsCommand(UID, criteria));
 
-        assertThat(page.content()).containsExactly(summary);
-        assertThat(page.totalPages()).isEqualTo(3);
+        assertThat(actual).isSameAs(expected);
+        verify(projectFinder).listForMember(CALLER, criteria);
     }
 
     @Test
-    void grantAccessResolvesTheMemberByEmail() {
+    void listProjectMembersChecksProjectAccessBeforeDelegatingToTheFinder() {
         Project project = ownedProject();
-        User invitee = userWithId(MEMBER);
-        when(users.findByEmail(new Email("bob@example.com"))).thenReturn(Optional.of(invitee));
+        ProjectView projectView = viewOf(project, CALLER);
+        ProjectMemberListCriteria criteria = new ProjectMemberListCriteria(
+                                                                           new PageRequest(0, 20),
+                                                                           null,
+                                                                           Set.of(),
+                                                                           new InstantRange(null, null),
+                                                                           ProjectMemberListCriteria.SortField.ADDED_AT,
+                                                                           SortDirection.ASC);
+        Page<ProjectMemberView> expected = new Page<>(List.of(), 0, 20, 0L);
+        when(projectFinder.detailFor(CALLER, project.id())).thenReturn(Optional.of(projectView));
+        when(projectFinder.listMembersFor(CALLER, project.id(), criteria)).thenReturn(expected);
+
+        Page<ProjectMemberView> actual = service.listProjectMembers(
+                                                                    new ListProjectMembersQuery(UID,
+                                                                                                project.id()
+                                                                                                       .value(),
+                                                                                                criteria));
+
+        assertThat(actual).isSameAs(expected);
+        verify(projectFinder).detailFor(CALLER, project.id());
+        verify(projectFinder).listMembersFor(CALLER, project.id(), criteria);
+    }
+
+    @Test
+    void listProjectMembersDoesNotQueryTheRosterWhenTheCallerCannotAccessTheProject() {
+        ProjectId projectId = ProjectId.generate();
+        ProjectMemberListCriteria criteria = new ProjectMemberListCriteria(
+                                                                           new PageRequest(0, 20),
+                                                                           null,
+                                                                           Set.of(),
+                                                                           new InstantRange(null, null),
+                                                                           ProjectMemberListCriteria.SortField.ADDED_AT,
+                                                                           SortDirection.ASC);
+        when(projectFinder.detailFor(CALLER, projectId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.listProjectMembers(new ListProjectMembersQuery(UID,
+                                                                                        projectId.value(),
+                                                                                        criteria)))
+                                                                                                   .isInstanceOf(ProjectNotFoundException.class);
+
+        verify(projectFinder).detailFor(CALLER, projectId);
+        verify(projectFinder, never()).listMembersFor(CALLER, projectId, criteria);
+    }
+
+    @Test
+    void grantAccessAddsAnActiveUserById() {
+        Project project = ownedProject();
+        when(users.findById(MEMBER)).thenReturn(Optional.of(userWithId(MEMBER)));
 
         ProjectView view = service.grantAccess(new GrantAccessCommand(
                                                                       UID,
                                                                       project.id()
                                                                              .value(),
-                                                                      "bob@example.com",
+                                                                      MEMBER.value(),
                                                                       ProjectPermission.WRITE));
 
-        assertThat(view.members()).hasSize(2);
         assertThat(project.permissionOf(MEMBER)).contains(ProjectPermission.WRITE);
     }
 
     @Test
-    void grantAccessFallsBackToTheUsername() {
+    void grantAccessTreatsAnUnknownUserAsNotFound() {
         Project project = ownedProject();
-        User invitee = userWithId(MEMBER);
-        when(users.findByEmail(any())).thenReturn(Optional.empty());
-        when(users.findByUsername(new Username("bob"))).thenReturn(Optional.of(invitee));
+        when(users.findById(MEMBER)).thenReturn(Optional.empty());
 
-        service.grantAccess(new GrantAccessCommand(
-                                                   UID,
-                                                   project.id()
-                                                          .value(),
-                                                   "bob",
-                                                   ProjectPermission.READ));
+        assertThatThrownBy(() -> service.grantAccess(new GrantAccessCommand(
+                                                                            UID,
+                                                                            project.id()
+                                                                                   .value(),
+                                                                            MEMBER.value(),
+                                                                            ProjectPermission.READ)))
+                                                                                                     .isInstanceOf(UserNotFoundException.class)
+                                                                                                     .hasMessage("No active user matches that id");
+    }
 
-        assertThat(project.permissionOf(MEMBER)).contains(ProjectPermission.READ);
+    @Test
+    void grantAccessTreatsADeletedUserAsNotFound() {
+        Project project = ownedProject();
+        when(users.findById(MEMBER)).thenReturn(Optional.of(userWithId(MEMBER, UserStatus.DELETED)));
+
+        assertThatThrownBy(() -> service.grantAccess(new GrantAccessCommand(
+                                                                            UID,
+                                                                            project.id()
+                                                                                   .value(),
+                                                                            MEMBER.value(),
+                                                                            ProjectPermission.READ)))
+                                                                                                     .isInstanceOf(UserNotFoundException.class)
+                                                                                                     .hasMessage("No active user matches that id");
+    }
+
+    @Test
+    void grantAccessRejectsADisabledUserBeforeProjectMutation() {
+        Project project = ownedProject();
+        when(users.findById(MEMBER)).thenReturn(Optional.of(userWithId(MEMBER, UserStatus.DISABLED)));
+
+        assertThatThrownBy(() -> service.grantAccess(new GrantAccessCommand(
+                                                                            UID,
+                                                                            project.id()
+                                                                                   .value(),
+                                                                            MEMBER.value(),
+                                                                            ProjectPermission.READ)))
+                                                                                                     .isInstanceOf(DomainRuleViolationException.class)
+                                                                                                     .hasMessage("Cannot add a disabled user to a project");
+
+        assertThat(project.permissionOf(MEMBER)).isEmpty();
+        verify(projects, never()).save(any());
     }
 
     @Test
     void grantAccessPublishesTheEventThatDrivesTheNotification() {
         Project project = ownedProject();
-        when(users.findByEmail(new Email("bob@example.com")))
-                                                             .thenReturn(Optional.of(userWithId(MEMBER)));
+        when(users.findById(MEMBER)).thenReturn(Optional.of(userWithId(MEMBER)));
 
         service.grantAccess(new GrantAccessCommand(
                                                    UID,
                                                    project.id()
                                                           .value(),
-                                                   "bob@example.com",
+                                                   MEMBER.value(),
                                                    ProjectPermission.WRITE));
 
         assertThat(publishedEvents()).singleElement()
@@ -338,36 +406,6 @@ class ProjectApplicationServiceTest {
     }
 
     @Test
-    void grantAccessReportsAnUnknownIdentifierWithoutConfirmingIt() {
-        Project project = ownedProject();
-        when(users.findByEmail(any())).thenReturn(Optional.empty());
-        when(users.findByUsername(any())).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.grantAccess(new GrantAccessCommand(
-                                                                            UID,
-                                                                            project.id()
-                                                                                   .value(),
-                                                                            "ghost@example.com",
-                                                                            ProjectPermission.READ)))
-                                                                                                     .isInstanceOf(UserNotFoundException.class)
-                                                                                                     .hasMessage("No user matches that identifier");
-    }
-
-    @Test
-    void grantAccessRejectsAnIdentifierThatIsNeitherAnEmailNorAUsername() {
-        Project project = ownedProject();
-
-        assertThatThrownBy(() -> service.grantAccess(new GrantAccessCommand(
-                                                                            UID,
-                                                                            project.id()
-                                                                                   .value(),
-                                                                            "!!",
-                                                                            ProjectPermission.READ)))
-                                                                                                     .isInstanceOf(UserNotFoundException.class)
-                                                                                                     .hasMessage("No user matches that identifier");
-    }
-
-    @Test
     void grantAccessRequiresOwnership() {
         Project project = projectWhereCallerIs(ProjectPermission.WRITE);
 
@@ -375,9 +413,11 @@ class ProjectApplicationServiceTest {
                                                                             UID,
                                                                             project.id()
                                                                                    .value(),
-                                                                            "bob@example.com",
+                                                                            MEMBER.value(),
                                                                             ProjectPermission.READ)))
                                                                                                      .isInstanceOf(PermissionDeniedException.class);
+
+        verify(users, never()).findById(any());
     }
 
     @Test
