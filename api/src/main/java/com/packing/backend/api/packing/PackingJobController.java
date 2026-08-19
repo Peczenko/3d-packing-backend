@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -65,7 +66,7 @@ public class PackingJobController {
     @ApiResponse(responseCode = "200", description = "Page of packing jobs")
     public PackingJobPageResponse list(@CurrentUser AuthenticatedUser caller,
                                        @PathVariable UUID projectId,
-                                       @Valid @ModelAttribute PackingJobListRequest request) {
+                                       @Valid @ParameterObject @ModelAttribute PackingJobListRequest request) {
         return PackingJobPageResponse.from(jobs.list(new ListPackingJobsQuery(
                                                                               caller.firebaseUid(),
                                                                               projectId,

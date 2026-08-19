@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -55,7 +56,7 @@ public class ProjectController {
     @ApiResponse(responseCode = "200", description = "Page of projects")
     public ProjectPageResponse list(
                                     @CurrentUser AuthenticatedUser caller,
-                                    @Valid @ModelAttribute ProjectListRequest request) {
+                                    @Valid @ParameterObject @ModelAttribute ProjectListRequest request) {
         return ProjectPageResponse.from(projects.listProjects(
                                                               new ListProjectsCommand(caller.firebaseUid(), request.toCriteria())));
     }
@@ -114,7 +115,7 @@ public class ProjectController {
     @ApiResponse(responseCode = "200", description = "Members of the project")
     public ProjectMemberPageResponse members(@CurrentUser AuthenticatedUser caller,
                                              @PathVariable UUID projectId,
-                                             @Valid @ModelAttribute ProjectMemberListRequest request) {
+                                             @Valid @ParameterObject @ModelAttribute ProjectMemberListRequest request) {
         return ProjectMemberPageResponse.from(projects.listProjectMembers(
                                                                           new ListProjectMembersQuery(caller.firebaseUid(),
                                                                                                       projectId,

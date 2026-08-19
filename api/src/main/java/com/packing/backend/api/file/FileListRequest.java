@@ -5,6 +5,7 @@ import com.packing.backend.core.file.FileListCriteria;
 import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.file.ModelFormat;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -16,14 +17,17 @@ import java.time.OffsetDateTime;
 import java.util.Set;
 
 public record FileListRequest(
-        @Min(0) Integer page,
-        @Min(1) @Max(PageRequest.MAX_SIZE) Integer size,
-        @Size(min = 3, max = 100) String search,
-        Set<ModelFormat> format,
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdFrom,
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdBefore,
+        @Schema(description = "Zero-based page index.", defaultValue = "0") @Min(0) Integer page,
+        @Schema(description = "Number of items per page.", defaultValue = "20") @Min(1) @Max(PageRequest.MAX_SIZE) Integer size,
+        @Schema(description = "Case-insensitive literal substring matched against the original filename.") @Size(min = 3, max = 100) String search,
+        @Schema(description = "Model formats to include. Repeat to match any supplied value.") Set<ModelFormat> format,
+        @Schema(description = "Inclusive lower bound for the creation timestamp.") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdFrom,
+        @Schema(description = "Exclusive upper bound for the creation timestamp.") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdBefore,
+        @Schema(description = "Field used to sort the result.", defaultValue = "createdAt",
+                allowableValues = {
+                        "filename", "format", "sizeBytes", "createdAt" })
         @Pattern(regexp = "filename|format|sizeBytes|createdAt") String sort,
-        SortDirection direction) {
+        @Schema(description = "Sort direction. Defaults to ASC when sort is supplied; otherwise DESC.") SortDirection direction) {
 
     public FileListRequest {
         boolean customSort = sort != null;

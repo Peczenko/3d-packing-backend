@@ -5,6 +5,7 @@ import com.packing.backend.core.packing.PackingJobListCriteria;
 import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -16,18 +17,21 @@ import java.time.OffsetDateTime;
 import java.util.Set;
 
 public record PackingJobListRequest(
-        @Min(0) Integer page,
-        @Min(1) @Max(PageRequest.MAX_SIZE) Integer size,
-        @Size(min = 3, max = 100) String search,
-        Set<PackingJobStatus> status,
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdFrom,
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdBefore,
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime startedFrom,
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime startedBefore,
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime finishedFrom,
-        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime finishedBefore,
+        @Schema(description = "Zero-based page index.", defaultValue = "0") @Min(0) Integer page,
+        @Schema(description = "Number of items per page.", defaultValue = "20") @Min(1) @Max(PageRequest.MAX_SIZE) Integer size,
+        @Schema(description = "Case-insensitive literal substring matched against engine version, result filename, or failure reason.") @Size(min = 3, max = 100) String search,
+        @Schema(description = "Packing-job statuses to include. Repeat to match any supplied value.") Set<PackingJobStatus> status,
+        @Schema(description = "Inclusive lower bound for the creation timestamp.") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdFrom,
+        @Schema(description = "Exclusive upper bound for the creation timestamp.") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime createdBefore,
+        @Schema(description = "Inclusive lower bound for the start timestamp.") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime startedFrom,
+        @Schema(description = "Exclusive upper bound for the start timestamp.") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime startedBefore,
+        @Schema(description = "Inclusive lower bound for the finish timestamp.") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime finishedFrom,
+        @Schema(description = "Exclusive upper bound for the finish timestamp.") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime finishedBefore,
+        @Schema(description = "Field used to sort the result.", defaultValue = "createdAt",
+                allowableValues = {
+                        "status", "maxRuntimeSeconds", "engineVersion", "createdAt", "startedAt", "finishedAt", "resultFileName", "resultSizeBytes" })
         @Pattern(regexp = "status|maxRuntimeSeconds|engineVersion|createdAt|startedAt|finishedAt|resultFileName|resultSizeBytes") String sort,
-        SortDirection direction) {
+        @Schema(description = "Sort direction. Defaults to ASC when sort is supplied; otherwise DESC.") SortDirection direction) {
 
     public PackingJobListRequest {
         boolean customSort = sort != null;
