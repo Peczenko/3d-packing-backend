@@ -1,6 +1,6 @@
 [versions]
 springBoot = "3.5.16"
-springCloudAzure = "6.1.0"
+springCloudAzure = "7.4.0"
 netty = "4.2.15.Final"
 jooq = "3.19.35"
 jooqDocker = "9.0.1"
