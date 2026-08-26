@@ -133,7 +133,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Update container app image
-        uses: azure/cli@v2
+        uses: azure/cli@v3
         with:
           azcliversion: latest
           inlineScript: |
@@ -143,7 +143,7 @@ jobs:
               --image "${{ needs.image-api.outputs.image }}@${{ needs.image-api.outputs.digest }}"
 
       - name: Update worker job image
-        uses: azure/cli@v2
+        uses: azure/cli@v3
         with:
           azcliversion: latest
           inlineScript: |
