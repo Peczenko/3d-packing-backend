@@ -47,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import({ TestcontainersConfiguration.class, PackingTemporalWiringIT.FakeEngineConfiguration.class })
 @SpringBootTest(properties = {
         "spring.temporal.test-server.enabled=true",
+        "spring.temporal.start-workers=false",
         "spring.temporal.workers-auto-discovery.workflow-packages=com.packing.backend.infra.packing.temporal",
         "spring.temporal.workers-auto-discovery.register-activity-beans=true"
 })
@@ -75,6 +76,7 @@ class PackingTemporalWiringIT {
     @Test
     void aDispatchedJobRunsThroughTheWorkflowToSucceeded() throws InterruptedException {
         assertThat(workerFactory.tryGetWorker(PackingEngineContract.STATE_TASK_QUEUE)).isNotNull();
+        assertThat(workerFactory.isStarted()).isTrue();
         Instant now = Instant.now()
                              .truncatedTo(ChronoUnit.MICROS);
         User user = User.register(new FirebaseUid("uid-wiring"),

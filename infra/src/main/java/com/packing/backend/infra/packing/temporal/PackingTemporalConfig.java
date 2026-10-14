@@ -8,6 +8,7 @@ import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import io.temporal.client.WorkflowClient;
+import io.temporal.worker.WorkerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -47,5 +48,10 @@ public class PackingTemporalConfig {
     PackingStateActivitiesImpl packingStateActivities(PackingWorkerEventService workerEvents,
                                                       PackingJobRecoveryService recovery) {
         return new PackingStateActivitiesImpl(workerEvents, recovery);
+    }
+
+    @Bean
+    TemporalWorkerStarter temporalWorkerStarter(WorkerFactory workers) {
+        return new TemporalWorkerStarter(workers);
     }
 }
