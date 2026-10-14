@@ -31,12 +31,6 @@ dependencies {
     testImplementation libs.archunit.junit5
 }
 
-tasks.named('test') {
-    inputs.file(rootProject.file('config/servicebus/config.json'))
-            .withPropertyName('serviceBusEmulatorConfig')
-            .withPathSensitivity(PathSensitivity.NONE)
-}
-
 tasks.named('jar') {
     enabled = false
 }

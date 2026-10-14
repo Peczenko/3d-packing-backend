@@ -1,4 +1,4 @@
-package com.packing.backend.infra.packing.messaging;
+package com.packing.backend.infra.packing.temporal;
 
 import com.packing.backend.core.packing.PackingJobDispatchService;
 import com.packing.backend.domain.packing.PackingJobId;

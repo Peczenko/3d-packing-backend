@@ -1,7 +1,5 @@
 package com.packing.backend.core.packing;
 
-import com.packing.backend.core.packing.PackingJobRecoveryService.DispatchStall;
-import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.packing.PackingJob;
@@ -30,6 +28,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,6 +38,7 @@ class PackingJobRecoveryServiceTest {
 
     private static final Instant NOW      = Instant.parse("2026-08-01T12:00:00Z");
     private static final String  CHECKSUM = "a".repeat(64);
+    private static final String  REASON   = "Packing engine stopped responding";
 
     @Mock
     private PackingJobRepository jobs;
@@ -57,14 +57,14 @@ class PackingJobRecoveryServiceTest {
     }
 
     @Test
-    void exhaustedDispatchFailsAQueuedJobWithoutEngineProvenance() {
+    void failsAQueuedJobWithoutEngineProvenance() {
         PackingJob job = queuedJob();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
-        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.DELIVERY_EXHAUSTED)).isTrue();
+        service.failStalled(job.id(), REASON);
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
-        assertThat(job.failureReason()).isEqualTo("Dispatch exhausted Service Bus delivery attempts");
+        assertThat(job.failureReason()).isEqualTo(REASON);
         assertThat(job.engineVersion()).isNull();
         assertThat(job.engineChecksum()).isNull();
         assertThat(job.finishedAt()).isEqualTo(NOW);
@@ -72,183 +72,48 @@ class PackingJobRecoveryServiceTest {
     }
 
     @Test
-    void exhaustedDispatchLeavesATerminalJobUnchanged() {
-        PackingJob job = runningJob();
-        job.succeed("existing.bin",
-                    "application/octet-stream",
-                    1,
-                    CHECKSUM,
-                    "packer 0.1.0",
-                    CHECKSUM,
-                    NOW.minusSeconds(1));
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-
-        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.DELIVERY_EXHAUSTED)).isTrue();
-
-        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
-        assertThat(job.failureReason()).isNull();
-        verify(jobs, never()).save(job);
-    }
-
-    @Test
-    void exhaustedDispatchFailsARunningJobKeepingTheEngineProvenanceItRecorded() {
+    void failsARunningJobKeepingTheEngineProvenanceItRecorded() {
         PackingJob job = runningJob();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
-        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.DELIVERY_EXHAUSTED)).isTrue();
+        service.failStalled(job.id(), REASON);
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
-        assertThat(job.failureReason()).isEqualTo("Dispatch exhausted Service Bus delivery attempts");
+        assertThat(job.failureReason()).isEqualTo(REASON);
         assertThat(job.engineVersion()).isEqualTo("packer 0.1.0");
         assertThat(job.engineChecksum()).isEqualTo(CHECKSUM);
+        assertThat(job.startedAt()).isEqualTo(NOW.minusSeconds(10));
         assertThat(job.finishedAt()).isEqualTo(NOW);
         verify(jobs).save(job);
     }
 
     @Test
-    void expiredDispatchLeavesARunningJobForTheWorkerThatMayStillHoldIt() {
+    void leavesATerminalJobUnchangedAndNotifiesNobody() {
         PackingJob job = runningJob();
+        job.succeed("existing.bin",
+                    "application/octet-stream",
+                    1,
+                    CHECKSUM,
+                    "packer 0.1.0",
+                    CHECKSUM,
+                    NOW.minusSeconds(1));
+        job.pullDomainEvents();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
-        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.EXPIRED)).isFalse();
+        service.failStalled(job.id(), REASON);
 
-        assertThat(job.status()).isEqualTo(PackingJobStatus.RUNNING);
+        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
         assertThat(job.failureReason()).isNull();
-        assertThat(job.finishedAt()).isNull();
-        verify(jobs, never()).save(job);
+        verify(jobs, never()).save(any());
+        verify(events, never()).publishAll(any());
     }
 
     @Test
-    void expiredDispatchFailsAQueuedJobBecauseNoWorkerEverStartedIt() {
-        PackingJob job = queuedJob();
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-
-        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.EXPIRED)).isTrue();
-
-        assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
-        assertThat(job.failureReason()).isEqualTo("Dispatch expired before the job started");
-        assertThat(job.engineVersion()).isNull();
-        assertThat(job.finishedAt()).isEqualTo(NOW);
-        verify(jobs).save(job);
-    }
-
-    @Test
-    void expiredDispatchIsResolvedOnceTheJobReachedATerminalStateByAnotherRoute() {
-        PackingJob job = runningJob();
-        job.succeed("existing.bin",
-                    "application/octet-stream",
-                    1,
-                    CHECKSUM,
-                    "packer 0.1.0",
-                    CHECKSUM,
-                    NOW.minusSeconds(1));
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-
-        assertThat(service.resolveStalledDispatch(job.id(), DispatchStall.EXPIRED)).isTrue();
-
-        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
-        verify(jobs, never()).save(job);
-    }
-
-    @Test
-    void looksUpNoResultArtifactInsideTheTransaction() {
-        assertThat(PackingJobRecoveryService.class.getDeclaredFields())
-                                                                       .noneMatch(field -> PackingJobArtifactStore.class.isAssignableFrom(field.getType()));
-    }
-
-    @Test
-    void resultArtifactCompletesOnlyARunningJobUsingItsMetadata() {
-        PackingJob job = runningJob();
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-        PackingJobArtifactStore.ResultArtifact artifact = artifact();
-
-        service.recoverResult(job.id(), artifact);
-
-        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
-        assertThat(job.resultFileName()).isEqualTo("result.bin");
-        assertThat(job.resultContentType()).isEqualTo("application/octet-stream");
-        assertThat(job.resultSizeBytes()).isEqualTo(42L);
-        assertThat(job.resultChecksum()).isEqualTo(CHECKSUM);
-        assertThat(job.engineVersion()).isEqualTo("packer 0.2.0");
-        assertThat(job.engineChecksum()).isEqualTo(CHECKSUM);
-        assertThat(job.finishedAt()).isEqualTo(NOW);
-        verify(jobs).save(job);
-    }
-
-    @Test
-    void resultArtifactLeavesAQueuedJobUnchangedRegardlessOfItsAge() {
-        PackingJob job = queuedJob(NOW.minusSeconds(86_400));
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-
-        service.recoverResult(job.id(), artifact());
-
-        assertThat(job.status()).isEqualTo(PackingJobStatus.QUEUED);
-        verify(jobs, never()).save(job);
-    }
-
-    @Test
-    void stalledResultCompletesAQueuedJobWhoseStartedEventNeverArrived() {
-        PackingJob job = queuedJob();
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-
-        service.recoverStalledResult(job.id(), artifact());
-
-        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
-        assertThat(job.resultFileName()).isEqualTo("result.bin");
-        assertThat(job.resultChecksum()).isEqualTo(CHECKSUM);
-        assertThat(job.engineVersion()).isEqualTo("packer 0.2.0");
-        assertThat(job.finishedAt()).isEqualTo(NOW);
-        verify(jobs).save(job);
-    }
-
-    @Test
-    void stalledResultCompletesARunningJobUsingItsMetadata() {
+    void publishesTheEventThatNotifiesTheRequesterExactlyOnce() {
         PackingJob job = runningJob();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
-        service.recoverStalledResult(job.id(), artifact());
-
-        assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
-        assertThat(job.engineVersion()).isEqualTo("packer 0.2.0");
-        verify(jobs).save(job);
-    }
-
-    @Test
-    void stalledResultLeavesATerminalJobUnchanged() {
-        PackingJob job = runningJob();
-        job.succeed("existing.bin",
-                    "application/octet-stream",
-                    1,
-                    CHECKSUM,
-                    "packer 0.1.0",
-                    CHECKSUM,
-                    NOW.minusSeconds(1));
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-
-        service.recoverStalledResult(job.id(), artifact());
-
-        assertThat(job.resultFileName()).isEqualTo("existing.bin");
-        assertThat(job.finishedAt()).isEqualTo(NOW.minusSeconds(1));
-        verify(jobs, never()).save(job);
-    }
-
-    @Test
-    void unknownJobIsReportedForBrokerRedelivery() {
-        PackingJobId unknown = PackingJobId.generate();
-        when(jobs.findById(unknown)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.resolveStalledDispatch(unknown, DispatchStall.DELIVERY_EXHAUSTED))
-                                                                                                           .isInstanceOf(PackingJobNotFoundException.class);
-
-        verify(jobs, never()).save(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void failingAStalledDispatchPublishesTheEventThatNotifiesTheRequester() {
-        PackingJob job = queuedJob();
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-
-        service.resolveStalledDispatch(job.id(), DispatchStall.EXPIRED);
+        service.failStalled(job.id(), REASON);
 
         verify(events).publishAll(published.capture());
         assertThat(published.getValue()).singleElement()
@@ -256,48 +121,21 @@ class PackingJobRecoveryServiceTest {
                                                                           job.projectId(),
                                                                           job.requestedBy(),
                                                                           PackingJobStatus.FAILED,
-                                                                          "Dispatch expired before the job started",
+                                                                          REASON,
                                                                           null,
                                                                           null,
-                                                                          null,
-                                                                          NOW));
-    }
-
-    @Test
-    void recoveringAResultPublishesTheEventThatNotifiesTheRequester() {
-        PackingJob job = runningJob();
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
-
-        service.recoverResult(job.id(), artifact());
-
-        verify(events).publishAll(published.capture());
-        assertThat(published.getValue()).singleElement()
-                                        .isEqualTo(new PackingJobFinished(job.id(),
-                                                                          job.projectId(),
-                                                                          job.requestedBy(),
-                                                                          PackingJobStatus.SUCCEEDED,
-                                                                          null,
-                                                                          "result.bin",
-                                                                          42L,
                                                                           NOW.minusSeconds(10),
                                                                           NOW));
     }
 
     @Test
-    void aRecoveryThatChangesNothingNotifiesNobody() {
-        PackingJob job = runningJob();
-        job.succeed("existing.bin",
-                    "application/octet-stream",
-                    1,
-                    CHECKSUM,
-                    "packer 0.1.0",
-                    CHECKSUM,
-                    NOW.minusSeconds(1));
-        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+    void unknownJobIsReported() {
+        PackingJobId unknown = PackingJobId.generate();
+        when(jobs.findById(unknown)).thenReturn(Optional.empty());
 
-        service.recoverStalledResult(job.id(), artifact());
+        assertThatThrownBy(() -> service.failStalled(unknown, REASON)).isInstanceOf(PackingJobNotFoundException.class);
 
-        verify(events, never()).publishAll(org.mockito.ArgumentMatchers.any());
+        verify(jobs, never()).save(any());
     }
 
     @Test
@@ -307,16 +145,12 @@ class PackingJobRecoveryServiceTest {
     }
 
     private static PackingJob queuedJob() {
-        return queuedJob(NOW.minusSeconds(30));
-    }
-
-    private static PackingJob queuedJob(Instant createdAt) {
         PackingJob job = PackingJob.queue(PackingJobId.generate(),
                                           ProjectId.generate(),
                                           UserId.generate(),
                                           "{\"testField\":true}",
                                           60,
-                                          createdAt);
+                                          NOW.minusSeconds(30));
         job.pullDomainEvents();
         return job;
     }
@@ -325,14 +159,5 @@ class PackingJobRecoveryServiceTest {
         PackingJob job = queuedJob();
         job.markRunning("packer 0.1.0", CHECKSUM, NOW.minusSeconds(10));
         return job;
-    }
-
-    private static PackingJobArtifactStore.ResultArtifact artifact() {
-        return new PackingJobArtifactStore.ResultArtifact("result.bin",
-                                                          "application/octet-stream",
-                                                          42,
-                                                          CHECKSUM,
-                                                          "packer 0.2.0",
-                                                          CHECKSUM);
     }
 }
