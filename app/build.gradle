@@ -29,6 +29,8 @@ dependencies {
     testImplementation testFixtures(project(':infra'))
 
     testImplementation libs.archunit.junit5
+    testImplementation libs.temporal.spring.boot.starter
+    testImplementation libs.temporal.testing
 }
 
 tasks.named('jar') {

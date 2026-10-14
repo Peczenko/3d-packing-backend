@@ -3,6 +3,7 @@ package com.packing.backend.infra.packing;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -36,6 +37,13 @@ class PackingContractVersionGuardTest {
                            .filter(this::codecEmitsRequestVersion)
                            .toList()).containsExactly(requestVersion);
         assertThat(codecEmitsRequestVersion(declared.get(declared.size() - 1) + 1)).isFalse();
+    }
+
+    @Test
+    void activityContractIsTheNewestDeclaredVersion() throws IOException {
+        List<Integer> declared = discoverContractVersions();
+
+        assertThat(declared.get(declared.size() - 1)).isEqualTo(PackingEngineContract.VERSION);
     }
 
     private boolean codecEmitsRequestVersion(int version) {

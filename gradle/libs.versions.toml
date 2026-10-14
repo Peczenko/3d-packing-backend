@@ -10,6 +10,7 @@ springdoc = "2.9.0"
 archunit = "1.4.1"
 spotless = "8.9.0"
 checkstyle = "13.10.0"
+temporal = "1.40.0"
 
 [libraries]
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
@@ -22,6 +23,8 @@ postgres-driver = { module = "org.postgresql:postgresql", version.ref = "postgre
 firebase-admin = { module = "com.google.firebase:firebase-admin", version.ref = "firebaseAdmin" }
 springdoc-openapi-webmvc-ui = { module = "org.springdoc:springdoc-openapi-starter-webmvc-ui", version.ref = "springdoc" }
 archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
+temporal-spring-boot-starter = { module = "io.temporal:temporal-spring-boot-starter", version.ref = "temporal" }
+temporal-testing = { module = "io.temporal:temporal-testing", version.ref = "temporal" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "springBoot" }
