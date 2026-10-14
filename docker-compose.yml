@@ -35,59 +35,24 @@ services:
       timeout: 5s
       retries: 12
 
-  servicebus-sql:
-    profiles: ["messaging", "packing"]
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    container_name: packing-servicebus-sql
+  temporal:
+    profiles: ["packing"]
+    image: temporalio/temporal:1.9.1
+    container_name: packing-temporal
     restart: unless-stopped
-    environment:
-      ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: ${SERVICE_BUS_SQL_PASSWORD:-PackingServiceBus1!}
-    volumes:
-      - servicebus-sql-data:/var/opt/mssql
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q \"SELECT 1\" -b -o /dev/null"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 30s
-
-  servicebus:
-    profiles: ["messaging", "packing"]
-    image: packing-servicebus-emulator:local
-    build:
-      context: .
-      dockerfile_inline: |
-        FROM mcr.microsoft.com/dotnet/aspnet:8.0.3-cbl-mariner2.0-amd64 AS health-tools
-        FROM mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
-        COPY --from=health-tools /bin/sh /bin/sh
-        COPY --from=health-tools /usr/bin/curl /usr/bin/curl
-        COPY --from=health-tools /usr/lib /usr/lib
-    container_name: packing-servicebus
-    restart: unless-stopped
-    depends_on:
-      servicebus-sql:
-        condition: service_healthy
-    environment:
-      ACCEPT_EULA: "Y"
-      SQL_SERVER: servicebus-sql
-      MSSQL_SA_PASSWORD: ${SERVICE_BUS_SQL_PASSWORD:-PackingServiceBus1!}
-      EMULATOR_HTTP_PORT: 5300
-      SQL_WAIT_INTERVAL: 5
-    volumes:
-      - ./config/servicebus/config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
-      - servicebus-logs:/home/app/EmulatorLogs
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--namespace", "packing"]
     ports:
-      - "${SERVICE_BUS_AMQP_PORT:-5672}:5672"
+      - "${TEMPORAL_PORT:-7233}:7233"
+      - "${TEMPORAL_UI_PORT:-8233}:8233"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:5300/health"]
+      test: ["CMD", "temporal", "operator", "namespace", "describe", "--namespace", "packing", "--address", "127.0.0.1:7233"]
       interval: 5s
       timeout: 5s
-      retries: 30
-      start_period: 60s
+      retries: 24
+      start_period: 5s
 
   app:
-    profiles: ["app"]
+    profiles: ["app", "packing"]
     build:
       context: .
     image: packing-backend:local
@@ -98,6 +63,9 @@ services:
         condition: service_healthy
       azurite:
         condition: service_healthy
+      temporal:
+        condition: service_healthy
+        required: false
     environment:
       SPRING_PROFILES_ACTIVE: local
       DB_HOST: postgres
@@ -116,10 +84,11 @@ services:
       SPRING_CLOUD_AZURE_STORAGE_BLOB_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
       EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      APP_EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
       BREVO_API_KEY: ${BREVO_API_KEY:-}
       ALERT_RECIPIENTS: ${ALERT_RECIPIENTS:-}
-      PACKING_MESSAGING_ENABLED: ${PACKING_MESSAGING_ENABLED:-false}
-      PACKING_MESSAGING_CONNECTION_STRING: ${SERVICE_BUS_CONNECTION_STRING:-}
+      TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
+      TEMPORAL_NAMESPACE: packing
     ports:
       - "${APP_PORT:-8080}:8080"
 
@@ -129,22 +98,20 @@ services:
       context: .
       dockerfile: worker/Dockerfile
     image: packing-worker:local
-    restart: "no"
+    container_name: packing-worker
+    restart: unless-stopped
     depends_on:
       azurite:
         condition: service_healthy
-      servicebus:
+      temporal:
         condition: service_healthy
     environment:
-      SERVICE_BUS_CONNECTION_STRING: Endpoint=sb://servicebus;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: packing
       STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       STORAGE_CONTAINER_NAME: ${STORAGE_CONTAINER_NAME:-models}
       PACKER_PATH: /usr/local/bin/packer
       PACKING_WORK_ROOT: /tmp
-      PACKING_RECEIVE_TIMEOUT: ${PACKING_RECEIVE_TIMEOUT:-60s}
-      PACKING_LOCK_RENEW_INTERVAL: ${PACKING_LOCK_RENEW_INTERVAL:-20s}
-      PACKING_DISPATCH_QUEUE: ${PACKING_DISPATCH_QUEUE:-packing-dispatch}
-      PACKING_RESULT_QUEUE: ${PACKING_RESULT_QUEUE:-packing-results}
 
   storage-ui:
     profiles: ["tools"]
@@ -175,6 +142,4 @@ services:
 volumes:
   postgres-data:
   azurite-data:
-  servicebus-sql-data:
-  servicebus-logs:
   rclone-cache:
