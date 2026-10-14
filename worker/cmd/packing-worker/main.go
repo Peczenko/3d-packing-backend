@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
+
+	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
+	sdklog "go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/worker"
 
 	"github.com/Peczenko/3d-packing-backend/worker/internal/azureio"
 	"github.com/Peczenko/3d-packing-backend/worker/internal/config"
@@ -20,18 +23,21 @@ import (
 )
 
 const (
-	exitProcessed      = 0
+	exitClean          = 0
 	exitInfrastructure = 1
 	exitConfiguration  = 2
 )
 
-const closeTimeout = 15 * time.Second
+const (
+	dialRetryInterval = 5 * time.Second
+	workerStopTimeout = 20 * time.Second
+)
 
-type oneShot interface {
-	RunOnce(context.Context) error
+type runner interface {
+	Run(context.Context) error
 }
 
-type connector func(config.Config, *logger) (oneShot, func(context.Context) error, error)
+type connector func(context.Context, config.Config, *slog.Logger) (runner, error)
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -41,166 +47,97 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, out io.Writer) int {
-	return runWith(ctx, args, out, connectAzure)
+	return runWith(ctx, args, out, connectTemporal)
 }
 
 func runWith(ctx context.Context, args []string, out io.Writer, connect connector) int {
-	log := newLogger(out)
+	log := slog.New(slog.NewJSONHandler(out, nil))
 
 	if len(args) > 0 {
-		log.error(fmt.Sprintf("packing-worker takes no arguments, got %d", len(args)))
+		log.Error("packing-worker takes no arguments", "count", len(args))
 		return exitConfiguration
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.error("configuration is unusable: " + err.Error())
+		log.Error("configuration is unusable", "error", err.Error())
 		return exitConfiguration
 	}
 
-	worker, closeWorker, err := connect(cfg, log)
+	w, err := connect(ctx, cfg, log)
 	if err != nil {
-		log.error("worker could not be built: " + err.Error())
+		if ctx.Err() != nil {
+			log.Info("shutdown requested before the worker connected")
+			return exitClean
+		}
+		log.Error("worker could not be built", "error", err.Error())
 		return exitConfiguration
 	}
-	defer func() {
-		closeCtx, giveUp := context.WithTimeout(context.WithoutCancel(ctx), closeTimeout)
-		defer giveUp()
-		if err := closeWorker(closeCtx); err != nil {
-			// Logged, never returned. By here the delivery has been settled —
-			// or deliberately not — and failing to hang up cannot change what
-			// happened to the job.
-			log.error("closing the worker failed: " + err.Error())
-		}
-	}()
 
-	switch err := worker.RunOnce(ctx); {
-	case err == nil:
-		log.info("dispatch handled")
-		return exitProcessed
-	case errors.Is(err, pipeline.ErrNoMessage):
-		log.info("no dispatch message within the receive window")
-		return exitProcessed
-	case errors.Is(err, pipeline.ErrLockLost):
-		log.error("dispatch lock lost, delivery left unsettled: " + err.Error())
-		return exitInfrastructure
-	default:
-		log.error("dispatch failed: " + err.Error())
+	log.Info("worker polling", "address", cfg.TemporalAddress, "namespace", cfg.TemporalNamespace, "taskQueue", cfg.TaskQueue)
+	if err := w.Run(ctx); err != nil {
+		log.Error("worker stopped", "error", err.Error())
 		return exitInfrastructure
 	}
+	log.Info("worker stopped")
+	return exitClean
 }
 
-func connectAzure(cfg config.Config, log *logger) (oneShot, func(context.Context) error, error) {
-	client, err := azureio.NewServiceBusClient(cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	queue, err := azureio.NewServiceBusQueue(client, cfg)
-	if err != nil {
-		return nil, nil, errors.Join(err, closeNow(client.Close))
-	}
+func connectTemporal(ctx context.Context, cfg config.Config, log *slog.Logger) (runner, error) {
 	blobClient, err := azureio.NewBlobClient(cfg)
 	if err != nil {
-		return nil, nil, errors.Join(err, closeNow(queue.Close), closeNow(client.Close))
+		return nil, err
+	}
+	c, err := dial(ctx, cfg, log)
+	if err != nil {
+		return nil, err
 	}
 
-	worker := pipeline.NewProcessor(
-		&observedQueue{inner: queue, log: log},
+	w := worker.New(c, cfg.TaskQueue, worker.Options{
+		MaxConcurrentActivityExecutionSize: 1,
+		WorkerStopTimeout:                  workerStopTimeout,
+	})
+	act := pipeline.NewActivity(
 		azureio.NewBlobArtifacts(blobClient, cfg),
 		engine.NewRunner(cfg.PackerPath),
+		c,
 		cfg.WorkRoot,
-		cfg.LockRenewInterval,
+		cfg.HeartbeatInterval,
 	)
-	closeWorker := func(ctx context.Context) error {
-		return errors.Join(queue.Close(ctx), client.Close(ctx))
+	w.RegisterActivityWithOptions(act.RunEngine, activity.RegisterOptions{Name: contracts.RunEngineActivity})
+	return &temporalWorker{client: c, worker: w}, nil
+}
+
+func dial(ctx context.Context, cfg config.Config, log *slog.Logger) (client.Client, error) {
+	for {
+		c, err := client.DialContext(ctx, client.Options{
+			HostPort:  cfg.TemporalAddress,
+			Namespace: cfg.TemporalNamespace,
+			Logger:    sdklog.NewStructuredLogger(log),
+		})
+		if err == nil {
+			return c, nil
+		}
+		log.Warn("temporal is not reachable yet", "address", cfg.TemporalAddress, "error", err.Error())
+		select {
+		case <-ctx.Done():
+			return nil, errors.Join(ctx.Err(), err)
+		case <-time.After(dialRetryInterval):
+		}
 	}
-	return worker, closeWorker, nil
 }
 
-func closeNow(close func(context.Context) error) error {
-	ctx, giveUp := context.WithTimeout(context.Background(), closeTimeout)
-	defer giveUp()
-	return close(ctx)
+type temporalWorker struct {
+	client client.Client
+	worker worker.Worker
 }
 
-type observedQueue struct {
-	inner pipeline.Queue
-	log   *logger
-}
-
-var _ pipeline.Queue = (*observedQueue)(nil)
-
-func (q *observedQueue) ReceiveOne(ctx context.Context) (pipeline.Delivery, error) {
-	delivery, err := q.inner.ReceiveOne(ctx)
-	if err != nil || delivery == nil {
-		return delivery, err
-	}
-
-	if dispatch, decodeErr := contracts.DecodeDispatch(delivery.Body()); decodeErr == nil {
-		q.log.job(dispatch.JobID)
-	}
-	q.log.info("dispatch received")
-	return delivery, nil
-}
-
-func (q *observedQueue) RenewLock(ctx context.Context, delivery pipeline.Delivery) error {
-	return q.inner.RenewLock(ctx, delivery)
-}
-
-func (q *observedQueue) SendEvent(ctx context.Context, event contracts.WorkerEvent) error {
-	if err := q.inner.SendEvent(ctx, event); err != nil {
-		return err
-	}
-	q.log.info(event.EventType + " event sent")
-	return nil
-}
-
-func (q *observedQueue) Complete(ctx context.Context, delivery pipeline.Delivery) error {
-	if err := q.inner.Complete(ctx, delivery); err != nil {
-		return err
-	}
-	q.log.info("dispatch completed")
-	return nil
-}
-
-func (q *observedQueue) Abandon(ctx context.Context, delivery pipeline.Delivery) error {
-	if err := q.inner.Abandon(ctx, delivery); err != nil {
-		return err
-	}
-	q.log.info("dispatch abandoned for redelivery")
-	return nil
-}
-
-type logger struct {
-	mu      sync.Mutex
-	encoder *json.Encoder
-	jobID   string
-}
-
-type logLine struct {
-	Level   string `json:"level"`
-	Message string `json:"message"`
-	JobID   string `json:"jobId,omitempty"`
-}
-
-func newLogger(out io.Writer) *logger {
-	encoder := json.NewEncoder(out)
-	encoder.SetEscapeHTML(false)
-	return &logger{encoder: encoder}
-}
-
-func (l *logger) job(jobID string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.jobID = jobID
-}
-
-func (l *logger) info(message string) { l.write("info", message) }
-
-func (l *logger) error(message string) { l.write("error", message) }
-
-func (l *logger) write(level, message string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	_ = l.encoder.Encode(logLine{Level: level, Message: message, JobID: l.jobID})
+func (t *temporalWorker) Run(ctx context.Context) error {
+	defer t.client.Close()
+	interrupt := make(chan any)
+	go func() {
+		<-ctx.Done()
+		close(interrupt)
+	}()
+	return t.worker.Run(interrupt)
 }

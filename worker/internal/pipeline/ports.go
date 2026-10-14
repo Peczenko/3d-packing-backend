@@ -3,8 +3,6 @@ package pipeline
 import (
 	"context"
 	"time"
-
-	"github.com/Peczenko/3d-packing-backend/worker/internal/contracts"
 )
 
 type EngineProvenance struct {
@@ -38,16 +36,8 @@ func (f *EngineFailure) Error() string {
 	return f.Reason
 }
 
-type Delivery interface {
-	Body() []byte
-}
-
-type Queue interface {
-	ReceiveOne(context.Context) (Delivery, error)
-	RenewLock(context.Context, Delivery) error
-	SendEvent(context.Context, contracts.WorkerEvent) error
-	Complete(context.Context, Delivery) error
-	Abandon(context.Context, Delivery) error
+type Signaler interface {
+	SignalWorkflow(ctx context.Context, workflowID, runID, signalName string, arg any) error
 }
 
 type Artifacts interface {

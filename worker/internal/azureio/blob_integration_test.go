@@ -73,8 +73,8 @@ func TestBlobArtifacts(t *testing.T) {
 		if err != nil {
 			t.Fatalf("decode downloaded request: %v", err)
 		}
-		if envelope.RequestVersion != contracts.MessageVersion {
-			t.Errorf("requestVersion = %d, want %d", envelope.RequestVersion, contracts.MessageVersion)
+		if envelope.RequestVersion != contracts.RequestVersion {
+			t.Errorf("requestVersion = %d, want %d", envelope.RequestVersion, contracts.RequestVersion)
 		}
 		if envelope.MaxRuntimeSeconds != 60 {
 			t.Errorf("maxRuntimeSeconds = %d, want 60", envelope.MaxRuntimeSeconds)
@@ -235,7 +235,7 @@ func TestBlobArtifacts(t *testing.T) {
 			"checksumSha256":       strings.Repeat("d", 64),
 			"engineVersion":        "packer 0.3.0",
 			"engineChecksumSha256": strings.Repeat("c", 64),
-			"contractVersion":      strconv.Itoa(contracts.MessageVersion),
+			"contractVersion":      strconv.Itoa(contracts.ActivityVersion),
 		}
 		if len(properties.Metadata) != len(wantMetadata) {
 			t.Errorf("stored %d metadata entries, want %d: %v", len(properties.Metadata), len(wantMetadata), metadataNames(properties.Metadata))

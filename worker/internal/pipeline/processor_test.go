@@ -2,9 +2,7 @@ package pipeline
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,6 +13,11 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/testsuite"
 
 	"github.com/Peczenko/3d-packing-backend/worker/internal/contracts"
 )
@@ -27,12 +30,12 @@ const (
 	testMaxRuntime = 60
 )
 
-func dispatchBody() []byte {
-	return []byte(`{"messageVersion":1,"jobId":"` + testJobID + `"}`)
+func requestBody() []byte {
+	return []byte(`{"requestVersion":1,"maxRuntimeSeconds":60,"spec":` + testSpec + `}`)
 }
 
-func requestBody() []byte {
-	return []byte(fmt.Sprintf(`{"requestVersion":1,"maxRuntimeSeconds":%d,"spec":%s}`, testMaxRuntime, testSpec))
+func input() contracts.RunEngineInput {
+	return contracts.RunEngineInput{ContractVersion: contracts.ActivityVersion, JobID: testJobID}
 }
 
 type recorder struct {
@@ -52,140 +55,48 @@ func (r *recorder) snapshot() []string {
 	return slices.Clone(r.calls)
 }
 
-type fakeDelivery struct {
-	body []byte
+type signal struct {
+	workflowID string
+	runID      string
+	name       string
+	arg        any
 }
 
-func (d fakeDelivery) Body() []byte { return d.body }
-
-type fakeQueue struct {
+type fakeSignaler struct {
 	rec *recorder
+	err error
 
-	delivery    Delivery
-	receiveErr  error
-	renewErr    error
-	renewGate   <-chan struct{}
-	renewHook   func()
-	renewBlocks bool
-	renewing    chan struct{}
-
-	sendErrs    map[string]error
-	completeErr error
-	abandonErr  error
-
-	mu                sync.Mutex
-	events            []contracts.WorkerEvent
-	renewals          int
-	closed            bool
-	onRenewAfterClose func()
-	settleCtxErr      error
-	settleDeadline    bool
+	mu      sync.Mutex
+	signals []signal
 }
 
-func (q *fakeQueue) ReceiveOne(context.Context) (Delivery, error) {
-	q.rec.record("receive")
-	if q.receiveErr != nil {
-		return nil, q.receiveErr
-	}
-	return q.delivery, nil
+func (s *fakeSignaler) SignalWorkflow(_ context.Context, workflowID, runID, signalName string, arg any) error {
+	s.rec.record("signal:" + signalName)
+	s.mu.Lock()
+	s.signals = append(s.signals, signal{workflowID: workflowID, runID: runID, name: signalName, arg: arg})
+	s.mu.Unlock()
+	return s.err
 }
 
-func (q *fakeQueue) RenewLock(ctx context.Context, _ Delivery) error {
-	if q.renewGate != nil {
-		select {
-		case <-q.renewGate:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	q.rec.record("renewLock")
-
-	q.mu.Lock()
-	q.renewals++
-	renewals := q.renewals
-	if q.closed && q.onRenewAfterClose != nil {
-		q.onRenewAfterClose()
-	}
-	q.mu.Unlock()
-
-	if q.renewBlocks {
-		if renewals == 1 {
-			close(q.renewing)
-		}
-		<-ctx.Done()
-		return ctx.Err()
-	}
-	if q.renewHook != nil {
-		q.renewHook()
-	}
-	if renewals == 1 {
-		return q.renewErr
-	}
-	return nil
-}
-
-func (q *fakeQueue) SendEvent(_ context.Context, event contracts.WorkerEvent) error {
-	q.rec.record("send:" + event.EventType)
-	q.mu.Lock()
-	q.events = append(q.events, event)
-	q.mu.Unlock()
-	return q.sendErrs[event.EventType]
-}
-
-func (q *fakeQueue) Complete(ctx context.Context, _ Delivery) error {
-	q.rec.record("complete")
-	q.recordSettleContext(ctx)
-	return q.completeErr
-}
-
-func (q *fakeQueue) Abandon(ctx context.Context, _ Delivery) error {
-	q.rec.record("abandon")
-	q.recordSettleContext(ctx)
-	return q.abandonErr
-}
-
-func (q *fakeQueue) recordSettleContext(ctx context.Context) {
-	_, hasDeadline := ctx.Deadline()
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.settleCtxErr = ctx.Err()
-	q.settleDeadline = hasDeadline
-}
-
-func (q *fakeQueue) settleContext() (bool, error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return q.settleDeadline, q.settleCtxErr
-}
-
-func (q *fakeQueue) sentEvents() []contracts.WorkerEvent {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return slices.Clone(q.events)
-}
-
-func (q *fakeQueue) close() {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	q.closed = true
+func (s *fakeSignaler) sent() []signal {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.signals)
 }
 
 type fakeArtifacts struct {
 	rec *recorder
 
-	find                  *StoredResult
-	findErr               error
-	request               []byte
-	downloadErr           error
-	created               *StoredResult
-	createErr             error
-	downloadWritesNothing bool
-	blockSpecFile         bool
+	find        *StoredResult
+	findErr     error
+	request     []byte
+	downloadErr error
+	created     *StoredResult
+	createErr   error
 
 	mu            sync.Mutex
 	findJobID     string
 	downloadJobID string
-	downloadPath  string
 	createJobID   string
 	createPath    string
 	createOffered StoredResult
@@ -206,18 +117,9 @@ func (a *fakeArtifacts) DownloadRequest(_ context.Context, jobID, path string) e
 	a.rec.record("download")
 	a.mu.Lock()
 	a.downloadJobID = jobID
-	a.downloadPath = path
 	a.mu.Unlock()
 	if a.downloadErr != nil {
 		return a.downloadErr
-	}
-	if a.blockSpecFile {
-		if err := os.Mkdir(filepath.Join(filepath.Dir(path), "input.json"), 0o700); err != nil {
-			return err
-		}
-	}
-	if a.downloadWritesNothing {
-		return nil
 	}
 	return os.WriteFile(path, a.request, 0o600)
 }
@@ -254,9 +156,6 @@ func (e *fakeEngine) Provenance(ctx context.Context) (EngineProvenance, error) {
 	if e.provenanceFn != nil {
 		return e.provenanceFn(ctx)
 	}
-	if err := ctx.Err(); err != nil {
-		return EngineProvenance{}, err
-	}
 	if e.provenanceErr != nil {
 		return EngineProvenance{}, e.provenanceErr
 	}
@@ -285,7 +184,7 @@ var (
 		FileName:    "output",
 		ContentType: "application/octet-stream",
 		SizeBytes:   13,
-		Checksum:    "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+		Checksum:    strings.Repeat("c", 64),
 	}
 	createdResult = StoredResult{
 		Engine: EngineProvenance{Version: "packer 0.4.0", Checksum: strings.Repeat("b", 64)},
@@ -293,7 +192,7 @@ var (
 			FileName:    "output",
 			ContentType: "application/octet-stream",
 			SizeBytes:   99,
-			Checksum:    "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+			Checksum:    strings.Repeat("d", 64),
 		},
 	}
 	storedResult = StoredResult{
@@ -316,23 +215,23 @@ func writeOutput(_ context.Context, request RunRequest) (EngineResult, error) {
 
 type harness struct {
 	rec       *recorder
-	queue     *fakeQueue
 	artifacts *fakeArtifacts
 	engine    *fakeEngine
+	signaler  *fakeSignaler
 	workRoot  string
 	interval  time.Duration
+	env       *testsuite.TestActivityEnvironment
+
+	heartbeats atomic.Int32
+	execution  atomic.Value
 }
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
 	rec := &recorder{}
-	return &harness{
+	var suite testsuite.WorkflowTestSuite
+	h := &harness{
 		rec: rec,
-		queue: &fakeQueue{
-			rec:      rec,
-			delivery: fakeDelivery{body: dispatchBody()},
-			sendErrs: map[string]error{},
-		},
 		artifacts: &fakeArtifacts{
 			rec:     rec,
 			request: requestBody(),
@@ -343,12 +242,15 @@ func newHarness(t *testing.T) *harness {
 			provenance: EngineProvenance{Version: testEngineVer, Checksum: testEngineSum},
 			run:        writeOutput,
 		},
+		signaler: &fakeSignaler{rec: rec},
 		workRoot: t.TempDir(),
-		// An hour of renewal interval means no tick fires during a test that
-		// asserts an exact call sequence, so the sequence stays the
-		// processor's own.
 		interval: time.Hour,
+		env:      suite.NewTestActivityEnvironment(),
 	}
+	h.env.SetOnActivityHeartbeatListener(func(*activity.Info, converter.EncodedValues) {
+		h.heartbeats.Add(1)
+	})
+	return h
 }
 
 func cloneResult(result StoredResult) *StoredResult {
@@ -356,13 +258,18 @@ func cloneResult(result StoredResult) *StoredResult {
 	return &copied
 }
 
-func (h *harness) run() error {
-	return h.runWith(context.Background())
-}
-
-func (h *harness) runWith(ctx context.Context) error {
-	processor := NewProcessor(h.queue, h.artifacts, h.engine, h.workRoot, h.interval)
-	return processor.RunOnce(ctx)
+func (h *harness) run(in contracts.RunEngineInput) (contracts.EngineResult, error) {
+	act := NewActivity(h.artifacts, h.engine, h.signaler, h.workRoot, h.interval)
+	h.env.RegisterActivityWithOptions(act.RunEngine, activity.RegisterOptions{Name: contracts.RunEngineActivity})
+	value, err := h.env.ExecuteActivity(contracts.RunEngineActivity, in)
+	if err != nil {
+		return contracts.EngineResult{}, err
+	}
+	var result contracts.EngineResult
+	if err := value.Get(&result); err != nil {
+		return contracts.EngineResult{}, err
+	}
+	return result, nil
 }
 
 func assertCalls(t *testing.T, got, want []string) {
@@ -392,51 +299,83 @@ func assertWorkspaceRemoved(t *testing.T, workRoot string) {
 	}
 }
 
-func TestRunOnceSuccessCallsPortsInOrder(t *testing.T) {
-	h := newHarness(t)
+func applicationError(t *testing.T, err error) *temporal.ApplicationError {
+	t.Helper()
+	var appErr *temporal.ApplicationError
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected an application error, got %T: %v", err, err)
+	}
+	return appErr
+}
 
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
+func assertRetryable(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error")
 	}
-
-	assertCalls(t, h.rec.snapshot(), []string{
-		"receive", "findResult", "download", "provenance",
-		"send:started", "run", "createResult", "send:succeeded", "complete",
-	})
-	assertWorkspaceRemoved(t, h.workRoot)
-
-	events := h.queue.sentEvents()
-	if len(events) != 2 {
-		t.Fatalf("expected started and succeeded, got %d events", len(events))
-	}
-	if events[0].JobID != testJobID || events[0].EngineVersion != testEngineVer || events[0].EngineChecksum != testEngineSum {
-		t.Fatalf("started event does not carry the job and its engine: %+v", events[0])
-	}
-	succeeded := events[1]
-	if succeeded.EngineVersion != createdResult.Engine.Version || succeeded.EngineChecksum != createdResult.Engine.Checksum {
-		t.Fatalf("succeeded event reports engine %s/%s, want the stored winner's %s/%s",
-			succeeded.EngineVersion, succeeded.EngineChecksum,
-			createdResult.Engine.Version, createdResult.Engine.Checksum)
-	}
-	if got, want := derefInt64(succeeded.ResultSizeBytes), createdResult.Result.SizeBytes; got != want {
-		t.Fatalf("succeeded resultSizeBytes = %d, want the stored winner's %d", got, want)
-	}
-	if got, want := deref(succeeded.ResultChecksum), createdResult.Result.Checksum; got != want {
-		t.Fatalf("succeeded resultChecksum = %q, want the stored winner's %q", got, want)
-	}
-	if got, want := deref(succeeded.ResultFileName), createdResult.Result.FileName; got != want {
-		t.Fatalf("succeeded resultFileName = %q, want %q", got, want)
-	}
-	if got, want := deref(succeeded.ResultContentType), createdResult.Result.ContentType; got != want {
-		t.Fatalf("succeeded resultContentType = %q, want %q", got, want)
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) && appErr.NonRetryable() {
+		t.Fatalf("expected a retryable error, got non-retryable %s: %v", appErr.Type(), err)
 	}
 }
 
-func TestRunOncePassesJobIdFromBodyToEveryPort(t *testing.T) {
+func TestRunEngineSuccessCallsPortsInOrderAndReturnsTheStoredWinner(t *testing.T) {
 	h := newHarness(t)
 
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
+	result, err := h.run(input())
+	if err != nil {
+		t.Fatalf("RunEngine: %v", err)
+	}
+
+	assertCalls(t, h.rec.snapshot(), []string{
+		"findResult", "download", "provenance", "signal:engineStarted", "run", "createResult",
+	})
+	assertWorkspaceRemoved(t, h.workRoot)
+	want := contracts.EngineResult{
+		ContractVersion:   contracts.ActivityVersion,
+		EngineVersion:     createdResult.Engine.Version,
+		EngineChecksum:    createdResult.Engine.Checksum,
+		ResultFileName:    createdResult.Result.FileName,
+		ResultContentType: createdResult.Result.ContentType,
+		ResultSizeBytes:   createdResult.Result.SizeBytes,
+		ResultChecksum:    createdResult.Result.Checksum,
+	}
+	if result != want {
+		t.Fatalf("result = %+v, want the stored winner %+v", result, want)
+	}
+}
+
+func TestRunEngineSignalsStartedToItsOwnWorkflowWithTheEngineProvenance(t *testing.T) {
+	h := newHarness(t)
+	h.engine.provenanceFn = func(ctx context.Context) (EngineProvenance, error) {
+		info := activity.GetInfo(ctx)
+		h.execution.Store([2]string{info.WorkflowExecution.ID, info.WorkflowExecution.RunID})
+		return EngineProvenance{Version: testEngineVer, Checksum: testEngineSum}, nil
+	}
+
+	if _, err := h.run(input()); err != nil {
+		t.Fatalf("RunEngine: %v", err)
+	}
+
+	signals := h.signaler.sent()
+	if len(signals) != 1 {
+		t.Fatalf("expected one signal, got %d", len(signals))
+	}
+	own := h.execution.Load().([2]string)
+	if signals[0].workflowID != own[0] || signals[0].runID != own[1] {
+		t.Fatalf("signalled %s/%s, want the activity's own workflow %s/%s", signals[0].workflowID, signals[0].runID, own[0], own[1])
+	}
+	want := contracts.EngineStarted{ContractVersion: contracts.ActivityVersion, EngineVersion: testEngineVer, EngineChecksum: testEngineSum}
+	if signals[0].name != contracts.EngineStartedSignal || signals[0].arg != want {
+		t.Fatalf("signal = %s %+v, want %s %+v", signals[0].name, signals[0].arg, contracts.EngineStartedSignal, want)
+	}
+}
+
+func TestRunEnginePassesTheLowercasedJobIdToEveryPort(t *testing.T) {
+	h := newHarness(t)
+
+	if _, err := h.run(contracts.RunEngineInput{ContractVersion: contracts.ActivityVersion, JobID: strings.ToUpper(testJobID)}); err != nil {
+		t.Fatalf("RunEngine: %v", err)
 	}
 
 	h.artifacts.mu.Lock()
@@ -452,11 +391,11 @@ func TestRunOncePassesJobIdFromBodyToEveryPort(t *testing.T) {
 	}
 }
 
-func TestRunOnceWritesSpecBytesVerbatim(t *testing.T) {
+func TestRunEngineWritesSpecBytesVerbatim(t *testing.T) {
 	h := newHarness(t)
 
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
+	if _, err := h.run(input()); err != nil {
+		t.Fatalf("RunEngine: %v", err)
 	}
 
 	h.engine.mu.Lock()
@@ -464,98 +403,78 @@ func TestRunOnceWritesSpecBytesVerbatim(t *testing.T) {
 	if got := string(h.engine.specSeen); got != testSpec {
 		t.Fatalf("packer input is not the spec byte for byte:\n got:  %s\n want: %s", got, testSpec)
 	}
-	if runtime.GOOS != "windows" {
-		if h.engine.specMode != 0o600 {
-			t.Fatalf("packer input mode = %v, want 0600", h.engine.specMode)
-		}
+	if runtime.GOOS != "windows" && h.engine.specMode != 0o600 {
+		t.Fatalf("packer input mode = %v, want 0600", h.engine.specMode)
 	}
 }
 
-func TestRunOnceBuildsRunRequestFromEnvelope(t *testing.T) {
+func TestRunEngineBuildsRunRequestFromEnvelope(t *testing.T) {
 	h := newHarness(t)
 
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
+	if _, err := h.run(input()); err != nil {
+		t.Fatalf("RunEngine: %v", err)
 	}
 
 	h.engine.mu.Lock()
 	request := h.engine.lastRequest
 	h.engine.mu.Unlock()
-
 	if request.Runtime != testMaxRuntime*time.Second {
 		t.Fatalf("run runtime = %s, want %ds from the envelope", request.Runtime, testMaxRuntime)
 	}
-	if base := filepath.Base(request.SpecPath); base != "input.json" {
-		t.Fatalf("spec path = %s, want a file named input.json", request.SpecPath)
-	}
 	workspace := filepath.Dir(request.SpecPath)
-	if filepath.Dir(request.OutputPath) != workspace {
-		t.Fatalf("output %s is not beside the spec %s", request.OutputPath, request.SpecPath)
+	if filepath.Base(request.SpecPath) != "input.json" || filepath.Dir(request.OutputPath) != workspace {
+		t.Fatalf("spec %s and output %s must share one workspace", request.SpecPath, request.OutputPath)
 	}
-	if filepath.Dir(workspace) != h.workRoot {
-		t.Fatalf("workspace %s is not directly under the configured root %s", workspace, h.workRoot)
+	if filepath.Dir(workspace) != h.workRoot || !strings.HasPrefix(filepath.Base(workspace), "packing-"+testJobID+"-") {
+		t.Fatalf("workspace %s is not a job-named directory under %s", workspace, h.workRoot)
 	}
-	if prefix := "packing-" + testJobID + "-"; !strings.HasPrefix(filepath.Base(workspace), prefix) {
-		t.Fatalf("workspace %s does not start with %q", workspace, prefix)
-	}
-
 	h.artifacts.mu.Lock()
 	defer h.artifacts.mu.Unlock()
-	if filepath.Dir(h.artifacts.downloadPath) != workspace || filepath.Base(h.artifacts.downloadPath) != "request.json" {
-		t.Fatalf("request downloaded to %s, want request.json inside %s", h.artifacts.downloadPath, workspace)
-	}
-	if h.artifacts.createPath != request.OutputPath {
-		t.Fatalf("uploaded %s, want the packer output %s", h.artifacts.createPath, request.OutputPath)
-	}
-	if h.artifacts.createOffered.Result != engineResult {
-		t.Fatalf("offered result %+v, want the engine's %+v", h.artifacts.createOffered.Result, engineResult)
-	}
-	if h.artifacts.createOffered.Engine != h.engine.provenance {
-		t.Fatalf("offered engine %+v, want %+v", h.artifacts.createOffered.Engine, h.engine.provenance)
+	if h.artifacts.createPath != request.OutputPath || h.artifacts.createOffered.Result != engineResult {
+		t.Fatalf("uploaded %s with %+v, want the packer output %s with %+v", h.artifacts.createPath, h.artifacts.createOffered.Result, request.OutputPath, engineResult)
 	}
 }
 
-func TestRunOnceEventsMatchTheContractEncoders(t *testing.T) {
+func TestRunEngineReturnsAStoredResultWithoutRunningThePacker(t *testing.T) {
 	h := newHarness(t)
+	h.artifacts.find = cloneResult(storedResult)
 
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
-
-	events := h.queue.sentEvents()
-	started, err := contracts.EncodeStarted(testJobID, testEngineVer, testEngineSum)
+	result, err := h.run(input())
 	if err != nil {
-		t.Fatalf("EncodeStarted: %v", err)
+		t.Fatalf("RunEngine: %v", err)
 	}
-	assertEventJSON(t, events[0], started)
 
-	result := createdResult.Result
-	succeeded, err := contracts.EncodeSucceeded(testJobID, createdResult.Engine.Version, createdResult.Engine.Checksum,
-		result.FileName, result.ContentType, result.SizeBytes, result.Checksum)
-	if err != nil {
-		t.Fatalf("EncodeSucceeded: %v", err)
+	assertCalls(t, h.rec.snapshot(), []string{"findResult", "signal:engineStarted"})
+	if result.EngineVersion != storedResult.Engine.Version || result.ResultChecksum != storedResult.Result.Checksum {
+		t.Fatalf("result = %+v, want the stored %+v", result, storedResult)
 	}
-	assertEventJSON(t, events[1], succeeded)
-}
-
-func assertEventJSON(t *testing.T, event contracts.WorkerEvent, want []byte) {
-	t.Helper()
-	got, err := json.Marshal(event)
-	if err != nil {
-		t.Fatalf("marshal event: %v", err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("event wire form drifted from the contract encoder:\n got:  %s\n want: %s", got, want)
+	started := h.signaler.sent()[0].arg.(contracts.EngineStarted)
+	if started.EngineVersion != storedResult.Engine.Version || started.EngineChecksum != storedResult.Engine.Checksum {
+		t.Fatalf("started carries %+v, want the stored provenance %+v", started, storedResult.Engine)
 	}
 }
 
-func TestRunOnceEngineFailureReportsFailedAndCompletes(t *testing.T) {
+func TestRunEngineRejectsAnUnusableStoredResultForRetry(t *testing.T) {
+	h := newHarness(t)
+	broken := cloneResult(storedResult)
+	broken.Result.Checksum = "not-a-checksum"
+	h.artifacts.find = broken
+
+	_, err := h.run(input())
+
+	assertRetryable(t, err)
+	assertNoCalls(t, h.rec.snapshot(), "signal:engineStarted", "run")
+}
+
+func TestRunEngineReportsAnEngineFailureAsNonRetryableWithItsDetails(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		reason string
+		want   string
 	}{
-		{name: "nonzero exit", reason: "packer exited with code 2"},
-		{name: "runtime timeout", reason: "packing runtime limit of 60s exceeded"},
+		{name: "nonzero exit", reason: "packer exited with code 2", want: "packer exited with code 2"},
+		{name: "control characters", reason: "line one\nline\ttwo", want: "line one line two"},
+		{name: "blank", reason: "  ", want: unreportedFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
@@ -563,694 +482,102 @@ func TestRunOnceEngineFailureReportsFailedAndCompletes(t *testing.T) {
 				return EngineResult{}, &EngineFailure{Reason: tc.reason}
 			}
 
-			if err := h.run(); err != nil {
-				t.Fatalf("a failed packing job is a normal outcome, got error: %v", err)
-			}
+			_, err := h.run(input())
 
-			calls := h.rec.snapshot()
-			assertCalls(t, calls, []string{
-				"receive", "findResult", "download", "provenance",
-				"send:started", "run", "send:failed", "complete",
-			})
-			assertNoCalls(t, calls, "createResult", "send:succeeded", "abandon")
+			appErr := applicationError(t, err)
+			if appErr.Type() != contracts.EngineFailureType || !appErr.NonRetryable() {
+				t.Fatalf("error type %s nonRetryable=%t, want non-retryable %s", appErr.Type(), appErr.NonRetryable(), contracts.EngineFailureType)
+			}
+			var details contracts.EngineFailureDetails
+			if err := appErr.Details(&details); err != nil {
+				t.Fatalf("details: %v", err)
+			}
+			want := contracts.EngineFailureDetails{ContractVersion: contracts.ActivityVersion, EngineVersion: testEngineVer, EngineChecksum: testEngineSum, Reason: tc.want}
+			if details != want {
+				t.Fatalf("details = %+v, want %+v", details, want)
+			}
+			assertNoCalls(t, h.rec.snapshot(), "createResult")
 			assertWorkspaceRemoved(t, h.workRoot)
-
-			events := h.queue.sentEvents()
-			failed := events[len(events)-1]
-			if deref(failed.Reason) != tc.reason {
-				t.Fatalf("failed reason = %q, want %q", deref(failed.Reason), tc.reason)
-			}
-			encoded, err := contracts.EncodeFailed(testJobID, testEngineVer, testEngineSum, tc.reason)
-			if err != nil {
-				t.Fatalf("EncodeFailed: %v", err)
-			}
-			assertEventJSON(t, failed, encoded)
 		})
 	}
 }
 
-func TestRunOnceNeverReportsABlankFailureReason(t *testing.T) {
-	h := newHarness(t)
-	h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
-		return EngineResult{}, &EngineFailure{Reason: ""}
-	}
-
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
-
-	events := h.queue.sentEvents()
-	if reason := deref(events[len(events)-1].Reason); strings.TrimSpace(reason) == "" {
-		t.Fatal("failed event carries a blank reason")
-	}
-}
-
-func TestRunOncePreExistingResultResendsBothEvents(t *testing.T) {
-	h := newHarness(t)
-	h.artifacts.find = cloneResult(storedResult)
-
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
-
-	calls := h.rec.snapshot()
-	assertCalls(t, calls, []string{"receive", "findResult", "send:started", "send:succeeded", "complete"})
-	assertNoCalls(t, calls, "download", "provenance", "run", "createResult", "abandon")
-	assertWorkspaceRemoved(t, h.workRoot)
-
-	events := h.queue.sentEvents()
-	for _, event := range events {
-		if event.EngineVersion != storedResult.Engine.Version || event.EngineChecksum != storedResult.Engine.Checksum {
-			t.Fatalf("event %s does not carry the stored engine: %+v", event.EventType, event)
-		}
-	}
-	succeeded := events[1]
-	if deref(succeeded.ResultChecksum) != storedResult.Result.Checksum ||
-		derefInt64(succeeded.ResultSizeBytes) != storedResult.Result.SizeBytes ||
-		deref(succeeded.ResultFileName) != storedResult.Result.FileName ||
-		deref(succeeded.ResultContentType) != storedResult.Result.ContentType {
-		t.Fatalf("succeeded event does not carry the stored result: %+v", succeeded)
-	}
-}
-
-var errInjected = errors.New("injected failure")
-
-func TestRunOnceInfrastructureFailuresAbandon(t *testing.T) {
+func TestRunEngineTreatsInfrastructureFailuresAsRetryable(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		arrange   func(*harness)
-		wantCalls []string
-		wantErr   error
+		name    string
+		arrange func(*harness)
+		absent  []string
 	}{
-		{
-			name:      "malformed dispatch body",
-			arrange:   func(h *harness) { h.queue.delivery = fakeDelivery{body: []byte(`{"messageVersion":1,"jobId":"nope"}`)} },
-			wantCalls: []string{"receive", "abandon"},
-			wantErr:   contracts.ErrInvalidJobID,
-		},
-		{
-			name:      "dispatch body is not json",
-			arrange:   func(h *harness) { h.queue.delivery = fakeDelivery{body: []byte("{")} },
-			wantCalls: []string{"receive", "abandon"},
-			wantErr:   contracts.ErrInvalidJSON,
-		},
-		{
-			name:      "find result fails",
-			arrange:   func(h *harness) { h.artifacts.findErr = errInjected },
-			wantCalls: []string{"receive", "findResult", "abandon"},
-			wantErr:   errInjected,
-		},
-		{
-			name:      "download fails",
-			arrange:   func(h *harness) { h.artifacts.downloadErr = errInjected },
-			wantCalls: []string{"receive", "findResult", "download", "abandon"},
-			wantErr:   errInjected,
-		},
-		{
-			name:      "malformed request envelope",
-			arrange:   func(h *harness) { h.artifacts.request = []byte("not an envelope") },
-			wantCalls: []string{"receive", "findResult", "download", "abandon"},
-			wantErr:   contracts.ErrInvalidJSON,
-		},
-		{
-			name: "unsupported request version",
-			arrange: func(h *harness) {
-				h.artifacts.request = []byte(`{"requestVersion":2,"maxRuntimeSeconds":60,"spec":{}}`)
-			},
-			wantCalls: []string{"receive", "findResult", "download", "abandon"},
-			wantErr:   contracts.ErrUnsupportedVersion,
-		},
-		{
-			name:      "download reports success but leaves no file",
-			arrange:   func(h *harness) { h.artifacts.downloadWritesNothing = true },
-			wantCalls: []string{"receive", "findResult", "download", "abandon"},
-			wantErr:   fs.ErrNotExist,
-		},
-		{
-			name:      "packer input cannot be written",
-			arrange:   func(h *harness) { h.artifacts.blockSpecFile = true },
-			wantCalls: []string{"receive", "findResult", "download", "abandon"},
-		},
-		{
-			name:      "provenance fails",
-			arrange:   func(h *harness) { h.engine.provenanceErr = errInjected },
-			wantCalls: []string{"receive", "findResult", "download", "provenance", "abandon"},
-			wantErr:   errInjected,
-		},
-		{
-			name:      "started event fails",
-			arrange:   func(h *harness) { h.queue.sendErrs["started"] = errInjected },
-			wantCalls: []string{"receive", "findResult", "download", "provenance", "send:started", "abandon"},
-			wantErr:   errInjected,
-		},
-		{
-			name: "packer error that is not an engine failure",
-			arrange: func(h *harness) {
-				h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
-					return EngineResult{}, errInjected
-				}
-			},
-			wantCalls: []string{"receive", "findResult", "download", "provenance", "send:started", "run", "abandon"},
-			wantErr:   errInjected,
-		},
-		{
-			name:    "upload fails",
-			arrange: func(h *harness) { h.artifacts.createErr = errInjected },
-			wantCalls: []string{"receive", "findResult", "download", "provenance",
-				"send:started", "run", "createResult", "abandon"},
-			wantErr: errInjected,
-		},
-		{
-			name:    "upload reports no metadata",
-			arrange: func(h *harness) { h.artifacts.created = nil },
-			wantCalls: []string{"receive", "findResult", "download", "provenance",
-				"send:started", "run", "createResult", "abandon"},
-		},
-		{
-			name:    "succeeded event fails",
-			arrange: func(h *harness) { h.queue.sendErrs["succeeded"] = errInjected },
-			wantCalls: []string{"receive", "findResult", "download", "provenance",
-				"send:started", "run", "createResult", "send:succeeded", "abandon"},
-			wantErr: errInjected,
-		},
-		{
-			name: "failed event fails",
-			arrange: func(h *harness) {
-				h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
-					return EngineResult{}, &EngineFailure{Reason: "packer exited with code 2"}
-				}
-				h.queue.sendErrs["failed"] = errInjected
-			},
-			wantCalls: []string{"receive", "findResult", "download", "provenance",
-				"send:started", "run", "send:failed", "abandon"},
-			wantErr: errInjected,
-		},
-		{
-			name: "pre-existing result cannot be reported",
-			arrange: func(h *harness) {
-				h.artifacts.find = cloneResult(storedResult)
-				h.queue.sendErrs["started"] = errInjected
-			},
-			wantCalls: []string{"receive", "findResult", "send:started", "abandon"},
-			wantErr:   errInjected,
-		},
+		{name: "result lookup", arrange: func(h *harness) { h.artifacts.findErr = errors.New("storage down") }, absent: []string{"download", "signal:engineStarted"}},
+		{name: "request download", arrange: func(h *harness) { h.artifacts.downloadErr = errors.New("storage down") }, absent: []string{"signal:engineStarted", "run"}},
+		{name: "malformed request", arrange: func(h *harness) { h.artifacts.request = []byte(`{"requestVersion":9}`) }, absent: []string{"signal:engineStarted", "run"}},
+		{name: "provenance", arrange: func(h *harness) { h.engine.provenanceErr = errors.New("packer missing") }, absent: []string{"signal:engineStarted", "run"}},
+		{name: "unusable provenance", arrange: func(h *harness) { h.engine.provenance.Checksum = "short" }, absent: []string{"signal:engineStarted", "run"}},
+		{name: "signal", arrange: func(h *harness) { h.signaler.err = errors.New("temporal down") }, absent: []string{"run"}},
+		{name: "upload", arrange: func(h *harness) { h.artifacts.createErr = errors.New("storage down") }},
+		{name: "packer infrastructure", arrange: func(h *harness) {
+			h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
+				return EngineResult{}, errors.New("exec format error")
+			}
+		}, absent: []string{"createResult"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
 			tc.arrange(h)
 
-			err := h.run()
-			if err == nil {
-				t.Fatal("RunOnce returned nil, want an infrastructure error")
-			}
-			if tc.wantErr != nil && !errors.Is(err, tc.wantErr) {
-				t.Fatalf("RunOnce error = %v, want it to wrap %v", err, tc.wantErr)
-			}
-			calls := h.rec.snapshot()
-			assertCalls(t, calls, tc.wantCalls)
-			assertNoCalls(t, calls, "complete")
+			_, err := h.run(input())
+
+			assertRetryable(t, err)
+			assertNoCalls(t, h.rec.snapshot(), tc.absent...)
 			assertWorkspaceRemoved(t, h.workRoot)
 		})
 	}
 }
 
-func TestRunOnceAbandonsWhenTheWorkspaceCannotBeCreated(t *testing.T) {
-	h := newHarness(t)
-	h.workRoot = filepath.Join(h.workRoot, "no-such-directory")
-
-	err := h.run()
-
-	if !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("RunOnce error = %v, want the workspace creation failure", err)
-	}
-	calls := h.rec.snapshot()
-	assertCalls(t, calls, []string{"receive", "findResult", "abandon"})
-	assertNoCalls(t, calls, "complete", "send:started")
-}
-
-// invalidResult is a StoredResult the backend's domain model would reject.
-type invalidResult struct {
-	name   string
-	result StoredResult
-}
-
-func invalidResults(base StoredResult) []invalidResult {
-	broken := func(name string, mutate func(*StoredResult)) invalidResult {
-		result := base
-		mutate(&result)
-		return invalidResult{name: name, result: result}
-	}
-	return []invalidResult{
-		broken("blank engine version", func(r *StoredResult) { r.Engine.Version = "   " }),
-		broken("engine version wider than the column", func(r *StoredResult) {
-			r.Engine.Version = strings.Repeat("v", maxEngineVersionBytes+1)
-		}),
-		broken("engine version carrying a control character", func(r *StoredResult) {
-			r.Engine.Version = "packer\x001.2.3"
-		}),
-		broken("truncated engine checksum", func(r *StoredResult) { r.Engine.Checksum = "abc123" }),
-		broken("non-hex engine checksum", func(r *StoredResult) { r.Engine.Checksum = strings.Repeat("z", 64) }),
-		broken("blank result file name", func(r *StoredResult) { r.Result.FileName = "" }),
-		broken("blank result content type", func(r *StoredResult) { r.Result.ContentType = "" }),
-		broken("zero result size", func(r *StoredResult) { r.Result.SizeBytes = 0 }),
-		broken("missing result checksum", func(r *StoredResult) { r.Result.Checksum = "" }),
-	}
-}
-
-func TestRunOnceRefusesToReportAnUnusableStoredResult(t *testing.T) {
-	for _, tc := range invalidResults(storedResult) {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newHarness(t)
-			h.artifacts.find = cloneResult(tc.result)
-
-			if err := h.run(); err == nil {
-				t.Fatal("RunOnce accepted stored metadata the backend would reject")
-			}
-			calls := h.rec.snapshot()
-			assertCalls(t, calls, []string{"receive", "findResult", "abandon"})
-			assertNoCalls(t, calls, "send:started", "send:succeeded", "complete")
-		})
-	}
-}
-
-func TestRunOnceRefusesToReportAnUnusableCreatedResult(t *testing.T) {
-	for _, tc := range invalidResults(createdResult) {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newHarness(t)
-			h.artifacts.created = cloneResult(tc.result)
-
-			if err := h.run(); err == nil {
-				t.Fatal("RunOnce accepted uploaded metadata the backend would reject")
-			}
-			calls := h.rec.snapshot()
-			assertCalls(t, calls, []string{"receive", "findResult", "download", "provenance",
-				"send:started", "run", "createResult", "abandon"})
-			assertNoCalls(t, calls, "send:succeeded", "complete")
-		})
-	}
-}
-
-func TestRunOnceRefusesToStartWithUnusableProvenance(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		engine EngineProvenance
-	}{
-		{name: "blank version", engine: EngineProvenance{Version: " ", Checksum: testEngineSum}},
-		{name: "truncated checksum", engine: EngineProvenance{Version: testEngineVer, Checksum: "deadbeef"}},
-		{name: "version wider than the column", engine: EngineProvenance{
-			Version:  strings.Repeat("v", maxEngineVersionBytes+1),
-			Checksum: testEngineSum,
-		}},
-		{name: "multi-line version banner", engine: EngineProvenance{
-			Version:  "packer 1.2.3\nbuilt with go1.26.5",
-			Checksum: testEngineSum,
-		}},
-		{name: "version carrying a NUL byte", engine: EngineProvenance{
-			Version:  "packer\x001.2.3",
-			Checksum: testEngineSum,
-		}},
+func TestRunEngineRejectsAnInvalidInputWithoutTouchingAnyPort(t *testing.T) {
+	for _, in := range []contracts.RunEngineInput{
+		{ContractVersion: 1, JobID: testJobID},
+		{ContractVersion: contracts.ActivityVersion, JobID: "not-a-uuid"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newHarness(t)
-			h.engine.provenance = tc.engine
+		h := newHarness(t)
 
-			if err := h.run(); err == nil {
-				t.Fatal("RunOnce started a job with a provenance the backend would reject")
-			}
-			calls := h.rec.snapshot()
-			assertCalls(t, calls, []string{"receive", "findResult", "download", "provenance", "abandon"})
-			assertNoCalls(t, calls, "send:started", "run", "complete")
-		})
+		_, err := h.run(in)
+
+		appErr := applicationError(t, err)
+		if appErr.Type() != contracts.InvalidInputType || !appErr.NonRetryable() {
+			t.Fatalf("input %+v: error type %s nonRetryable=%t, want non-retryable %s", in, appErr.Type(), appErr.NonRetryable(), contracts.InvalidInputType)
+		}
+		assertCalls(t, h.rec.snapshot(), nil)
 	}
 }
 
-func TestRunOnceAcceptsAVersionThatExactlyFillsTheColumn(t *testing.T) {
+func TestRunEngineHeartbeatsWhileThePackerRuns(t *testing.T) {
 	h := newHarness(t)
-	version := strings.Repeat("v", maxEngineVersionBytes)
-	h.engine.provenance = EngineProvenance{Version: version, Checksum: testEngineSum}
-
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce rejected a %d-byte version the column holds: %v", maxEngineVersionBytes, err)
-	}
-	events := h.queue.sentEvents()
-	if len(events) == 0 || events[0].EngineVersion != version {
-		t.Fatalf("started event does not carry the %d-byte version: %+v", maxEngineVersionBytes, events)
-	}
-}
-
-func TestRunOnceStripsControlCharactersFromTheFailureReason(t *testing.T) {
-	h := newHarness(t)
-	h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
-		return EngineResult{}, &EngineFailure{Reason: "packer exited with code 3: boom\x00\r\n  at frame\x1b[0m\t"}
-	}
-
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
-
-	events := h.queue.sentEvents()
-	reason := deref(events[len(events)-1].Reason)
-	if want := "packer exited with code 3: boom     at frame [0m"; reason != want {
-		t.Fatalf("reason = %q, want %q", reason, want)
-	}
-	if i := strings.IndexFunc(reason, isControlCharacter); i >= 0 {
-		t.Fatalf("reason keeps a control character at byte %d: %q", i, reason)
-	}
-}
-
-func TestRunOnceSubstitutesAReasonThatStrippingEmpties(t *testing.T) {
-	h := newHarness(t)
-	h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
-		return EngineResult{}, &EngineFailure{Reason: "\x00\x01\x1b"}
-	}
-
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
-
-	events := h.queue.sentEvents()
-	if reason := deref(events[len(events)-1].Reason); reason != unreportedFailure {
-		t.Fatalf("reason = %q, want %q", reason, unreportedFailure)
-	}
-}
-
-func TestRunOnceNoMessage(t *testing.T) {
-	h := newHarness(t)
-	h.queue.receiveErr = ErrNoMessage
-
-	err := h.run()
-
-	if !errors.Is(err, ErrNoMessage) {
-		t.Fatalf("RunOnce error = %v, want ErrNoMessage", err)
-	}
-	assertCalls(t, h.rec.snapshot(), []string{"receive"})
-}
-
-func TestRunOnceNilDeliveryIsNoMessage(t *testing.T) {
-	h := newHarness(t)
-	h.queue.delivery = nil
-
-	err := h.run()
-
-	if !errors.Is(err, ErrNoMessage) {
-		t.Fatalf("RunOnce error = %v, want ErrNoMessage", err)
-	}
-	assertCalls(t, h.rec.snapshot(), []string{"receive"})
-}
-
-func TestRunOnceReceiveFailureIsNotSettled(t *testing.T) {
-	h := newHarness(t)
-	h.queue.receiveErr = errInjected
-
-	err := h.run()
-
-	if !errors.Is(err, errInjected) {
-		t.Fatalf("RunOnce error = %v, want the receive failure", err)
-	}
-	assertCalls(t, h.rec.snapshot(), []string{"receive"})
-}
-
-func TestRunOnceReportsAFailedAbandonWithoutLosingTheCause(t *testing.T) {
-	h := newHarness(t)
-	h.artifacts.findErr = errInjected
-	abandonFailed := errors.New("abandon rejected")
-	h.queue.abandonErr = abandonFailed
-
-	err := h.run()
-
-	if !errors.Is(err, errInjected) {
-		t.Fatalf("RunOnce error = %v, want it to keep wrapping the cause", err)
-	}
-	if !errors.Is(err, abandonFailed) {
-		t.Fatalf("RunOnce error = %v, want it to report the failed abandon too", err)
-	}
-}
-
-func TestRunOnceCompleteFailureIsNotFollowedByAbandon(t *testing.T) {
-	h := newHarness(t)
-	h.queue.completeErr = errInjected
-
-	err := h.run()
-
-	if !errors.Is(err, errInjected) {
-		t.Fatalf("RunOnce error = %v, want the complete failure", err)
-	}
-	calls := h.rec.snapshot()
-	assertCalls(t, calls, []string{
-		"receive", "findResult", "download", "provenance",
-		"send:started", "run", "createResult", "send:succeeded", "complete",
-	})
-	assertNoCalls(t, calls, "abandon")
-}
-
-func TestRunOnceLostLockCancelsTheEngineAndSettlesNothing(t *testing.T) {
-	h := newHarness(t)
-	h.interval = time.Millisecond
-	h.queue.renewErr = errInjected
-
-	running := make(chan struct{})
-	h.queue.renewGate = running
-
-	canceled := make(chan struct{})
-	h.engine.run = func(ctx context.Context, _ RunRequest) (EngineResult, error) {
-		close(running)
+	h.interval = 10 * time.Millisecond
+	h.engine.run = func(ctx context.Context, request RunRequest) (EngineResult, error) {
 		select {
+		case <-time.After(200 * time.Millisecond):
 		case <-ctx.Done():
-			close(canceled)
-			return EngineResult{}, fmt.Errorf("engine: packing canceled: %w", ctx.Err())
-		case <-time.After(5 * time.Second):
-			return EngineResult{}, errors.New("engine context was never canceled")
+			return EngineResult{}, ctx.Err()
 		}
+		return writeOutput(ctx, request)
 	}
 
-	err := h.run()
-
-	if !errors.Is(err, ErrLockLost) {
-		t.Fatalf("RunOnce error = %v, want ErrLockLost", err)
-	}
-	if !errors.Is(err, errInjected) {
-		t.Fatalf("RunOnce error = %v, want it to wrap the renewal failure", err)
-	}
-	select {
-	case <-canceled:
-	default:
-		t.Fatal("engine context was not canceled")
-	}
-	calls := h.rec.snapshot()
-	assertCalls(t, calls, []string{
-		"receive", "findResult", "download", "provenance", "send:started", "run", "renewLock",
-	})
-	assertNoCalls(t, calls, "createResult", "send:succeeded", "send:failed", "complete", "abandon")
-	assertWorkspaceRemoved(t, h.workRoot)
-}
-
-func TestRunOnceLostLockSuppressesAnEngineFailure(t *testing.T) {
-	h := newHarness(t)
-	h.interval = time.Millisecond
-	h.queue.renewErr = errInjected
-
-	running := make(chan struct{})
-	h.queue.renewGate = running
-	h.engine.run = func(ctx context.Context, _ RunRequest) (EngineResult, error) {
-		close(running)
-		select {
-		case <-ctx.Done():
-		case <-time.After(5 * time.Second):
-			return EngineResult{}, errors.New("engine context was never canceled")
-		}
-		return EngineResult{}, &EngineFailure{Reason: "packer exited with code 2"}
+	if _, err := h.run(input()); err != nil {
+		t.Fatalf("RunEngine: %v", err)
 	}
 
-	err := h.run()
-
-	if !errors.Is(err, ErrLockLost) {
-		t.Fatalf("RunOnce error = %v, want ErrLockLost", err)
-	}
-	calls := h.rec.snapshot()
-	assertNoCalls(t, calls, "send:failed", "send:succeeded", "complete", "abandon")
-}
-
-func TestRunOnceLostLockKeepsTheJobsOwnError(t *testing.T) {
-	h := newHarness(t)
-	h.interval = time.Millisecond
-	h.queue.renewErr = errInjected
-
-	packerBroke := errors.New("packer wrote no output file")
-	running := make(chan struct{})
-	h.queue.renewGate = running
-	h.engine.run = func(ctx context.Context, _ RunRequest) (EngineResult, error) {
-		close(running)
-		select {
-		case <-ctx.Done():
-		case <-time.After(5 * time.Second):
-			return EngineResult{}, errors.New("engine context was never canceled")
-		}
-		return EngineResult{}, packerBroke
-	}
-
-	err := h.run()
-
-	if !errors.Is(err, ErrLockLost) {
-		t.Fatalf("RunOnce error = %v, want it to stay recognisable as ErrLockLost", err)
-	}
-	if !errors.Is(err, errInjected) {
-		t.Fatalf("RunOnce error = %v, want it to wrap the renewal failure", err)
-	}
-	if !errors.Is(err, packerBroke) {
-		t.Fatalf("RunOnce error = %v, want it to keep the error the job itself hit", err)
+	if got := h.heartbeats.Load(); got < 1 {
+		t.Fatalf("recorded %d heartbeats during a 200ms run at a 10ms interval, want at least one", got)
 	}
 }
 
-func TestRunOnceCancelsProvenanceWhenTheLockIsLost(t *testing.T) {
-	h := newHarness(t)
-	h.interval = time.Millisecond
-	h.queue.renewErr = errInjected
-
-	reading := make(chan struct{})
-	h.queue.renewGate = reading
-	canceled := make(chan struct{})
-	h.engine.provenanceFn = func(ctx context.Context) (EngineProvenance, error) {
-		close(reading)
-		select {
-		case <-ctx.Done():
-			close(canceled)
-			return EngineProvenance{}, ctx.Err()
-		case <-time.After(5 * time.Second):
-			return EngineProvenance{}, errors.New("provenance context was never canceled")
-		}
-	}
-
-	err := h.runWith(context.Background())
-
-	select {
-	case <-canceled:
-	default:
-		t.Fatal("Provenance was not called under the cancellable context")
-	}
-	if !errors.Is(err, ErrLockLost) {
-		t.Fatalf("RunOnce error = %v, want ErrLockLost", err)
-	}
-	calls := h.rec.snapshot()
-	assertCalls(t, calls, []string{"receive", "findResult", "download", "provenance", "renewLock"})
-	assertNoCalls(t, calls, "send:started", "run", "complete", "abandon")
-}
-
-func TestRunOnceShutdownDuringRenewalStillAbandons(t *testing.T) {
-	h := newHarness(t)
-	h.interval = time.Millisecond
-	h.queue.renewErr = errInjected
-
-	ctx, shutdown := context.WithCancel(context.Background())
-	defer shutdown()
-
-	running := make(chan struct{})
-	h.queue.renewGate = running
-	h.queue.renewHook = shutdown
-
-	h.engine.run = func(runCtx context.Context, _ RunRequest) (EngineResult, error) {
-		close(running)
-		select {
-		case <-runCtx.Done():
-			return EngineResult{}, fmt.Errorf("engine: packing canceled: %w", runCtx.Err())
-		case <-time.After(5 * time.Second):
-			return EngineResult{}, errors.New("engine context was never canceled")
-		}
-	}
-
-	err := h.runWith(ctx)
-
-	if errors.Is(err, ErrLockLost) {
-		t.Fatalf("a shutdown was reported as a lost lock: %v", err)
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("RunOnce error = %v, want the canceled run", err)
-	}
-	calls := h.rec.snapshot()
-	assertCalls(t, calls, []string{"receive", "findResult", "download", "provenance",
-		"send:started", "run", "renewLock", "abandon"})
-	assertNoCalls(t, calls, "send:failed", "send:succeeded", "complete")
-
-	bounded, settleErr := h.queue.settleContext()
-	if settleErr != nil {
-		t.Fatalf("settlement ran on a context the shutdown had canceled: %v", settleErr)
-	}
-	if !bounded {
-		t.Fatal("settlement ran on an unbounded context")
-	}
-}
-
-func TestRunOnceReturnsWhileARenewalIsInFlight(t *testing.T) {
-	h := newHarness(t)
-	h.interval = time.Millisecond
-	h.queue.renewBlocks = true
-	h.queue.renewing = make(chan struct{})
-
-	running := make(chan struct{})
-	h.queue.renewGate = running
-	h.engine.run = func(_ context.Context, request RunRequest) (EngineResult, error) {
-		close(running)
-		select {
-		case <-h.queue.renewing:
-		case <-time.After(5 * time.Second):
-			return EngineResult{}, errors.New("no renewal ever went in flight")
-		}
-		return writeOutput(context.Background(), request)
-	}
-
-	finished := make(chan error, 1)
-	go func() { finished <- h.run() }()
-
-	select {
-	case err := <-finished:
-		if err != nil {
-			t.Fatalf("RunOnce: %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("RunOnce blocked with a lock renewal still in flight")
-	}
-	calls := h.rec.snapshot()
-	assertCalls(t, calls, []string{"receive", "findResult", "download", "provenance",
-		"send:started", "run", "renewLock", "createResult", "send:succeeded", "complete"})
-}
-
-func TestRunOnceStopsRenewalBeforeReturning(t *testing.T) {
-	h := newHarness(t)
-	h.interval = time.Millisecond
-
-	var leaked atomic.Bool
-	h.queue.onRenewAfterClose = func() { leaked.Store(true) }
-
-	if err := h.run(); err != nil {
-		t.Fatalf("RunOnce: %v", err)
-	}
-	h.queue.close()
-
-	time.Sleep(20 * time.Millisecond)
-	if leaked.Load() {
-		t.Fatal("lock renewal outlived RunOnce")
-	}
-}
-
-func TestRunOnceRejectsANonPositiveRenewalInterval(t *testing.T) {
+func TestRunEngineRefusesANonPositiveHeartbeatInterval(t *testing.T) {
 	h := newHarness(t)
 	h.interval = 0
 
-	if err := h.run(); err == nil {
-		t.Fatal("RunOnce accepted a zero renewal interval")
-	}
+	_, err := h.run(input())
+
+	assertRetryable(t, err)
 	assertCalls(t, h.rec.snapshot(), nil)
-}
-
-func deref(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func derefInt64(value *int64) int64 {
-	if value == nil {
-		return 0
-	}
-	return *value
 }
