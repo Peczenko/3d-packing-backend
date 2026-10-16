@@ -69,21 +69,38 @@ func NewBlobArtifacts(client *azblob.Client, cfg config.Config) *BlobArtifacts {
 	return &BlobArtifacts{container: client.ServiceClient().NewContainerClient(cfg.StorageContainer)}
 }
 
-func (a *BlobArtifacts) DownloadRequest(ctx context.Context, jobID, path string) (err error) {
+func (a *BlobArtifacts) DownloadRequest(ctx context.Context, jobID, path string) error {
+	if err := a.download(ctx, requestKey(jobID), path); err != nil {
+		return fmt.Errorf("azureio: download request for job %s: %w", jobID, err)
+	}
+	return nil
+}
+
+func (a *BlobArtifacts) DownloadInput(ctx context.Context, storageKey, path string) error {
+	err := a.download(ctx, storageKey, path)
+	switch {
+	case err == nil:
+		return nil
+	case bloberror.HasCode(err, bloberror.BlobNotFound, bloberror.ContainerNotFound):
+		return fmt.Errorf("azureio: input %s: %w", storageKey, pipeline.ErrInputNotFound)
+	default:
+		return fmt.Errorf("azureio: download input %s: %w", storageKey, err)
+	}
+}
+
+func (a *BlobArtifacts) download(ctx context.Context, key, path string) (err error) {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
-		return fmt.Errorf("azureio: create request file for job %s: %w", jobID, err)
+		return fmt.Errorf("create %s: %w", path, err)
 	}
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("azureio: close request file for job %s: %w", jobID, closeErr))
+			err = errors.Join(err, fmt.Errorf("close %s: %w", path, closeErr))
 		}
 	}()
 
-	if _, downloadErr := a.container.NewBlobClient(requestKey(jobID)).DownloadFile(ctx, file, nil); downloadErr != nil {
-		return fmt.Errorf("azureio: download request for job %s: %w", jobID, downloadErr)
-	}
-	return nil
+	_, err = a.container.NewBlobClient(key).DownloadFile(ctx, file, nil)
+	return err
 }
 
 func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline.StoredResult, error) {

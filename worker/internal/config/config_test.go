@@ -20,6 +20,8 @@ func clearEnv(t *testing.T) {
 		"STORAGE_CONTAINER_NAME",
 		"PACKER_PATH",
 		"PACKING_WORK_ROOT",
+		"PACKER_VERSION",
+		"PACKING_ENGINE_OVERRUN_GRACE",
 	} {
 		t.Setenv(key, "")
 	}
@@ -28,6 +30,7 @@ func clearEnv(t *testing.T) {
 func TestLoadDefaults(t *testing.T) {
 	clearEnv(t)
 	t.Setenv("STORAGE_CONNECTION_STRING", "DefaultEndpointsProtocol=https;AccountName=example;AccountKey=z")
+	t.Setenv("PACKER_VERSION", "v0.0.2")
 
 	cfg, err := Load()
 	if err != nil {
@@ -38,9 +41,11 @@ func TestLoadDefaults(t *testing.T) {
 		TemporalNamespace:       "packing",
 		TaskQueue:               "packing-engine",
 		HeartbeatInterval:       10 * time.Second,
+		OverrunGrace:            60 * time.Second,
 		StorageConnectionString: "DefaultEndpointsProtocol=https;AccountName=example;AccountKey=z",
 		StorageContainer:        "models",
 		PackerPath:              "/usr/local/bin/packer",
+		PackerVersion:           "v0.0.2",
 		WorkRoot:                os.TempDir(),
 	}
 	if cfg != want {
@@ -58,6 +63,8 @@ func TestLoadAppliesOverrides(t *testing.T) {
 	t.Setenv("STORAGE_CONTAINER_NAME", "custom-models")
 	t.Setenv("PACKER_PATH", "/opt/packer/bin/packer")
 	t.Setenv("PACKING_WORK_ROOT", "/var/tmp/packing")
+	t.Setenv("PACKER_VERSION", " v9.9.9 ")
+	t.Setenv("PACKING_ENGINE_OVERRUN_GRACE", "90s")
 
 	cfg, err := Load()
 	if err != nil {
@@ -68,9 +75,11 @@ func TestLoadAppliesOverrides(t *testing.T) {
 		TemporalNamespace: "other",
 		TaskQueue:         "custom-engine",
 		HeartbeatInterval: 3 * time.Second,
+		OverrunGrace:      90 * time.Second,
 		StorageAccountURL: "https://example.blob.core.windows.net",
 		StorageContainer:  "custom-models",
 		PackerPath:        "/opt/packer/bin/packer",
+		PackerVersion:     "v9.9.9",
 		WorkRoot:          "/var/tmp/packing",
 	}
 	if cfg != want {
@@ -121,5 +130,29 @@ func TestLoadNeverEchoesTheStorageConnectionString(t *testing.T) {
 	}
 	if got := err.Error(); strings.Contains(got, "SECRET-MARKER") {
 		t.Fatalf("error leaks the connection string: %s", got)
+	}
+}
+
+func TestLoadRejectsAMissingPackerVersion(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("STORAGE_CONNECTION_STRING", "conn")
+
+	if _, err := Load(); !errors.Is(err, ErrMissingPackerVersion) {
+		t.Fatalf("expected ErrMissingPackerVersion, got %v", err)
+	}
+}
+
+func TestLoadRejectsAnUnusableOverrunGrace(t *testing.T) {
+	for _, value := range []string{"soon", "-1s"} {
+		t.Run(value, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("STORAGE_CONNECTION_STRING", "conn")
+			t.Setenv("PACKER_VERSION", "v0.0.2")
+			t.Setenv("PACKING_ENGINE_OVERRUN_GRACE", value)
+
+			if _, err := Load(); !errors.Is(err, ErrInvalidOverrunGrace) {
+				t.Fatalf("expected ErrInvalidOverrunGrace, got %v", err)
+			}
+		})
 	}
 }

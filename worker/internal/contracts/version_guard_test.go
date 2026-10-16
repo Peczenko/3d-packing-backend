@@ -10,11 +10,11 @@ import (
 
 var versionDirPattern = regexp.MustCompile(`^v(\d+)$`)
 
-func discoverContractVersions(t *testing.T) []int {
+func discoverVersions(t *testing.T, root string) []int {
 	t.Helper()
-	entries, err := os.ReadDir(contractsDir)
+	entries, err := os.ReadDir(root)
 	if err != nil {
-		t.Fatalf("read contracts root %s: %v", contractsDir, err)
+		t.Fatalf("read contracts root %s: %v", root, err)
 	}
 	var versions []int
 	for _, entry := range entries {
@@ -32,7 +32,7 @@ func discoverContractVersions(t *testing.T) []int {
 		versions = append(versions, v)
 	}
 	if len(versions) == 0 {
-		t.Fatalf("no version directories found under %s", contractsDir)
+		t.Fatalf("no version directories found under %s", root)
 	}
 	sort.Ints(versions)
 	return versions
@@ -44,7 +44,7 @@ func acceptsActivityVersion(version int) bool {
 }
 
 func TestActivityContractIsTheNewestDeclaredVersionAndTheOnlyOneAccepted(t *testing.T) {
-	declared := discoverContractVersions(t)
+	declared := discoverVersions(t, contractsDir)
 	newest := declared[len(declared)-1]
 
 	if ActivityVersion != newest {

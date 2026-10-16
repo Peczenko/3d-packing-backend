@@ -2,11 +2,12 @@ package pipeline
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
-	"io/fs"
+	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -24,14 +25,27 @@ import (
 
 const (
 	testJobID      = "00000000-0000-0000-0000-000000000001"
-	testSpec       = `{"label":"crate <a> & <b>","boxes":[{"w":1}]}`
-	testEngineVer  = "packer 0.3.0"
+	testStorageKey = "files/0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00"
+	testFileName   = "bunny.obj"
+	testInput      = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n"
+	testEngineVer  = "v0.0.2"
 	testEngineSum  = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	testMaxRuntime = 60
+	testMaxRuntime = 120
 )
 
+func inputChecksum() string {
+	sum := sha256.Sum256([]byte(testInput))
+	return hex.EncodeToString(sum[:])
+}
+
+func requestBodyWith(format, parameters string) []byte {
+	return []byte(`{"requestVersion":3,"maxRuntimeSeconds":120,"inputSchemaVersion":1,"items":[{"storageKey":"` +
+		testStorageKey + `","fileName":"` + testFileName + `","format":"` + format + `","checksum":"` +
+		inputChecksum() + `","copies":2}],"parameters":` + parameters + `}`)
+}
+
 func requestBody() []byte {
-	return []byte(`{"requestVersion":1,"maxRuntimeSeconds":60,"spec":` + testSpec + `}`)
+	return requestBodyWith("OBJ", "{}")
 }
 
 func input() contracts.RunEngineInput {
@@ -91,12 +105,15 @@ type fakeArtifacts struct {
 	findErr     error
 	request     []byte
 	downloadErr error
+	inputs      map[string][]byte
+	inputErr    error
 	created     *StoredResult
 	createErr   error
 
 	mu            sync.Mutex
 	findJobID     string
 	downloadJobID string
+	inputKeys     []string
 	createJobID   string
 	createPath    string
 	createOffered StoredResult
@@ -124,6 +141,21 @@ func (a *fakeArtifacts) DownloadRequest(_ context.Context, jobID, path string) e
 	return os.WriteFile(path, a.request, 0o600)
 }
 
+func (a *fakeArtifacts) DownloadInput(_ context.Context, storageKey, path string) error {
+	a.rec.record("downloadInput")
+	a.mu.Lock()
+	a.inputKeys = append(a.inputKeys, storageKey)
+	a.mu.Unlock()
+	if a.inputErr != nil {
+		return a.inputErr
+	}
+	body, ok := a.inputs[storageKey]
+	if !ok {
+		return fmt.Errorf("fake: %s: %w", storageKey, ErrInputNotFound)
+	}
+	return os.WriteFile(path, body, 0o600)
+}
+
 func (a *fakeArtifacts) CreateResult(_ context.Context, jobID, path string, offered StoredResult) (*StoredResult, error) {
 	a.rec.record("createResult")
 	a.mu.Lock()
@@ -147,8 +179,7 @@ type fakeEngine struct {
 
 	mu          sync.Mutex
 	lastRequest RunRequest
-	specSeen    []byte
-	specMode    fs.FileMode
+	inputsSeen  []string
 }
 
 func (e *fakeEngine) Provenance(ctx context.Context) (EngineProvenance, error) {
@@ -164,42 +195,39 @@ func (e *fakeEngine) Provenance(ctx context.Context) (EngineProvenance, error) {
 
 func (e *fakeEngine) Run(ctx context.Context, request RunRequest) (EngineResult, error) {
 	e.rec.record("run")
-
-	spec, _ := os.ReadFile(request.SpecPath)
-	var mode fs.FileMode
-	if info, err := os.Stat(request.SpecPath); err == nil {
-		mode = info.Mode().Perm()
+	seen := make([]string, 0, len(request.Inputs))
+	for _, in := range request.Inputs {
+		content, _ := os.ReadFile(in.Path)
+		seen = append(seen, string(content))
 	}
 	e.mu.Lock()
 	e.lastRequest = request
-	e.specSeen = spec
-	e.specMode = mode
+	e.inputsSeen = seen
 	e.mu.Unlock()
-
 	return e.run(ctx, request)
 }
 
 var (
 	engineResult = EngineResult{
-		FileName:    "output",
-		ContentType: "application/octet-stream",
+		FileName:    "packed.obj",
+		ContentType: "model/obj",
 		SizeBytes:   13,
 		Checksum:    strings.Repeat("c", 64),
 	}
 	createdResult = StoredResult{
-		Engine: EngineProvenance{Version: "packer 0.4.0", Checksum: strings.Repeat("b", 64)},
+		Engine: EngineProvenance{Version: "v0.0.3", Checksum: strings.Repeat("b", 64)},
 		Result: EngineResult{
-			FileName:    "output",
-			ContentType: "application/octet-stream",
+			FileName:    "packed.obj",
+			ContentType: "model/obj",
 			SizeBytes:   99,
 			Checksum:    strings.Repeat("d", 64),
 		},
 	}
 	storedResult = StoredResult{
-		Engine: EngineProvenance{Version: "packer 0.2.0", Checksum: strings.Repeat("e", 64)},
+		Engine: EngineProvenance{Version: "v0.0.1", Checksum: strings.Repeat("e", 64)},
 		Result: EngineResult{
-			FileName:    "output",
-			ContentType: "application/octet-stream",
+			FileName:    "packed.obj",
+			ContentType: "model/obj",
 			SizeBytes:   42,
 			Checksum:    strings.Repeat("f", 64),
 		},
@@ -235,6 +263,7 @@ func newHarness(t *testing.T) *harness {
 		artifacts: &fakeArtifacts{
 			rec:     rec,
 			request: requestBody(),
+			inputs:  map[string][]byte{testStorageKey: []byte(testInput)},
 			created: cloneResult(createdResult),
 		},
 		engine: &fakeEngine{
@@ -319,6 +348,22 @@ func assertRetryable(t *testing.T, err error) {
 	}
 }
 
+func assertEngineFailure(t *testing.T, err error, reason string) {
+	t.Helper()
+	appErr := applicationError(t, err)
+	if appErr.Type() != contracts.EngineFailureType || !appErr.NonRetryable() {
+		t.Fatalf("error type %s nonRetryable=%t, want non-retryable %s", appErr.Type(), appErr.NonRetryable(), contracts.EngineFailureType)
+	}
+	var details contracts.EngineFailureDetails
+	if err := appErr.Details(&details); err != nil {
+		t.Fatalf("details: %v", err)
+	}
+	want := contracts.EngineFailureDetails{ContractVersion: contracts.ActivityVersion, EngineVersion: testEngineVer, EngineChecksum: testEngineSum, Reason: reason}
+	if details != want {
+		t.Fatalf("details = %+v, want %+v", details, want)
+	}
+}
+
 func TestRunEngineSuccessCallsPortsInOrderAndReturnsTheStoredWinner(t *testing.T) {
 	h := newHarness(t)
 
@@ -328,7 +373,7 @@ func TestRunEngineSuccessCallsPortsInOrderAndReturnsTheStoredWinner(t *testing.T
 	}
 
 	assertCalls(t, h.rec.snapshot(), []string{
-		"findResult", "download", "provenance", "signal:engineStarted", "run", "createResult",
+		"findResult", "download", "provenance", "downloadInput", "signal:engineStarted", "run", "createResult",
 	})
 	assertWorkspaceRemoved(t, h.workRoot)
 	want := contracts.EngineResult{
@@ -391,7 +436,7 @@ func TestRunEnginePassesTheLowercasedJobIdToEveryPort(t *testing.T) {
 	}
 }
 
-func TestRunEngineWritesSpecBytesVerbatim(t *testing.T) {
+func TestRunEngineHandsThePackerTheVerifiedInputsUnderIndexNames(t *testing.T) {
 	h := newHarness(t)
 
 	if _, err := h.run(input()); err != nil {
@@ -400,11 +445,23 @@ func TestRunEngineWritesSpecBytesVerbatim(t *testing.T) {
 
 	h.engine.mu.Lock()
 	defer h.engine.mu.Unlock()
-	if got := string(h.engine.specSeen); got != testSpec {
-		t.Fatalf("packer input is not the spec byte for byte:\n got:  %s\n want: %s", got, testSpec)
+	inputs := h.engine.lastRequest.Inputs
+	if len(inputs) != 1 {
+		t.Fatalf("packer received %d inputs, want 1", len(inputs))
 	}
-	if runtime.GOOS != "windows" && h.engine.specMode != 0o600 {
-		t.Fatalf("packer input mode = %v, want 0600", h.engine.specMode)
+	if filepath.Base(inputs[0].Path) != "0.obj" || filepath.Base(filepath.Dir(inputs[0].Path)) != "inputs" {
+		t.Fatalf("input path %s is not inputs/0.obj", inputs[0].Path)
+	}
+	if inputs[0].DisplayName != testFileName || inputs[0].Copies != 2 {
+		t.Fatalf("input = %+v, want %s with 2 copies", inputs[0], testFileName)
+	}
+	if h.engine.inputsSeen[0] != testInput {
+		t.Fatalf("packer read %q, want the downloaded bytes", h.engine.inputsSeen[0])
+	}
+	h.artifacts.mu.Lock()
+	defer h.artifacts.mu.Unlock()
+	if !slices.Equal(h.artifacts.inputKeys, []string{testStorageKey}) {
+		t.Fatalf("downloaded %v, want only %s", h.artifacts.inputKeys, testStorageKey)
 	}
 }
 
@@ -421,9 +478,12 @@ func TestRunEngineBuildsRunRequestFromEnvelope(t *testing.T) {
 	if request.Runtime != testMaxRuntime*time.Second {
 		t.Fatalf("run runtime = %s, want %ds from the envelope", request.Runtime, testMaxRuntime)
 	}
-	workspace := filepath.Dir(request.SpecPath)
-	if filepath.Base(request.SpecPath) != "input.json" || filepath.Dir(request.OutputPath) != workspace {
-		t.Fatalf("spec %s and output %s must share one workspace", request.SpecPath, request.OutputPath)
+	if len(request.ParameterArgs) != 0 {
+		t.Fatalf("parameter args = %q, want none", request.ParameterArgs)
+	}
+	workspace := filepath.Dir(request.OutputPath)
+	if filepath.Base(request.OutputPath) != "packed.obj" {
+		t.Fatalf("output %s is not packed.obj", request.OutputPath)
 	}
 	if filepath.Dir(workspace) != h.workRoot || !strings.HasPrefix(filepath.Base(workspace), "packing-"+testJobID+"-") {
 		t.Fatalf("workspace %s is not a job-named directory under %s", workspace, h.workRoot)
@@ -484,19 +544,38 @@ func TestRunEngineReportsAnEngineFailureAsNonRetryableWithItsDetails(t *testing.
 
 			_, err := h.run(input())
 
-			appErr := applicationError(t, err)
-			if appErr.Type() != contracts.EngineFailureType || !appErr.NonRetryable() {
-				t.Fatalf("error type %s nonRetryable=%t, want non-retryable %s", appErr.Type(), appErr.NonRetryable(), contracts.EngineFailureType)
-			}
-			var details contracts.EngineFailureDetails
-			if err := appErr.Details(&details); err != nil {
-				t.Fatalf("details: %v", err)
-			}
-			want := contracts.EngineFailureDetails{ContractVersion: contracts.ActivityVersion, EngineVersion: testEngineVer, EngineChecksum: testEngineSum, Reason: tc.want}
-			if details != want {
-				t.Fatalf("details = %+v, want %+v", details, want)
-			}
+			assertEngineFailure(t, err, tc.want)
 			assertNoCalls(t, h.rec.snapshot(), "createResult")
+			assertWorkspaceRemoved(t, h.workRoot)
+		})
+	}
+}
+
+func TestRunEngineReportsUnusableInputsAsEngineFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		arrange func(*harness)
+		reason  string
+	}{
+		{
+			name:    "deleted after queueing",
+			arrange: func(h *harness) { h.artifacts.inputs = map[string][]byte{} },
+			reason:  "Input file 'bunny.obj' is no longer available",
+		},
+		{
+			name:    "bytes changed",
+			arrange: func(h *harness) { h.artifacts.inputs[testStorageKey] = []byte("v 9 9 9\n") },
+			reason:  "Input file 'bunny.obj' does not match its recorded checksum",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			tc.arrange(h)
+
+			_, err := h.run(input())
+
+			assertEngineFailure(t, err, tc.reason)
+			assertNoCalls(t, h.rec.snapshot(), "signal:engineStarted", "run", "createResult")
 			assertWorkspaceRemoved(t, h.workRoot)
 		})
 	}
@@ -510,9 +589,9 @@ func TestRunEngineTreatsInfrastructureFailuresAsRetryable(t *testing.T) {
 	}{
 		{name: "result lookup", arrange: func(h *harness) { h.artifacts.findErr = errors.New("storage down") }, absent: []string{"download", "signal:engineStarted"}},
 		{name: "request download", arrange: func(h *harness) { h.artifacts.downloadErr = errors.New("storage down") }, absent: []string{"signal:engineStarted", "run"}},
-		{name: "malformed request", arrange: func(h *harness) { h.artifacts.request = []byte(`{"requestVersion":9}`) }, absent: []string{"signal:engineStarted", "run"}},
-		{name: "provenance", arrange: func(h *harness) { h.engine.provenanceErr = errors.New("packer missing") }, absent: []string{"signal:engineStarted", "run"}},
-		{name: "unusable provenance", arrange: func(h *harness) { h.engine.provenance.Checksum = "short" }, absent: []string{"signal:engineStarted", "run"}},
+		{name: "provenance", arrange: func(h *harness) { h.engine.provenanceErr = errors.New("packer missing") }, absent: []string{"downloadInput", "signal:engineStarted", "run"}},
+		{name: "unusable provenance", arrange: func(h *harness) { h.engine.provenance.Checksum = "short" }, absent: []string{"downloadInput", "signal:engineStarted", "run"}},
+		{name: "input download", arrange: func(h *harness) { h.artifacts.inputErr = errors.New("storage down") }, absent: []string{"signal:engineStarted", "run"}},
 		{name: "signal", arrange: func(h *harness) { h.signaler.err = errors.New("temporal down") }, absent: []string{"run"}},
 		{name: "upload", arrange: func(h *harness) { h.artifacts.createErr = errors.New("storage down") }},
 		{name: "packer infrastructure", arrange: func(h *harness) {
@@ -529,6 +608,32 @@ func TestRunEngineTreatsInfrastructureFailuresAsRetryable(t *testing.T) {
 
 			assertRetryable(t, err)
 			assertNoCalls(t, h.rec.snapshot(), tc.absent...)
+			assertWorkspaceRemoved(t, h.workRoot)
+		})
+	}
+}
+
+func TestRunEngineRejectsAnInvalidRequestWithoutRunningThePacker(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		request []byte
+	}{
+		{name: "another request version", request: []byte(`{"requestVersion":1,"maxRuntimeSeconds":60,"spec":{}}`)},
+		{name: "a format the engine cannot read", request: requestBodyWith("STL", "{}")},
+		{name: "an unknown parameter", request: requestBodyWith("OBJ", `{"seed":7}`)},
+		{name: "not JSON", request: []byte(`{not json`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.artifacts.request = tc.request
+
+			_, err := h.run(input())
+
+			appErr := applicationError(t, err)
+			if appErr.Type() != contracts.InvalidInputType || !appErr.NonRetryable() {
+				t.Fatalf("error type %s nonRetryable=%t, want non-retryable %s", appErr.Type(), appErr.NonRetryable(), contracts.InvalidInputType)
+			}
+			assertCalls(t, h.rec.snapshot(), []string{"findResult", "download"})
 			assertWorkspaceRemoved(t, h.workRoot)
 		})
 	}
