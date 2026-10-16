@@ -5,6 +5,8 @@ import com.packing.backend.core.packing.message.PackingRequestEnvelope;
 import com.packing.backend.core.packing.port.out.PackingDispatchSender;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
+import com.packing.backend.domain.packing.PackingInput;
+import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
@@ -38,7 +40,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PackingJobDispatchServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-08-01T10:15:30Z");
+    private static final Instant      NOW   = Instant.parse("2026-08-01T10:15:30Z");
+    private static final PackingInput INPUT = PackingInputs.single();
 
     @Mock
     private PackingJobRepository    jobs;
@@ -67,7 +70,7 @@ class PackingJobDispatchServiceTest {
         InOrder order = inOrder(artifacts, dispatch, jobs);
         order.verify(artifacts)
              .writeRequestIfAbsent(job.id(),
-                                   PackingRequestEnvelope.versionOne(60, "{\"testField\":true}"));
+                                   PackingRequestEnvelope.forJob(job));
         order.verify(dispatch)
              .send(PackingDispatchMessage.versionOne(job.id()));
         order.verify(jobs)
@@ -164,7 +167,7 @@ class PackingJobDispatchServiceTest {
         return PackingJob.queue(id,
                                 ProjectId.generate(),
                                 UserId.generate(),
-                                "{\"testField\":true}",
+                                INPUT,
                                 60,
                                 NOW.minusSeconds(30));
     }

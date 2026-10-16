@@ -6,6 +6,7 @@ import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.user.port.out.UserRepository;
+import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
@@ -90,7 +91,7 @@ class PackingTemporalWiringIT {
         PackingJob job = PackingJob.queue(PackingJobId.generate(),
                                           project.id(),
                                           user.id(),
-                                          "{\"testField\":true}",
+                                          PackingInputs.single(),
                                           60,
                                           now);
         jobs.save(job);

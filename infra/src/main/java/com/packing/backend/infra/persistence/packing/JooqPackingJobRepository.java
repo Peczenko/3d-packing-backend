@@ -21,6 +21,9 @@ public class JooqPackingJobRepository implements PackingJobRepository {
 
     @Override
     public PackingJob save(PackingJob job) {
+        if (job.isLegacy()) {
+            throw new IllegalStateException("Packing job " + job.id() + " predates structured input and is read-only");
+        }
         writer.upsert(PackingJobRecordMapper.TABLE,
                       PackingJobRecordMapper.toRecord(job),
                       job.version());

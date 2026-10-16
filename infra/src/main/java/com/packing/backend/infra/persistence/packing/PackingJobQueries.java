@@ -1,6 +1,8 @@
 package com.packing.backend.infra.persistence.packing;
 
+import com.packing.backend.core.packing.PackingJobInputView;
 import com.packing.backend.core.packing.PackingJobView;
+import com.packing.backend.domain.packing.PackingInput;
 import com.packing.backend.domain.project.ProjectId;
 import org.jooq.Condition;
 import org.jooq.Field;
@@ -21,7 +23,8 @@ final class PackingJobQueries {
             PACKING_JOBS.STARTED_AT, PACKING_JOBS.FINISHED_AT,
             PACKING_JOBS.FAILURE_REASON, PACKING_JOBS.RESULT_FILE_NAME,
             PACKING_JOBS.RESULT_CONTENT_TYPE, PACKING_JOBS.RESULT_SIZE_BYTES,
-            PACKING_JOBS.RESULT_CHECKSUM_SHA256 };
+            PACKING_JOBS.RESULT_CHECKSUM_SHA256, PACKING_JOBS.INPUT_SCHEMA_VERSION,
+            PACKING_JOBS.ITEMS, PACKING_JOBS.PARAMETERS };
 
     static final Field<String> SEARCH_TEXT = lower(
                                                    coalesce(PACKING_JOBS.ENGINE_VERSION, inline(""))
@@ -45,13 +48,13 @@ final class PackingJobQueries {
     }
 
     static PackingJobView toView(Record record) {
+        PackingInput input = PackingJobRecordMapper.inputOf(record);
         return new PackingJobView(
                                   record.get(PACKING_JOBS.ID)
                                         .value(),
                                   record.get(PACKING_JOBS.PROJECT_ID)
                                         .value(),
                                   record.get(PACKING_JOBS.STATUS),
-                                  record.get(PACKING_JOBS.MAX_RUNTIME_SECONDS),
                                   record.get(PACKING_JOBS.ENGINE_VERSION),
                                   record.get(PACKING_JOBS.ENGINE_CHECKSUM_SHA256),
                                   record.get(PACKING_JOBS.CREATED_AT),
@@ -61,6 +64,7 @@ final class PackingJobQueries {
                                   record.get(PACKING_JOBS.RESULT_FILE_NAME),
                                   record.get(PACKING_JOBS.RESULT_CONTENT_TYPE),
                                   record.get(PACKING_JOBS.RESULT_SIZE_BYTES),
-                                  record.get(PACKING_JOBS.RESULT_CHECKSUM_SHA256));
+                                  record.get(PACKING_JOBS.RESULT_CHECKSUM_SHA256),
+                                  input == null ? null : PackingJobInputView.of(input, record.get(PACKING_JOBS.MAX_RUNTIME_SECONDS)));
     }
 }

@@ -6,6 +6,9 @@ import com.packing.backend.core.shared.InstantRange;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.SortDirection;
+import com.packing.backend.core.packing.PackingJobInputView;
+import com.packing.backend.domain.packing.PackingInput;
+import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
@@ -439,6 +442,22 @@ class JooqPackingJobFinderIT {
                                       .containsExactly(larger.value(), smaller.value());
     }
 
+    @Test
+    void detailCarriesTheStoredInputAndRuntime() {
+        PackingInput input = PackingInputs.of(PackingInputs.item("bunny.obj", 3));
+        PackingJob job = PackingJob.queue(PackingJobId.generate(), projectA, user, input, 120, now());
+        persist(job);
+
+        assertThat(finder().detailInProject(projectA, job.id())).hasValueSatisfying(view -> assertThat(view.input()).isEqualTo(PackingJobInputView.of(input, 120)));
+    }
+
+    @Test
+    void aLegacyJobIsListedWithoutInput() {
+        PackingJobId id = LegacyPackingJobs.insert(dsl, projectA, user, PackingJobStatus.FAILED, now());
+
+        assertThat(finder().detailInProject(projectA, id)).hasValueSatisfying(view -> assertThat(view.input()).isNull());
+    }
+
     private JooqPackingJobFinder finder() {
         return new JooqPackingJobFinder(dsl);
     }
@@ -457,7 +476,7 @@ class JooqPackingJobFinderIT {
         PackingJob job = PackingJob.queue(id,
                                           project,
                                           user,
-                                          "{\"testField\":42}",
+                                          PackingInputs.single(),
                                           60,
                                           createdAt);
         persist(job);
@@ -501,7 +520,7 @@ class JooqPackingJobFinderIT {
         PackingJob job = PackingJob.rehydrate(id,
                                               project,
                                               user,
-                                              "{\"testField\":42}",
+                                              PackingInputs.single(),
                                               runtime,
                                               status,
                                               engineVersion,

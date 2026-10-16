@@ -10,7 +10,6 @@ public record PackingJobResponse(
         UUID id,
         UUID projectId,
         PackingJobStatus status,
-        long maxRuntimeSeconds,
         String engineVersion,
         String engineChecksum,
         Instant createdAt,
@@ -20,14 +19,14 @@ public record PackingJobResponse(
         String resultFileName,
         String resultContentType,
         Long resultSizeBytes,
-        String resultChecksum) {
+        String resultChecksum,
+        PackingJobInputResponse input) {
 
     public static PackingJobResponse from(PackingJobView view) {
         return new PackingJobResponse(
                                       view.id(),
                                       view.projectId(),
                                       view.status(),
-                                      view.maxRuntimeSeconds(),
                                       view.engineVersion(),
                                       view.engineChecksum(),
                                       view.createdAt(),
@@ -37,6 +36,7 @@ public record PackingJobResponse(
                                       view.resultFileName(),
                                       view.resultContentType(),
                                       view.resultSizeBytes(),
-                                      view.resultChecksum());
+                                      view.resultChecksum(),
+                                      view.input() == null ? null : PackingJobInputResponse.from(view.input()));
     }
 }

@@ -27,11 +27,11 @@ public final class PackingJob extends AggregateRoot {
     @EqualsAndHashCode.Include
     private final PackingJobId id;
 
-    private final ProjectId projectId;
-    private final UserId    requestedBy;
-    private final String    specJson;
-    private final long      maxRuntimeSeconds;
-    private final Instant   createdAt;
+    private final ProjectId    projectId;
+    private final UserId       requestedBy;
+    private final PackingInput input;
+    private final long         maxRuntimeSeconds;
+    private final Instant      createdAt;
 
     private PackingJobStatus status;
     private String           engineVersion;
@@ -49,7 +49,7 @@ public final class PackingJob extends AggregateRoot {
     private PackingJob(PackingJobId id,
                        ProjectId projectId,
                        UserId requestedBy,
-                       String specJson,
+                       PackingInput input,
                        long maxRuntimeSeconds,
                        PackingJobStatus status,
                        String engineVersion,
@@ -67,7 +67,7 @@ public final class PackingJob extends AggregateRoot {
         this.id = Objects.requireNonNull(id, "id");
         this.projectId = Objects.requireNonNull(projectId, "projectId");
         this.requestedBy = Objects.requireNonNull(requestedBy, "requestedBy");
-        this.specJson = requireText(specJson, "specJson");
+        this.input = input;
         requireRuntime(maxRuntimeSeconds);
         this.maxRuntimeSeconds = maxRuntimeSeconds;
         this.status = Objects.requireNonNull(status, "status");
@@ -88,13 +88,13 @@ public final class PackingJob extends AggregateRoot {
     public static PackingJob queue(PackingJobId id,
                                    ProjectId projectId,
                                    UserId requestedBy,
-                                   String specJson,
+                                   PackingInput input,
                                    long maxRuntimeSeconds,
                                    Instant now) {
         PackingJob job = new PackingJob(id,
                                         projectId,
                                         requestedBy,
-                                        specJson,
+                                        Objects.requireNonNull(input, "input"),
                                         maxRuntimeSeconds,
                                         PackingJobStatus.QUEUED,
                                         null,
@@ -116,7 +116,7 @@ public final class PackingJob extends AggregateRoot {
     public static PackingJob rehydrate(PackingJobId id,
                                        ProjectId projectId,
                                        UserId requestedBy,
-                                       String specJson,
+                                       PackingInput input,
                                        long maxRuntimeSeconds,
                                        PackingJobStatus status,
                                        String engineVersion,
@@ -134,7 +134,7 @@ public final class PackingJob extends AggregateRoot {
         return new PackingJob(id,
                               projectId,
                               requestedBy,
-                              specJson,
+                              input,
                               maxRuntimeSeconds,
                               status,
                               engineVersion,
@@ -234,6 +234,10 @@ public final class PackingJob extends AggregateRoot {
 
     public void markPersisted() {
         version++;
+    }
+
+    public boolean isLegacy() {
+        return input == null;
     }
 
     private void recordFinished(Instant now) {

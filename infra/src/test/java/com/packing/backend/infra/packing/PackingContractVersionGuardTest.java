@@ -27,8 +27,7 @@ class PackingContractVersionGuardTest {
     @Test
     void requestEnvelopeIsEmittedOnlyAtTheVersionItsDeclaredContractCarries() throws IOException {
         List<Integer> declared = discoverContractVersions();
-        int requestVersion = PackingRequestEnvelope.versionOne(60, "{}")
-                                                   .requestVersion();
+        int requestVersion = PackingRequestEnvelope.VERSION;
 
         assertThat(declared).contains(requestVersion);
         assertThat(CONTRACTS.resolve("v" + requestVersion)
@@ -48,7 +47,7 @@ class PackingContractVersionGuardTest {
 
     private boolean codecEmitsRequestVersion(int version) {
         try {
-            codec.encodeRequest(new PackingRequestEnvelope(version, 60, "{}"));
+            codec.encodeRequest(PackingContractCodecTest.envelope(version, "{}"));
             return true;
         } catch (DomainRuleViolationException e) {
             return false;

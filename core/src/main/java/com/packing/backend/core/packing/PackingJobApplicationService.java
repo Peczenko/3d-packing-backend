@@ -1,13 +1,21 @@
 package com.packing.backend.core.packing;
 
+import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.packing.port.out.PackingInputSchema;
-import com.packing.backend.core.packing.port.out.PackingJobFinder;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.RequestedItem;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.ValidatedInput;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
+import com.packing.backend.domain.file.FileId;
+import com.packing.backend.domain.file.ModelFormat;
+import com.packing.backend.domain.file.StoredFile;
+import com.packing.backend.domain.packing.PackingInput;
+import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
@@ -25,15 +33,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
 @RequiredArgsConstructor
 public class PackingJobApplicationService {
 
-    public static final long DEFAULT_MAX_RUNTIME_SECONDS = 60;
-    public static final long MAX_RUNTIME_SECONDS         = 7200;
+    private static final String FILE_NOT_AVAILABLE = "File is not available in this project";
 
     private final PackingJobRepository    jobs;
     private final PackingJobFinder        finder;
@@ -41,17 +55,22 @@ public class PackingJobApplicationService {
     private final DomainEventPublisher    events;
     private final PackingJobArtifactStore artifacts;
     private final PackingInputSchema      schema;
+    private final FileRepository          files;
     private final Clock                   clock;
 
     public PackingJobView create(CreatePackingJobCommand command) {
         ProjectAccess project = requireAccess(command.firebaseUid(),
                                               command.projectId(),
                                               ProjectPermission.WRITE).requireWritable();
+        ValidatedInput validated = schema.validate(command.body());
+        PackingInput input = new PackingInput(validated.schemaVersion(),
+                                              resolveItems(project.projectId(), validated.items()),
+                                              validated.parameters());
         PackingJob job = PackingJob.queue(PackingJobId.generate(),
                                           project.projectId(),
                                           project.userId(),
-                                          command.specJson(),
-                                          command.maxRuntimeSeconds(),
+                                          input,
+                                          validated.maxRuntimeSeconds(),
                                           clock.instant());
         jobs.save(job);
         events.publishAll(job.pullDomainEvents());
@@ -99,6 +118,45 @@ public class PackingJobApplicationService {
         return artifacts.createResultDownloadUrl(jobId, Duration.ofMinutes(10));
     }
 
+    private List<PackingItem> resolveItems(ProjectId projectId, List<RequestedItem> requested) {
+        Set<ModelFormat> accepted = schema.acceptedFormats();
+        Map<String, String> errors = new LinkedHashMap<>();
+        List<PackingItem> items = new ArrayList<>();
+        for (int index = 0; index < requested.size(); index++) {
+            RequestedItem item = requested.get(index);
+            String pointer = "/items/" + index + "/fileId";
+            Optional<StoredFile> file = availableFile(projectId, item.fileId());
+            if (file.isEmpty()) {
+                errors.put(pointer, FILE_NOT_AVAILABLE);
+            } else if (!accepted.contains(file.get()
+                                              .format())) {
+                errors.put(pointer, formatNotAccepted(file.get(), accepted));
+            } else {
+                items.add(PackingItem.of(file.get(), item.copies()));
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new PackingInputRejectedException(errors);
+        }
+        return items;
+    }
+
+    private Optional<StoredFile> availableFile(ProjectId projectId, FileId fileId) {
+        return files.findById(fileId)
+                    .filter(file -> file.belongsTo(projectId) && !file.isDeleted());
+    }
+
+    private static String formatNotAccepted(StoredFile file, Set<ModelFormat> accepted) {
+        return file.name()
+                   .value()
+                + " is " + file.format()
+                               .name()
+                + "; the packing engine accepts " + accepted.stream()
+                                                            .map(ModelFormat::name)
+                                                            .sorted()
+                                                            .collect(Collectors.joining(", "));
+    }
+
     private ProjectAccess requireAccess(String firebaseUid,
                                         UUID projectId,
                                         ProjectPermission required) {
@@ -113,10 +171,7 @@ public class PackingJobApplicationService {
                      .orElseThrow(() -> PackingJobNotFoundException.byId(jobId));
     }
 
-    public record CreatePackingJobCommand(String firebaseUid,
-            UUID projectId,
-            String specJson,
-            long maxRuntimeSeconds) {
+    public record CreatePackingJobCommand(String firebaseUid, UUID projectId, String body) {
     }
 
     public record ListPackingJobsQuery(String firebaseUid, UUID projectId, PackingJobListCriteria criteria) {

@@ -5,6 +5,10 @@ import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
 import com.packing.backend.core.packing.PackingJobApplicationService.ListPackingJobsQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
+import com.packing.backend.core.packing.PackingInputInvalidException;
+import com.packing.backend.core.packing.PackingInputRejectedException;
+import com.packing.backend.core.packing.PackingInputSchemaChangedException;
+import com.packing.backend.core.packing.PackingJobInputView;
 import com.packing.backend.core.packing.PackingJobListCriteria;
 import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.core.shared.Page;
@@ -26,11 +30,14 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -45,6 +52,13 @@ class PackingJobControllerTest {
 
     private static final String UID        = "firebase-uid-1";
     private static final UUID   PROJECT_ID = UUID.randomUUID();
+
+    private static final UUID                FILE_ID = UUID.fromString("0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00");
+    private static final String              BODY    = "{\"maxRuntimeSeconds\":120,\"items\":[{\"fileId\":\"" + FILE_ID + "\",\"copies\":3}]}";
+    private static final PackingJobInputView INPUT   = new PackingJobInputView(1,
+                                                                               120,
+                                                                               "{\"seed\":7}",
+                                                                               List.of(new PackingJobInputView.Item(FILE_ID, "bunny.obj", 3)));
 
     @Autowired
     private MockMvc mockMvc;
@@ -61,84 +75,102 @@ class PackingJobControllerTest {
     }
 
     @Test
-    void createReturns202WithLocationAndQueuedJob() throws Exception {
+    void createPassesTheBodyThroughAndAnswers202WithTheStoredInput() throws Exception {
         authenticate();
         UUID jobId = UUID.randomUUID();
         when(jobs.create(any())).thenReturn(view(jobId));
 
         mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
                                                                                      .contentType(MediaType.APPLICATION_JSON)
-                                                                                     .content("""
-                                                                                         {"maxRuntimeSeconds":60,"spec":{"testField":"value"}}
-                                                                                         """))
+                                                                                     .content(BODY))
                .andExpect(status().isAccepted())
-               .andExpect(header().string("Location", containsString("/packing-jobs/")))
-               .andExpect(jsonPath("$.status").value("QUEUED"));
-    }
-
-    @Test
-    void createDefaultsTheOmittedRuntimeTo60Seconds() throws Exception {
-        authenticate();
-        when(jobs.create(any())).thenReturn(view(UUID.randomUUID()));
-
-        mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
-                                                                                     .contentType(MediaType.APPLICATION_JSON)
-                                                                                     .content("{" + "\"spec\":{}" + "}"))
-               .andExpect(status().isAccepted());
+               .andExpect(header().string("Location", containsString("/packing-jobs/" + jobId)))
+               .andExpect(jsonPath("$.status").value("QUEUED"))
+               .andExpect(jsonPath("$.maxRuntimeSeconds").doesNotExist())
+               .andExpect(jsonPath("$.input.schemaVersion").value(1))
+               .andExpect(jsonPath("$.input.maxRuntimeSeconds").value(120))
+               .andExpect(jsonPath("$.input.parameters.seed").value(7))
+               .andExpect(jsonPath("$.input.items[0].fileId").value(FILE_ID.toString()))
+               .andExpect(jsonPath("$.input.items[0].fileName").value("bunny.obj"))
+               .andExpect(jsonPath("$.input.items[0].copies").value(3));
 
         ArgumentCaptor<CreatePackingJobCommand> command = ArgumentCaptor.forClass(CreatePackingJobCommand.class);
         verify(jobs).create(command.capture());
-        assertThat(command.getValue()
-                          .maxRuntimeSeconds()).isEqualTo(60);
+        assertThat(command.getValue()).isEqualTo(new CreatePackingJobCommand(UID, PROJECT_ID, BODY));
     }
 
     @Test
-    void createPreservesArbitraryNestedAndArraySpecJson() throws Exception {
+    void createReportsSchemaViolationsAs400ByPointer() throws Exception {
         authenticate();
-        when(jobs.create(any())).thenReturn(view(UUID.randomUUID()));
+        when(jobs.create(any())).thenThrow(new PackingInputInvalidException(Map.of("/items/0/copies", "must have a maximum value of 100")));
 
         mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
                                                                                      .contentType(MediaType.APPLICATION_JSON)
-                                                                                     .content("""
-                                                                                         {"spec":{"nested":{"items":[1,{"name":"part"}]},"flags":[true,false]}}
-                                                                                         """))
-               .andExpect(status().isAccepted());
-
-        ArgumentCaptor<CreatePackingJobCommand> command = ArgumentCaptor.forClass(CreatePackingJobCommand.class);
-        verify(jobs).create(command.capture());
-        assertThat(command.getValue()
-                          .specJson()).isEqualTo(
-                                                 "{\"nested\":{\"items\":[1,{\"name\":\"part\"}]},\"flags\":[true,false]}");
+                                                                                     .content(BODY))
+               .andExpect(status().isBadRequest())
+               .andExpect(jsonPath("$.title").value("Validation failed"))
+               .andExpect(jsonPath("$.errors['/items/0/copies']").value("must have a maximum value of 100"));
     }
 
     @Test
-    void createRejectsANullSpec() throws Exception {
+    void createReportsUnusableItemsAs422ByPointer() throws Exception {
+        authenticate();
+        when(jobs.create(any())).thenThrow(new PackingInputRejectedException(Map.of("/items/0/fileId", "File is not available in this project")));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
+                                                                                     .contentType(MediaType.APPLICATION_JSON)
+                                                                                     .content(BODY))
+               .andExpect(status().isUnprocessableEntity())
+               .andExpect(jsonPath("$.errors['/items/0/fileId']").value("File is not available in this project"));
+    }
+
+    @Test
+    void createReportsAStaleSchemaAs409() throws Exception {
+        authenticate();
+        when(jobs.create(any())).thenThrow(new PackingInputSchemaChangedException());
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
+                                                                                     .contentType(MediaType.APPLICATION_JSON)
+                                                                                     .content(BODY))
+               .andExpect(status().isConflict())
+               .andExpect(jsonPath("$.detail").value("Input schema changed; reload the form"));
+    }
+
+    @Test
+    void createRejectsABodyThatIsNotJsonBeforeReachingCore() throws Exception {
         authenticate();
 
         mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
                                                                                      .contentType(MediaType.APPLICATION_JSON)
-                                                                                     .content("{\"spec\":null}"))
+                                                                                     .content("{"))
                .andExpect(status().isBadRequest());
+
+        verify(jobs, never()).create(any());
     }
 
     @Test
-    void createRejectsRuntimeAbove7200Seconds() throws Exception {
+    void aLegacyJobIsShownWithANullInput() throws Exception {
         authenticate();
+        UUID jobId = UUID.randomUUID();
+        PackingJobView legacy = new PackingJobView(jobId,
+                                                   PROJECT_ID,
+                                                   PackingJobStatus.SUCCEEDED,
+                                                   null,
+                                                   null,
+                                                   Instant.parse("2026-08-01T10:15:30Z"),
+                                                   null,
+                                                   null,
+                                                   null,
+                                                   null,
+                                                   null,
+                                                   null,
+                                                   null,
+                                                   null);
+        when(jobs.get(any())).thenReturn(legacy);
 
-        mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
-                                                                                     .contentType(MediaType.APPLICATION_JSON)
-                                                                                     .content("{\"maxRuntimeSeconds\":7201,\"spec\":{}}"))
-               .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void createRejectsRuntimeBelowOneSecond() throws Exception {
-        authenticate();
-
-        mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs", PROJECT_ID)
-                                                                                     .contentType(MediaType.APPLICATION_JSON)
-                                                                                     .content("{\"maxRuntimeSeconds\":0,\"spec\":{}}"))
-               .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}", PROJECT_ID, jobId))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.input").value(nullValue()));
     }
 
     @Test
@@ -321,7 +353,6 @@ class PackingJobControllerTest {
         return new PackingJobView(jobId,
                                   PROJECT_ID,
                                   PackingJobStatus.QUEUED,
-                                  60,
                                   null,
                                   null,
                                   Instant.parse("2026-08-01T10:15:30Z"),
@@ -331,6 +362,7 @@ class PackingJobControllerTest {
                                   null,
                                   null,
                                   null,
-                                  null);
+                                  null,
+                                  INPUT);
     }
 }

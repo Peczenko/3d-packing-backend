@@ -3,6 +3,8 @@ package com.packing.backend.api.shared.error;
 import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.core.notification.ServerErrorReport;
 import com.packing.backend.core.notification.port.out.ErrorAlerter;
+import com.packing.backend.core.packing.PackingInputInvalidException;
+import com.packing.backend.core.packing.PackingInputRejectedException;
 import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
@@ -63,6 +65,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DomainRuleViolationException.class)
     public ProblemDetail handleRuleViolation(DomainRuleViolationException e, HttpServletRequest request) {
         return problem(HttpStatus.UNPROCESSABLE_ENTITY, "Request rejected", e.getMessage(), request);
+    }
+
+    @ExceptionHandler(PackingInputInvalidException.class)
+    public ProblemDetail handleInvalidPackingInput(PackingInputInvalidException e, HttpServletRequest request) {
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "Validation failed", "One or more fields are invalid", request);
+        problem.setProperty("errors", e.errors());
+        return problem;
+    }
+
+    @ExceptionHandler(PackingInputRejectedException.class)
+    public ProblemDetail handleRejectedPackingInput(PackingInputRejectedException e, HttpServletRequest request) {
+        ProblemDetail problem = problem(HttpStatus.UNPROCESSABLE_ENTITY, "Request rejected", e.getMessage(), request);
+        problem.setProperty("errors", e.errors());
+        return problem;
     }
 
     @ExceptionHandler(ConcurrentUpdateException.class)
