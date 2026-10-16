@@ -3,7 +3,11 @@ package com.packing.backend.api.packing;
 import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
+import com.packing.backend.core.packing.PackingJobApplicationService.DraftQuery;
+import com.packing.backend.core.packing.PackingJobApplicationService.DraftSource;
 import com.packing.backend.core.packing.PackingJobApplicationService.ListPackingJobsQuery;
+import com.packing.backend.core.packing.PackingJobApplicationService.OmittedItem;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobDraft;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
 import com.packing.backend.core.packing.PackingInputInvalidException;
 import com.packing.backend.core.packing.PackingInputRejectedException;
@@ -334,6 +338,55 @@ class PackingJobControllerTest {
                .andExpect(status().isOk());
 
         verify(jobs).get(new PackingJobQuery(UID, PROJECT_ID, jobId));
+    }
+
+    @Test
+    void draftPassesTheOptionalSourceJobAndReturnsTheSubmittableInput() throws Exception {
+        authenticate();
+        UUID from = UUID.randomUUID();
+        UUID gone = UUID.randomUUID();
+        when(jobs.draft(new DraftQuery(UID, PROJECT_ID, from))).thenReturn(new PackingJobDraft(DraftSource.SELECTED_JOB,
+                                                                                               from,
+                                                                                               INPUT,
+                                                                                               List.of(new OmittedItem(gone, "gone.obj")),
+                                                                                               List.of("/parameters/angle")));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/draft", PROJECT_ID).param("from", from.toString()))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.source").value("SELECTED_JOB"))
+               .andExpect(jsonPath("$.sourceJobId").value(from.toString()))
+               .andExpect(jsonPath("$.input.schemaVersion").value(1))
+               .andExpect(jsonPath("$.input.maxRuntimeSeconds").value(120))
+               .andExpect(jsonPath("$.input.parameters.seed").value(7))
+               .andExpect(jsonPath("$.input.items[0].fileName").value("bunny.obj"))
+               .andExpect(jsonPath("$.omittedItems[0].fileName").value("gone.obj"))
+               .andExpect(jsonPath("$.resetFields[0]").value("/parameters/angle"));
+    }
+
+    @Test
+    void draftWithoutASourceJobAsksCoreForTheDefault() throws Exception {
+        authenticate();
+        when(jobs.draft(new DraftQuery(UID, PROJECT_ID, null))).thenReturn(new PackingJobDraft(DraftSource.DEFAULTS,
+                                                                                               null,
+                                                                                               new PackingJobInputView(1, 60, "{}", List.of()),
+                                                                                               List.of(),
+                                                                                               List.of()));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/draft", PROJECT_ID))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.source").value("DEFAULTS"))
+               .andExpect(jsonPath("$.sourceJobId").value(nullValue()))
+               .andExpect(jsonPath("$.input.items").isEmpty());
+    }
+
+    @Test
+    void draftRejectsAMalformedSourceJobId() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/draft", PROJECT_ID).param("from", "nope"))
+               .andExpect(status().isBadRequest());
+
+        verify(jobs, never()).draft(any());
     }
 
     private void authenticate() {

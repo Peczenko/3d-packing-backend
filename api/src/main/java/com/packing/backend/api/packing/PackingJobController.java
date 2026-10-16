@@ -5,6 +5,7 @@ import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
+import com.packing.backend.core.packing.PackingJobApplicationService.DraftQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.ListPackingJobsQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -75,6 +77,17 @@ public class PackingJobController {
                                                                               caller.firebaseUid(),
                                                                               projectId,
                                                                               request.toCriteria())));
+    }
+
+    @GetMapping("/draft")
+    @Operation(operationId = "getPackingJobDraft",
+               summary = "A ready-to-submit input for the next packing job",
+               description = "Prefilled from the job named by `from`, else the caller's newest job in the project, else the project's newest job, else the schema defaults.")
+    @ApiResponse(responseCode = "200", description = "The draft")
+    public PackingJobDraftResponse draft(@CurrentUser AuthenticatedUser caller,
+                                         @PathVariable UUID projectId,
+                                         @RequestParam(required = false) UUID from) {
+        return PackingJobDraftResponse.from(jobs.draft(new DraftQuery(caller.firebaseUid(), projectId, from)));
     }
 
     @GetMapping("/{jobId}")

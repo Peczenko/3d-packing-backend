@@ -40,6 +40,8 @@ final class PackingJobQueries {
                                                                                                                                                2)
                                                                                                                                          .otherwise(3);
 
+    static final Condition STRUCTURED = PACKING_JOBS.ITEMS.isNotNull();
+
     private PackingJobQueries() {
     }
 

@@ -1,5 +1,6 @@
 package com.packing.backend.infra.packing;
 
+import com.fasterxml.jackson.core.JsonPointer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,6 +22,7 @@ import com.packing.backend.core.packing.port.out.PackingInputSchema;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.packing.PackingParameters;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -38,6 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
 
 @Component
@@ -52,6 +55,8 @@ public class JsonSchemaPackingInputSchema implements PackingInputSchema {
     static final String MAX_RUNTIME    = "maxRuntimeSeconds";
     static final String PARAMETERS     = "parameters";
 
+    private static final String PROBE_FILE_ID = "00000000-0000-0000-0000-000000000000";
+
     private static final List<String> ANNOTATION_KEYWORDS = List.of("x-widget",
                                                                     "x-acceptedFormats",
                                                                     "x-maxTotalCopies",
@@ -65,11 +70,16 @@ public class JsonSchemaPackingInputSchema implements PackingInputSchema {
     private final Set<ModelFormat> acceptedFormats;
     private final String           etag;
 
+    @Autowired
     public JsonSchemaPackingInputSchema(ObjectMapper objectMapper) {
+        this(objectMapper, RESOURCE);
+    }
+
+    JsonSchemaPackingInputSchema(ObjectMapper objectMapper, String resource) {
         this.objectMapper = objectMapper;
         this.strictReader = objectMapper.reader()
                                         .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-        this.json = readResource(RESOURCE);
+        this.json = readResource(resource);
         this.schemaNode = parseSchema(json);
         this.schema = compile(schemaNode);
         this.acceptedFormats = readAcceptedFormats(schemaNode);
@@ -101,6 +111,39 @@ public class JsonSchemaPackingInputSchema implements PackingInputSchema {
                                   effective.get(MAX_RUNTIME)
                                            .asLong(),
                                   new PackingParameters(write(effective.get(PARAMETERS))));
+    }
+
+    @Override
+    public Settings defaults() {
+        return settingsOf(defaultSettings());
+    }
+
+    @Override
+    public Reconciled reconcile(Settings stored) {
+        ObjectNode defaults = defaultSettings();
+        ObjectNode candidate = defaults.deepCopy();
+        Set<String> reset = new TreeSet<>();
+        candidate.put(MAX_RUNTIME, stored.maxRuntimeSeconds());
+        ObjectNode parameters = (ObjectNode) candidate.get(PARAMETERS);
+        JsonNode declared = schemaNode.path("properties")
+                                      .path(PARAMETERS)
+                                      .path("properties");
+        for (Map.Entry<String, JsonNode> entry : parseObject(stored.parameters()
+                                                                   .json()).properties()) {
+            if (declared.has(entry.getKey())) {
+                parameters.set(entry.getKey(), entry.getValue());
+            } else {
+                reset.add("/" + PARAMETERS + "/" + escape(entry.getKey()));
+            }
+        }
+        for (String pointer : invalidSettings(candidate)) {
+            reset.add(pointer);
+            restoreDefault(candidate, defaults, pointer);
+        }
+        if (!invalidSettings(candidate).isEmpty()) {
+            throw new IllegalStateException("The packing input schema's own defaults do not validate");
+        }
+        return new Reconciled(settingsOf(candidate), List.copyOf(reset));
     }
 
     static void applyDefaults(JsonNode schema, JsonNode instance) {
@@ -154,6 +197,69 @@ public class JsonSchemaPackingInputSchema implements PackingInputSchema {
             case "required" -> "is required";
             default -> message.getError();
         };
+    }
+
+    static String settingPointer(String pointer) {
+        String[] segments = pointer.split("/", 4);
+        if (segments.length >= 3 && segments[1].equals(PARAMETERS)) {
+            return "/" + PARAMETERS + "/" + segments[2];
+        }
+        return segments.length >= 2 ? "/" + segments[1] : pointer;
+    }
+
+    private ObjectNode defaultSettings() {
+        ObjectNode settings = objectMapper.createObjectNode();
+        applyDefaults(schemaNode, settings);
+        return settings;
+    }
+
+    private Set<String> invalidSettings(ObjectNode settings) {
+        ObjectNode probe = settings.deepCopy();
+        probe.putArray(ITEMS)
+             .addObject()
+             .put("fileId", PROBE_FILE_ID);
+        Set<String> pointers = new TreeSet<>();
+        for (ValidationMessage message : schema.validate(probe)) {
+            pointers.add(settingPointer(pointerOf(message)));
+        }
+        return pointers;
+    }
+
+    private static void restoreDefault(ObjectNode candidate, ObjectNode defaults, String pointer) {
+        if (pointer.isEmpty()) {
+            return;
+        }
+        JsonPointer path = JsonPointer.compile(pointer);
+        JsonNode parent = candidate.at(path.head());
+        if (!(parent instanceof ObjectNode object)) {
+            return;
+        }
+        String name = path.last()
+                          .getMatchingProperty();
+        JsonNode fallback = defaults.at(path);
+        if (fallback.isMissingNode()) {
+            object.remove(name);
+        } else {
+            object.set(name, fallback.deepCopy());
+        }
+    }
+
+    private Settings settingsOf(JsonNode settings) {
+        return new Settings(settings.get(MAX_RUNTIME)
+                                    .asLong(),
+                            new PackingParameters(write(settings.get(PARAMETERS))));
+    }
+
+    private ObjectNode parseObject(String text) {
+        try {
+            JsonNode node = strictReader.readTree(text);
+            if (node instanceof ObjectNode object) {
+                return object;
+            }
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Stored packing parameters are not valid JSON", e);
+        }
+        throw new IllegalStateException("Stored packing parameters are not a JSON object");
     }
 
     private static void rejectStaleVersion(JsonNode root) {

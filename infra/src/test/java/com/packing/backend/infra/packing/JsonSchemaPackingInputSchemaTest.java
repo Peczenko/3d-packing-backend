@@ -3,13 +3,17 @@ package com.packing.backend.infra.packing;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packing.backend.core.packing.PackingInputInvalidException;
 import com.packing.backend.core.packing.PackingInputSchemaChangedException;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.Reconciled;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.RequestedItem;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.SchemaDocument;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.Settings;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.ValidatedInput;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.packing.PackingParameters;
 import org.junit.jupiter.api.Test;
+import org.skyscreamer.jsonassert.JSONAssert;
+import org.skyscreamer.jsonassert.JSONCompareMode;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -28,6 +32,8 @@ class JsonSchemaPackingInputSchemaTest {
     private static final FileId FILE    = new FileId(UUID.fromString(FILE_ID));
 
     private final JsonSchemaPackingInputSchema schema = new JsonSchemaPackingInputSchema(new ObjectMapper());
+    private final JsonSchemaPackingInputSchema richer = new JsonSchemaPackingInputSchema(new ObjectMapper(),
+                                                                                         "packing-input-test/job-input.schema.json");
 
     @Test
     void appliesTheSchemaDefaultsToAMinimalBody() {
@@ -126,5 +132,72 @@ class JsonSchemaPackingInputSchemaTest {
         assertThat(document.etag()).matches("[0-9a-f]{64}")
                                    .isEqualTo(new JsonSchemaPackingInputSchema(new ObjectMapper()).document()
                                                                                                   .etag());
+    }
+
+    @Test
+    void defaultsComeFromTheCurrentSchema() {
+        assertThat(schema.defaults()).isEqualTo(new Settings(60, new PackingParameters("{}")));
+    }
+
+    @Test
+    void defaultsReachIntoNestedParameters() throws Exception {
+        Settings defaults = richer.defaults();
+
+        assertThat(defaults.maxRuntimeSeconds()).isEqualTo(30);
+        JSONAssert.assertEquals("{\"seed\":7,\"buildVolume\":{\"widthMm\":220}}",
+                                defaults.parameters()
+                                        .json(),
+                                JSONCompareMode.STRICT);
+    }
+
+    @Test
+    void validateFillsNestedParameterDefaults() throws Exception {
+        ValidatedInput input = richer.validate("{\"items\":[{\"fileId\":\"" + FILE_ID + "\"}],\"parameters\":{\"buildVolume\":{\"widthMm\":300}}}");
+
+        JSONAssert.assertEquals("{\"seed\":7,\"buildVolume\":{\"widthMm\":300}}",
+                                input.parameters()
+                                     .json(),
+                                JSONCompareMode.STRICT);
+    }
+
+    @Test
+    void reconcileKeepsEveryStillValidSetting() throws Exception {
+        Reconciled reconciled = richer.reconcile(new Settings(120, new PackingParameters("{\"seed\":3}")));
+
+        assertThat(reconciled.resetFields()).isEmpty();
+        assertThat(reconciled.settings()
+                             .maxRuntimeSeconds()).isEqualTo(120);
+        JSONAssert.assertEquals("{\"seed\":3,\"buildVolume\":{\"widthMm\":220}}",
+                                reconciled.settings()
+                                          .parameters()
+                                          .json(),
+                                JSONCompareMode.STRICT);
+    }
+
+    @Test
+    void reconcileResetsAnOutOfRangeRuntime() {
+        assertThat(schema.reconcile(new Settings(9_000, new PackingParameters("{}"))))
+                                                                                      .isEqualTo(new Reconciled(new Settings(60, new PackingParameters("{}")),
+                                                                                                                List.of("/maxRuntimeSeconds")));
+    }
+
+    @Test
+    void reconcileDropsParametersTheSchemaNoLongerHas() {
+        assertThat(schema.reconcile(new Settings(60, new PackingParameters("{\"seed\":7}"))))
+                                                                                             .isEqualTo(new Reconciled(new Settings(60, new PackingParameters("{}")),
+                                                                                                                       List.of("/parameters/seed")));
+    }
+
+    @Test
+    void reconcileResetsAnInvalidParameterAsAWhole() throws Exception {
+        Reconciled reconciled = richer.reconcile(new Settings(30,
+                                                              new PackingParameters("{\"seed\":-1,\"buildVolume\":{\"widthMm\":0}}")));
+
+        assertThat(reconciled.resetFields()).containsExactly("/parameters/buildVolume", "/parameters/seed");
+        JSONAssert.assertEquals("{\"seed\":7,\"buildVolume\":{\"widthMm\":220}}",
+                                reconciled.settings()
+                                          .parameters()
+                                          .json(),
+                                JSONCompareMode.STRICT);
     }
 }

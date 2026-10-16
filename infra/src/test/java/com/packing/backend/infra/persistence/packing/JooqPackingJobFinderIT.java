@@ -458,6 +458,51 @@ class JooqPackingJobFinderIT {
         assertThat(finder().detailInProject(projectA, id)).hasValueSatisfying(view -> assertThat(view.input()).isNull());
     }
 
+    @Test
+    void latestOwnInProjectIgnoresOtherMembersOtherProjectsAndLegacyRows() {
+        UserId other = persistUser("packing-other");
+        Instant base = now();
+        PackingJob ownOlder = queued(projectA, user, base);
+        queued(projectA, other, base.plusSeconds(10));
+        queued(projectB, user, base.plusSeconds(20));
+        LegacyPackingJobs.insert(dsl, projectA, user, PackingJobStatus.SUCCEEDED, base.plusSeconds(30));
+
+        assertThat(finder().latestOwnInProject(projectA, user)).hasValueSatisfying(view -> assertThat(view.id()).isEqualTo(ownOlder.id()
+                                                                                                                                   .value()));
+    }
+
+    @Test
+    void latestInProjectPicksTheNewestStructuredJobByAnyone() {
+        UserId other = persistUser("packing-other");
+        Instant base = now();
+        queued(projectA, user, base);
+        PackingJob newest = queued(projectA, other, base.plusSeconds(10));
+        LegacyPackingJobs.insert(dsl, projectA, user, PackingJobStatus.SUCCEEDED, base.plusSeconds(20));
+
+        assertThat(finder().latestInProject(projectA)).hasValueSatisfying(view -> assertThat(view.id()).isEqualTo(newest.id()
+                                                                                                                        .value()));
+    }
+
+    @Test
+    void latestQueriesAreEmptyForAProjectWithOnlyLegacyJobs() {
+        LegacyPackingJobs.insert(dsl, projectA, user, PackingJobStatus.FAILED, now());
+
+        assertThat(finder().latestOwnInProject(projectA, user)).isEmpty();
+        assertThat(finder().latestInProject(projectA)).isEmpty();
+    }
+
+    private UserId persistUser(String name) {
+        User other = User.register(new FirebaseUid(name), new Email(name + "@example.com"), new Username(name), name, now());
+        new JooqUserRepository(dsl, new AggregateWriter(dsl)).save(other);
+        return other.id();
+    }
+
+    private PackingJob queued(ProjectId project, UserId by, Instant createdAt) {
+        PackingJob job = PackingJob.queue(PackingJobId.generate(), project, by, PackingInputs.single(), 60, createdAt);
+        persist(job);
+        return job;
+    }
+
     private JooqPackingJobFinder finder() {
         return new JooqPackingJobFinder(dsl);
     }

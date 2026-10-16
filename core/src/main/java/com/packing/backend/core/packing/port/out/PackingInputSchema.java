@@ -15,10 +15,24 @@ public interface PackingInputSchema {
 
     ValidatedInput validate(String body);
 
+    Settings defaults();
+
+    Reconciled reconcile(Settings stored);
+
     record SchemaDocument(int version, String json, String etag) {
     }
 
     record RequestedItem(FileId fileId, int copies) {
+    }
+
+    record Settings(long maxRuntimeSeconds, PackingParameters parameters) {
+    }
+
+    record Reconciled(Settings settings, List<String> resetFields) {
+
+        public Reconciled {
+            resetFields = List.copyOf(resetFields);
+        }
     }
 
     record ValidatedInput(int schemaVersion,

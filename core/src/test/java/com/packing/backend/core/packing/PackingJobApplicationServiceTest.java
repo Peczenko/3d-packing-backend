@@ -1,12 +1,19 @@
 package com.packing.backend.core.packing;
 
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
+import com.packing.backend.core.packing.PackingJobApplicationService.DraftQuery;
+import com.packing.backend.core.packing.PackingJobApplicationService.DraftSource;
 import com.packing.backend.core.packing.PackingJobApplicationService.ListPackingJobsQuery;
+import com.packing.backend.core.packing.PackingJobApplicationService.OmittedItem;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobDraft;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
 import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.packing.port.out.PackingInputSchema;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.Reconciled;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.RequestedItem;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.SchemaDocument;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.Settings;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.ValidatedInput;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
@@ -27,6 +34,7 @@ import com.packing.backend.domain.packing.PackingInput;
 import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJob;
+import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingParameters;
@@ -91,6 +99,8 @@ class PackingJobApplicationServiceTest {
                                                                                               new InstantRange(null, null),
                                                                                               PackingJobListCriteria.SortField.CREATED_AT,
                                                                                               SortDirection.DESC);
+
+    private static final SchemaDocument SCHEMA_V1 = new SchemaDocument(1, "{}", "e".repeat(64));
 
     @Mock
     private PackingJobRepository    repository;
@@ -385,6 +395,150 @@ class PackingJobApplicationServiceTest {
         when(schema.document()).thenReturn(document);
 
         assertThat(service.inputSchema()).isSameAs(document);
+    }
+
+    @Test
+    void draftFromTheCallersLatestJobKeepsUsableFilesUnderTheirCurrentNames() {
+        UUID jobId = UUID.randomUUID();
+        FileId bunnyId = FileId.generate();
+        FileId goneId = FileId.generate();
+        StoredFile renamed = StoredFile.upload(bunnyId, USER_ID, PROJECT_ID, new FileName("bunny-v2.obj"), 1_024, new Checksum("a".repeat(64)), NOW);
+        givenReadAccess();
+        when(finder.latestOwnInProject(PROJECT_ID, USER_ID)).thenReturn(Optional.of(storedJob(jobId,
+                                                                                              new PackingJobInputView.Item(bunnyId.value(), "bunny.obj", 3),
+                                                                                              new PackingJobInputView.Item(goneId.value(), "gone.obj", 1))));
+        when(schema.acceptedFormats()).thenReturn(Set.of(ModelFormat.OBJ));
+        when(files.findById(bunnyId)).thenReturn(Optional.of(renamed));
+        when(files.findById(goneId)).thenReturn(Optional.empty());
+        when(schema.reconcile(new Settings(120, PARAMETERS))).thenReturn(new Reconciled(new Settings(120, PARAMETERS), List.of()));
+        when(schema.document()).thenReturn(SCHEMA_V1);
+
+        PackingJobDraft draft = service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), null));
+
+        assertThat(draft).isEqualTo(new PackingJobDraft(DraftSource.LAST_OWN_JOB,
+                                                        jobId,
+                                                        new PackingJobInputView(1,
+                                                                                120,
+                                                                                PARAMETERS.json(),
+                                                                                List.of(new PackingJobInputView.Item(bunnyId.value(), "bunny-v2.obj", 3))),
+                                                        List.of(new OmittedItem(goneId.value(), "gone.obj")),
+                                                        List.of()));
+        verify(finder, never()).latestInProject(any());
+    }
+
+    @Test
+    void draftFallsBackToTheProjectsLatestJob() {
+        UUID jobId = UUID.randomUUID();
+        givenReadAccess();
+        when(finder.latestOwnInProject(PROJECT_ID, USER_ID)).thenReturn(Optional.empty());
+        when(finder.latestInProject(PROJECT_ID)).thenReturn(Optional.of(storedJob(jobId)));
+        when(schema.acceptedFormats()).thenReturn(Set.of(ModelFormat.OBJ));
+        when(schema.reconcile(any())).thenReturn(new Reconciled(new Settings(120, PARAMETERS), List.of()));
+        when(schema.document()).thenReturn(SCHEMA_V1);
+
+        PackingJobDraft draft = service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), null));
+
+        assertThat(draft.source()).isEqualTo(DraftSource.LAST_PROJECT_JOB);
+        assertThat(draft.sourceJobId()).isEqualTo(jobId);
+    }
+
+    @Test
+    void draftUsesTheSchemaDefaultsWhenTheProjectHasNoStructuredJob() {
+        givenReadAccess();
+        when(finder.latestOwnInProject(PROJECT_ID, USER_ID)).thenReturn(Optional.empty());
+        when(finder.latestInProject(PROJECT_ID)).thenReturn(Optional.empty());
+        when(schema.defaults()).thenReturn(new Settings(60, new PackingParameters("{}")));
+        when(schema.document()).thenReturn(SCHEMA_V1);
+
+        PackingJobDraft draft = service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), null));
+
+        assertThat(draft).isEqualTo(new PackingJobDraft(DraftSource.DEFAULTS,
+                                                        null,
+                                                        new PackingJobInputView(1, 60, "{}", List.of()),
+                                                        List.of(),
+                                                        List.of()));
+    }
+
+    @Test
+    void draftFromASelectedJobIgnoresTheCallersHistory() {
+        UUID jobId = UUID.randomUUID();
+        givenReadAccess();
+        when(finder.detailInProject(PROJECT_ID, new PackingJobId(jobId))).thenReturn(Optional.of(storedJob(jobId)));
+        when(schema.acceptedFormats()).thenReturn(Set.of(ModelFormat.OBJ));
+        when(schema.reconcile(any())).thenReturn(new Reconciled(new Settings(120, PARAMETERS), List.of("/maxRuntimeSeconds")));
+        when(schema.document()).thenReturn(SCHEMA_V1);
+
+        PackingJobDraft draft = service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), jobId));
+
+        assertThat(draft.source()).isEqualTo(DraftSource.SELECTED_JOB);
+        assertThat(draft.resetFields()).containsExactly("/maxRuntimeSeconds");
+        verify(finder, never()).latestOwnInProject(any(), any());
+    }
+
+    @Test
+    void draftFromAJobOutsideTheProjectIsNotFound() {
+        UUID jobId = UUID.randomUUID();
+        givenReadAccess();
+        when(finder.detailInProject(PROJECT_ID, new PackingJobId(jobId))).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                        .isInstanceOf(PackingJobNotFoundException.class);
+    }
+
+    @Test
+    void draftFromALegacyJobIsAConflict() {
+        UUID jobId = UUID.randomUUID();
+        givenReadAccess();
+        when(finder.detailInProject(PROJECT_ID, new PackingJobId(jobId))).thenReturn(Optional.of(view(jobId, PROJECT_ID.value())));
+
+        assertThatThrownBy(() -> service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                        .isInstanceOf(ResourceConflictException.class)
+                                                                                                        .hasMessage("This job predates structured input and cannot be re-run");
+    }
+
+    @Test
+    void draftOmitsAFileTheEngineNoLongerAccepts() {
+        UUID jobId = UUID.randomUUID();
+        FileId bracketId = FileId.generate();
+        StoredFile bracket = StoredFile.upload(bracketId, USER_ID, PROJECT_ID, new FileName("bracket.stl"), 1_024, new Checksum("a".repeat(64)), NOW);
+        givenReadAccess();
+        when(finder.latestOwnInProject(PROJECT_ID, USER_ID)).thenReturn(Optional.of(storedJob(jobId,
+                                                                                              new PackingJobInputView.Item(bracketId.value(), "bracket.stl", 2))));
+        when(schema.acceptedFormats()).thenReturn(Set.of(ModelFormat.OBJ));
+        when(files.findById(bracketId)).thenReturn(Optional.of(bracket));
+        when(schema.reconcile(any())).thenReturn(new Reconciled(new Settings(120, PARAMETERS), List.of()));
+        when(schema.document()).thenReturn(SCHEMA_V1);
+
+        PackingJobDraft draft = service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), null));
+
+        assertThat(draft.input()
+                        .items()).isEmpty();
+        assertThat(draft.omittedItems()).containsExactly(new OmittedItem(bracketId.value(), "bracket.stl"));
+    }
+
+    @Test
+    void draftRequiresMembership() {
+        when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), null)))
+                                                                                                       .isInstanceOf(ProjectNotFoundException.class);
+    }
+
+    private static PackingJobView storedJob(UUID jobId, PackingJobInputView.Item... items) {
+        return new PackingJobView(jobId,
+                                  PROJECT_ID.value(),
+                                  PackingJobStatus.SUCCEEDED,
+                                  "v0.0.2",
+                                  "a".repeat(64),
+                                  NOW,
+                                  NOW,
+                                  NOW,
+                                  null,
+                                  "packed.obj",
+                                  "model/obj",
+                                  12L,
+                                  "b".repeat(64),
+                                  new PackingJobInputView(1, 120, PARAMETERS.json(), List.of(items)));
     }
 
     private void givenReadAccess() {

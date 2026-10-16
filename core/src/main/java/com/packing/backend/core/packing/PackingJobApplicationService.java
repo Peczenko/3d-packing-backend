@@ -2,7 +2,9 @@ package com.packing.backend.core.packing;
 
 import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.packing.port.out.PackingInputSchema;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.Reconciled;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.RequestedItem;
+import com.packing.backend.core.packing.port.out.PackingInputSchema.Settings;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.ValidatedInput;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
@@ -20,6 +22,7 @@ import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.PackingParameters;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectNotFoundException;
 import com.packing.backend.domain.project.ProjectPermission;
@@ -118,6 +121,61 @@ public class PackingJobApplicationService {
         return artifacts.createResultDownloadUrl(jobId, Duration.ofMinutes(10));
     }
 
+    @Transactional(readOnly = true)
+    public PackingJobDraft draft(DraftQuery query) {
+        ProjectAccess project = requireAccess(query.firebaseUid(),
+                                              query.projectId(),
+                                              ProjectPermission.READ);
+        ProjectId projectId = project.projectId();
+        if (query.fromJobId() != null) {
+            PackingJobView selected = requireView(projectId, new PackingJobId(query.fromJobId()));
+            if (selected.input() == null) {
+                throw new ResourceConflictException("This job predates structured input and cannot be re-run");
+            }
+            return draftFrom(DraftSource.SELECTED_JOB, selected, projectId);
+        }
+        Optional<PackingJobView> own = finder.latestOwnInProject(projectId, project.userId());
+        if (own.isPresent()) {
+            return draftFrom(DraftSource.LAST_OWN_JOB, own.get(), projectId);
+        }
+        Optional<PackingJobView> latest = finder.latestInProject(projectId);
+        if (latest.isPresent()) {
+            return draftFrom(DraftSource.LAST_PROJECT_JOB, latest.get(), projectId);
+        }
+        return new PackingJobDraft(DraftSource.DEFAULTS, null, inputView(schema.defaults(), List.of()), List.of(), List.of());
+    }
+
+    private PackingJobDraft draftFrom(DraftSource source, PackingJobView job, ProjectId projectId) {
+        PackingJobInputView stored = job.input();
+        Set<ModelFormat> accepted = schema.acceptedFormats();
+        List<PackingJobInputView.Item> kept = new ArrayList<>();
+        List<OmittedItem> omitted = new ArrayList<>();
+        for (PackingJobInputView.Item item : stored.items()) {
+            Optional<StoredFile> file = availableFile(projectId, new FileId(item.fileId())).filter(candidate -> accepted.contains(candidate.format()));
+            if (file.isPresent()) {
+                kept.add(new PackingJobInputView.Item(item.fileId(),
+                                                      file.get()
+                                                          .name()
+                                                          .value(),
+                                                      item.copies()));
+            } else {
+                omitted.add(new OmittedItem(item.fileId(), item.fileName()));
+            }
+        }
+        Reconciled settings = schema.reconcile(new Settings(stored.maxRuntimeSeconds(),
+                                                            new PackingParameters(stored.parametersJson())));
+        return new PackingJobDraft(source, job.id(), inputView(settings.settings(), kept), omitted, settings.resetFields());
+    }
+
+    private PackingJobInputView inputView(Settings settings, List<PackingJobInputView.Item> items) {
+        return new PackingJobInputView(schema.document()
+                                             .version(),
+                                       settings.maxRuntimeSeconds(),
+                                       settings.parameters()
+                                               .json(),
+                                       items);
+    }
+
     private List<PackingItem> resolveItems(ProjectId projectId, List<RequestedItem> requested) {
         Set<ModelFormat> accepted = schema.acceptedFormats();
         Map<String, String> errors = new LinkedHashMap<>();
@@ -172,6 +230,31 @@ public class PackingJobApplicationService {
     }
 
     public record CreatePackingJobCommand(String firebaseUid, UUID projectId, String body) {
+    }
+
+    public enum DraftSource {
+        SELECTED_JOB,
+        LAST_OWN_JOB,
+        LAST_PROJECT_JOB,
+        DEFAULTS
+    }
+
+    public record PackingJobDraft(DraftSource source,
+            UUID sourceJobId,
+            PackingJobInputView input,
+            List<OmittedItem> omittedItems,
+            List<String> resetFields) {
+
+        public PackingJobDraft {
+            omittedItems = List.copyOf(omittedItems);
+            resetFields = List.copyOf(resetFields);
+        }
+    }
+
+    public record OmittedItem(UUID fileId, String fileName) {
+    }
+
+    public record DraftQuery(String firebaseUid, UUID projectId, UUID fromJobId) {
     }
 
     public record ListPackingJobsQuery(String firebaseUid, UUID projectId, PackingJobListCriteria criteria) {
