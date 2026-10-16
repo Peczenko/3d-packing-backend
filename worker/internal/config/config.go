@@ -4,111 +4,66 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 )
 
 const (
-	defaultDispatchQueue     = "packing-dispatch"
-	defaultResultQueue       = "packing-results"
+	defaultTemporalAddress   = "localhost:7233"
+	defaultTemporalNamespace = "packing"
+	defaultTaskQueue         = "packing-engine"
 	defaultStorageContainer  = "models"
 	defaultPackerPath        = "/usr/local/bin/packer"
-	defaultReceiveTimeout    = time.Minute
-	defaultLockRenewInterval = 20 * time.Second
-	serviceBusDomainSuffix   = ".servicebus.windows.net"
+	defaultHeartbeatInterval = 10 * time.Second
 )
 
 var (
-	ErrServiceBusAuth            = errors.New("config: exactly one of SERVICE_BUS_CONNECTION_STRING or SERVICE_BUS_NAMESPACE must be set")
-	ErrStorageAuth               = errors.New("config: exactly one of STORAGE_CONNECTION_STRING or STORAGE_ACCOUNT_URL must be set")
-	ErrServiceBusNamespaceFormat = errors.New("config: SERVICE_BUS_NAMESPACE must be a bare namespace, not a fully qualified domain name")
-	ErrInvalidReceiveTimeout     = errors.New("config: PACKING_RECEIVE_TIMEOUT must be a positive duration")
-	ErrInvalidLockRenewInterval  = errors.New("config: PACKING_LOCK_RENEW_INTERVAL must be a positive duration")
+	ErrStorageAuth              = errors.New("config: exactly one of STORAGE_CONNECTION_STRING or STORAGE_ACCOUNT_URL must be set")
+	ErrInvalidHeartbeatInterval = errors.New("config: PACKING_HEARTBEAT_INTERVAL must be a positive duration")
 )
 
 type Config struct {
-	ServiceBusConnectionString string
-	ServiceBusNamespace        string
-	DispatchQueue              string
-	ResultQueue                string
-	StorageConnectionString    string
-	StorageAccountURL          string
-	StorageContainer           string
-	PackerPath                 string
-	WorkRoot                   string
-	ReceiveTimeout             time.Duration
-	LockRenewInterval          time.Duration
+	TemporalAddress         string
+	TemporalNamespace       string
+	TaskQueue               string
+	HeartbeatInterval       time.Duration
+	StorageConnectionString string
+	StorageAccountURL       string
+	StorageContainer        string
+	PackerPath              string
+	WorkRoot                string
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		ServiceBusConnectionString: os.Getenv("SERVICE_BUS_CONNECTION_STRING"),
-		ServiceBusNamespace:        os.Getenv("SERVICE_BUS_NAMESPACE"),
-		DispatchQueue:              defaultDispatchQueue,
-		ResultQueue:                defaultResultQueue,
-		StorageConnectionString:    os.Getenv("STORAGE_CONNECTION_STRING"),
-		StorageAccountURL:          os.Getenv("STORAGE_ACCOUNT_URL"),
-		StorageContainer:           defaultStorageContainer,
-		PackerPath:                 defaultPackerPath,
-		WorkRoot:                   os.TempDir(),
-		ReceiveTimeout:             defaultReceiveTimeout,
-		LockRenewInterval:          defaultLockRenewInterval,
+		TemporalAddress:         envOr("TEMPORAL_ADDRESS", defaultTemporalAddress),
+		TemporalNamespace:       envOr("TEMPORAL_NAMESPACE", defaultTemporalNamespace),
+		TaskQueue:               envOr("PACKING_TASK_QUEUE", defaultTaskQueue),
+		HeartbeatInterval:       defaultHeartbeatInterval,
+		StorageConnectionString: os.Getenv("STORAGE_CONNECTION_STRING"),
+		StorageAccountURL:       os.Getenv("STORAGE_ACCOUNT_URL"),
+		StorageContainer:        envOr("STORAGE_CONTAINER_NAME", defaultStorageContainer),
+		PackerPath:              envOr("PACKER_PATH", defaultPackerPath),
+		WorkRoot:                envOr("PACKING_WORK_ROOT", os.TempDir()),
 	}
 
-	if v := os.Getenv("PACKING_DISPATCH_QUEUE"); v != "" {
-		cfg.DispatchQueue = v
-	}
-	if v := os.Getenv("PACKING_RESULT_QUEUE"); v != "" {
-		cfg.ResultQueue = v
-	}
-	if v := os.Getenv("STORAGE_CONTAINER_NAME"); v != "" {
-		cfg.StorageContainer = v
-	}
-	if v := os.Getenv("PACKER_PATH"); v != "" {
-		cfg.PackerPath = v
-	}
-	if v := os.Getenv("PACKING_WORK_ROOT"); v != "" {
-		cfg.WorkRoot = v
-	}
-	if v := os.Getenv("PACKING_RECEIVE_TIMEOUT"); v != "" {
-		d, err := parsePositiveDuration(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("config: invalid PACKING_RECEIVE_TIMEOUT %q: %w: %w", v, ErrInvalidReceiveTimeout, err)
+	if v := os.Getenv("PACKING_HEARTBEAT_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return Config{}, fmt.Errorf("config: invalid PACKING_HEARTBEAT_INTERVAL %q: %w", v, ErrInvalidHeartbeatInterval)
 		}
-		cfg.ReceiveTimeout = d
-	}
-	if v := os.Getenv("PACKING_LOCK_RENEW_INTERVAL"); v != "" {
-		d, err := parsePositiveDuration(v)
-		if err != nil {
-			return Config{}, fmt.Errorf("config: invalid PACKING_LOCK_RENEW_INTERVAL %q: %w: %w", v, ErrInvalidLockRenewInterval, err)
-		}
-		cfg.LockRenewInterval = d
+		cfg.HeartbeatInterval = d
 	}
 
-	if isInvalidAuthPair(cfg.ServiceBusConnectionString, cfg.ServiceBusNamespace) {
-		return Config{}, ErrServiceBusAuth
-	}
-	if isInvalidAuthPair(cfg.StorageConnectionString, cfg.StorageAccountURL) {
+	if (cfg.StorageConnectionString != "") == (cfg.StorageAccountURL != "") {
 		return Config{}, ErrStorageAuth
-	}
-	if cfg.ServiceBusNamespace != "" && strings.Contains(strings.ToLower(cfg.ServiceBusNamespace), serviceBusDomainSuffix) {
-		return Config{}, fmt.Errorf("config: SERVICE_BUS_NAMESPACE %q looks like a fully qualified domain name: %w", cfg.ServiceBusNamespace, ErrServiceBusNamespaceFormat)
 	}
 
 	return cfg, nil
 }
 
-func isInvalidAuthPair(a, b string) bool {
-	return (a != "") == (b != "")
-}
-
-func parsePositiveDuration(v string) (time.Duration, error) {
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, err
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
-	if d <= 0 {
-		return 0, fmt.Errorf("duration must be positive, got %s", d)
-	}
-	return d, nil
+	return fallback
 }

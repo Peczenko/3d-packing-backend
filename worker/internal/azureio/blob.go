@@ -152,7 +152,7 @@ func resultMetadata(result pipeline.StoredResult) map[string]*string {
 		metaChecksum:        to.Ptr(result.Result.Checksum),
 		metaEngineVersion:   to.Ptr(result.Engine.Version),
 		metaEngineChecksum:  to.Ptr(result.Engine.Checksum),
-		metaContractVersion: to.Ptr(strconv.Itoa(contracts.MessageVersion)),
+		metaContractVersion: to.Ptr(strconv.Itoa(contracts.ActivityVersion)),
 	}
 }
 

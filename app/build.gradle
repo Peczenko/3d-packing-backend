@@ -29,12 +29,8 @@ dependencies {
     testImplementation testFixtures(project(':infra'))
 
     testImplementation libs.archunit.junit5
-}
-
-tasks.named('test') {
-    inputs.file(rootProject.file('config/servicebus/config.json'))
-            .withPropertyName('serviceBusEmulatorConfig')
-            .withPathSensitivity(PathSensitivity.NONE)
+    testImplementation libs.temporal.spring.boot.starter
+    testImplementation libs.temporal.testing
 }
 
 tasks.named('jar') {

@@ -9,21 +9,52 @@ import (
 	"strings"
 )
 
-const MessageVersion = 1
+const (
+	ActivityVersion = 2
+	RequestVersion  = 1
+
+	RunEngineActivity   = "RunEngine"
+	EngineStartedSignal = "engineStarted"
+	EngineFailureType   = "EngineFailure"
+	InvalidInputType    = "InvalidInput"
+)
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 var (
 	ErrInvalidJSON        = errors.New("contracts: payload is not valid JSON")
-	ErrUnsupportedVersion = errors.New("contracts: unsupported message version")
+	ErrUnsupportedVersion = errors.New("contracts: unsupported contract version")
 	ErrInvalidJobID       = errors.New("contracts: jobId must be a canonical UUID")
 	ErrInvalidRuntime     = errors.New("contracts: maxRuntimeSeconds must be between 1 and 7200")
 	ErrInvalidSpec        = errors.New("contracts: spec must be non-empty JSON")
 )
 
-type DispatchMessage struct {
-	MessageVersion int    `json:"messageVersion"`
-	JobID          string `json:"jobId"`
+type RunEngineInput struct {
+	ContractVersion int    `json:"contractVersion"`
+	JobID           string `json:"jobId"`
+}
+
+type EngineStarted struct {
+	ContractVersion int    `json:"contractVersion"`
+	EngineVersion   string `json:"engineVersion"`
+	EngineChecksum  string `json:"engineChecksum"`
+}
+
+type EngineResult struct {
+	ContractVersion   int    `json:"contractVersion"`
+	EngineVersion     string `json:"engineVersion"`
+	EngineChecksum    string `json:"engineChecksum"`
+	ResultFileName    string `json:"resultFileName"`
+	ResultContentType string `json:"resultContentType"`
+	ResultSizeBytes   int64  `json:"resultSizeBytes"`
+	ResultChecksum    string `json:"resultChecksum"`
+}
+
+type EngineFailureDetails struct {
+	ContractVersion int    `json:"contractVersion"`
+	EngineVersion   string `json:"engineVersion"`
+	EngineChecksum  string `json:"engineChecksum"`
+	Reason          string `json:"reason"`
 }
 
 type RequestEnvelope struct {
@@ -32,41 +63,14 @@ type RequestEnvelope struct {
 	Spec              json.RawMessage `json:"spec"`
 }
 
-type WorkerEvent struct {
-	MessageVersion    int     `json:"messageVersion"`
-	EventType         string  `json:"eventType"`
-	JobID             string  `json:"jobId"`
-	EngineVersion     string  `json:"engineVersion"`
-	EngineChecksum    string  `json:"engineChecksum"`
-	ResultFileName    *string `json:"resultFileName,omitempty"`
-	ResultContentType *string `json:"resultContentType,omitempty"`
-	ResultSizeBytes   *int64  `json:"resultSizeBytes,omitempty"`
-	ResultChecksum    *string `json:"resultChecksum,omitempty"`
-	Reason            *string `json:"reason,omitempty"`
-}
-
-func isCanonicalUUID(s string) bool {
-	return uuidPattern.MatchString(s)
-}
-
-func DecodeDispatch(data []byte) (DispatchMessage, error) {
-	var wire struct {
-		MessageVersion *int    `json:"messageVersion"`
-		JobID          *string `json:"jobId"`
+func ValidateRunEngineInput(input RunEngineInput) (RunEngineInput, error) {
+	if input.ContractVersion != ActivityVersion {
+		return RunEngineInput{}, fmt.Errorf("run engine input: %w", ErrUnsupportedVersion)
 	}
-	if err := json.Unmarshal(data, &wire); err != nil {
-		return DispatchMessage{}, fmt.Errorf("decode dispatch message: %w: %w", ErrInvalidJSON, err)
+	if !uuidPattern.MatchString(input.JobID) {
+		return RunEngineInput{}, fmt.Errorf("run engine input: %w", ErrInvalidJobID)
 	}
-	if wire.MessageVersion == nil || *wire.MessageVersion != MessageVersion {
-		return DispatchMessage{}, fmt.Errorf("decode dispatch message: %w", ErrUnsupportedVersion)
-	}
-	if wire.JobID == nil || !isCanonicalUUID(*wire.JobID) {
-		return DispatchMessage{}, fmt.Errorf("decode dispatch message: %w", ErrInvalidJobID)
-	}
-	return DispatchMessage{
-		MessageVersion: *wire.MessageVersion,
-		JobID:          strings.ToLower(*wire.JobID),
-	}, nil
+	return RunEngineInput{ContractVersion: input.ContractVersion, JobID: strings.ToLower(input.JobID)}, nil
 }
 
 func DecodeRequest(data []byte) (RequestEnvelope, error) {
@@ -78,7 +82,7 @@ func DecodeRequest(data []byte) (RequestEnvelope, error) {
 	if err := json.Unmarshal(data, &wire); err != nil {
 		return RequestEnvelope{}, fmt.Errorf("decode request envelope: %w: %w", ErrInvalidJSON, err)
 	}
-	if wire.RequestVersion == nil || *wire.RequestVersion != MessageVersion {
+	if wire.RequestVersion == nil || *wire.RequestVersion != RequestVersion {
 		return RequestEnvelope{}, fmt.Errorf("decode request envelope: %w", ErrUnsupportedVersion)
 	}
 	if wire.MaxRuntimeSeconds == nil || *wire.MaxRuntimeSeconds < 1 || *wire.MaxRuntimeSeconds > 7200 {
@@ -92,39 +96,4 @@ func DecodeRequest(data []byte) (RequestEnvelope, error) {
 		MaxRuntimeSeconds: *wire.MaxRuntimeSeconds,
 		Spec:              wire.Spec,
 	}, nil
-}
-
-func EncodeStarted(jobID, engineVersion, engineChecksum string) ([]byte, error) {
-	return json.Marshal(WorkerEvent{
-		MessageVersion: MessageVersion,
-		EventType:      "started",
-		JobID:          jobID,
-		EngineVersion:  engineVersion,
-		EngineChecksum: engineChecksum,
-	})
-}
-
-func EncodeSucceeded(jobID, engineVersion, engineChecksum, resultFileName, resultContentType string, resultSizeBytes int64, resultChecksum string) ([]byte, error) {
-	return json.Marshal(WorkerEvent{
-		MessageVersion:    MessageVersion,
-		EventType:         "succeeded",
-		JobID:             jobID,
-		EngineVersion:     engineVersion,
-		EngineChecksum:    engineChecksum,
-		ResultFileName:    &resultFileName,
-		ResultContentType: &resultContentType,
-		ResultSizeBytes:   &resultSizeBytes,
-		ResultChecksum:    &resultChecksum,
-	})
-}
-
-func EncodeFailed(jobID, engineVersion, engineChecksum, reason string) ([]byte, error) {
-	return json.Marshal(WorkerEvent{
-		MessageVersion: MessageVersion,
-		EventType:      "failed",
-		JobID:          jobID,
-		EngineVersion:  engineVersion,
-		EngineChecksum: engineChecksum,
-		Reason:         &reason,
-	})
 }

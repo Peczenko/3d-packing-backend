@@ -28,7 +28,8 @@ dependencies {
     implementation 'com.azure.spring:spring-cloud-azure-starter-storage'
 
     implementation 'com.azure:azure-storage-blob'
-    implementation 'com.azure:azure-messaging-servicebus'
+
+    implementation libs.temporal.spring.boot.starter
 
     implementation libs.firebase.admin
 
@@ -46,6 +47,7 @@ dependencies {
     testImplementation 'org.testcontainers:postgresql'
 
     testImplementation 'org.testcontainers:azure'
+    testImplementation libs.temporal.testing
     testImplementation 'org.postgresql:postgresql'
     testRuntimeOnly 'org.postgresql:postgresql'
 }

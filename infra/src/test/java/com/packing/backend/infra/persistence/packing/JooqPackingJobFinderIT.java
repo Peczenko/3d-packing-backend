@@ -105,28 +105,6 @@ class JooqPackingJobFinderIT {
     }
 
     @Test
-    void findsOnlyRunningJobsInStartedAtThenIdOrderAndHonorsTheLimit() {
-        Instant base = now();
-        PackingJobId firstId = new PackingJobId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
-        PackingJobId secondId = new PackingJobId(UUID.fromString("00000000-0000-0000-0000-000000000002"));
-        PackingJob first = runningJob(projectA, firstId, base, base.plusSeconds(10));
-        PackingJob second = runningJob(projectA, secondId, base.plusSeconds(1), base.plusSeconds(10));
-        persist(first);
-        persist(second);
-        persistJob(projectA, base.plusSeconds(2));
-
-        assertThat(finder().findRunning(1)).containsExactly(first.id());
-        assertThat(finder().findRunning(2)).containsExactly(first.id(), second.id());
-    }
-
-    @Test
-    void rejectsANonPositiveRunningJobLimit() {
-        org.assertj.core.api.Assertions.assertThatIllegalArgumentException()
-                                       .isThrownBy(() -> finder().findRunning(0))
-                                       .withMessage("limit must be positive");
-    }
-
-    @Test
     void matchesSearchInEngineVersionResultFileNameAndFailureReason() {
         Instant base = now();
         PackingJob engine = persistJob(projectA, PackingJobStatus.RUNNING, 60, "Engine 2.0", base, base, null, null, null, null);
@@ -539,12 +517,6 @@ class JooqPackingJobFinderIT {
                                               0,
                                               createdAt);
         persist(job);
-        return job;
-    }
-
-    private PackingJob runningJob(ProjectId project, PackingJobId id, Instant createdAt, Instant startedAt) {
-        PackingJob job = PackingJob.queue(id, project, user, "{\"testField\":42}", 60, createdAt);
-        job.markRunning("packer 0.1.0", "a".repeat(64), startedAt);
         return job;
     }
 

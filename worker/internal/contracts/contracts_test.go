@@ -6,14 +6,20 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
-const fixtureDir = "../../../contracts/packing/v1"
+const contractsDir = "../../../contracts/packing"
 
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(fixtureDir, name))
+	return readVersionedFixture(t, RequestVersion, name)
+}
+
+func readVersionedFixture(t *testing.T, version int, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(contractsDir, "v"+strconv.Itoa(version), name))
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", name, err)
 	}
@@ -29,20 +35,69 @@ func compact(t *testing.T, data []byte) []byte {
 	return buf.Bytes()
 }
 
-func TestDispatchMessageRoundTrip(t *testing.T) {
-	fixture := readFixture(t, "dispatch-message.example.json")
-	want := compact(t, fixture)
-
-	msg, err := DecodeDispatch(fixture)
-	if err != nil {
-		t.Fatalf("DecodeDispatch: %v", err)
+func assertActivityRoundTrip[T any](t *testing.T, name string) T {
+	t.Helper()
+	fixture := readVersionedFixture(t, ActivityVersion, name)
+	var decoded T
+	decoder := json.NewDecoder(bytes.NewReader(fixture))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		t.Fatalf("decode %s: %v", name, err)
 	}
-	got, err := json.Marshal(msg)
+	got, err := json.Marshal(decoded)
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("round trip mismatch:\n got:  %s\n want: %s", got, want)
+	if want := compact(t, fixture); !bytes.Equal(got, want) {
+		t.Fatalf("round trip mismatch for %s:\n got:  %s\n want: %s", name, got, want)
+	}
+	return decoded
+}
+
+func TestRunEngineInputRoundTrip(t *testing.T) {
+	input := assertActivityRoundTrip[RunEngineInput](t, "run-engine-input.example.json")
+	if input.ContractVersion != ActivityVersion {
+		t.Fatalf("example carries contract version %d, want %d", input.ContractVersion, ActivityVersion)
+	}
+}
+
+func TestEngineStartedSignalRoundTrip(t *testing.T) {
+	assertActivityRoundTrip[EngineStarted](t, "engine-started-signal.example.json")
+}
+
+func TestEngineResultRoundTrip(t *testing.T) {
+	assertActivityRoundTrip[EngineResult](t, "run-engine-result.example.json")
+}
+
+func TestEngineFailureDetailsRoundTrip(t *testing.T) {
+	assertActivityRoundTrip[EngineFailureDetails](t, "engine-failure-details.example.json")
+}
+
+func TestValidateRunEngineInputNormalisesJobIDToLowercase(t *testing.T) {
+	input, err := ValidateRunEngineInput(RunEngineInput{ContractVersion: ActivityVersion, JobID: "3F2504E0-4F89-41D3-9A0C-0305E82C3301"})
+	if err != nil {
+		t.Fatalf("ValidateRunEngineInput: %v", err)
+	}
+	if input.JobID != "3f2504e0-4f89-41d3-9a0c-0305e82c3301" {
+		t.Fatalf("jobId = %q, want lowercase", input.JobID)
+	}
+}
+
+func TestValidateRunEngineInputRejectsAnotherContractVersion(t *testing.T) {
+	for _, version := range []int{0, 1, ActivityVersion + 1} {
+		_, err := ValidateRunEngineInput(RunEngineInput{ContractVersion: version, JobID: "3f2504e0-4f89-41d3-9a0c-0305e82c3301"})
+		if !errors.Is(err, ErrUnsupportedVersion) {
+			t.Fatalf("version %d: expected ErrUnsupportedVersion, got %v", version, err)
+		}
+	}
+}
+
+func TestValidateRunEngineInputRejectsANonCanonicalJobID(t *testing.T) {
+	for _, jobID := range []string{"", "not-a-uuid", "3f2504e04f8941d39a0c0305e82c3301", "{3f2504e0-4f89-41d3-9a0c-0305e82c3301}"} {
+		_, err := ValidateRunEngineInput(RunEngineInput{ContractVersion: ActivityVersion, JobID: jobID})
+		if !errors.Is(err, ErrInvalidJobID) {
+			t.Fatalf("jobId %q: expected ErrInvalidJobID, got %v", jobID, err)
+		}
 	}
 }
 
@@ -60,183 +115,6 @@ func TestRequestEnvelopeRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("round trip mismatch:\n got:  %s\n want: %s", got, want)
-	}
-}
-
-func TestStartedEventRoundTrip(t *testing.T) {
-	fixture := readFixture(t, "started-event.example.json")
-	want := compact(t, fixture)
-
-	var event WorkerEvent
-	if err := json.Unmarshal(fixture, &event); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	got, err := json.Marshal(event)
-	if err != nil {
-		t.Fatalf("json.Marshal: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("round trip mismatch:\n got:  %s\n want: %s", got, want)
-	}
-
-	encoded, err := EncodeStarted(event.JobID, event.EngineVersion, event.EngineChecksum)
-	if err != nil {
-		t.Fatalf("EncodeStarted: %v", err)
-	}
-	if !bytes.Equal(encoded, want) {
-		t.Fatalf("EncodeStarted mismatch:\n got:  %s\n want: %s", encoded, want)
-	}
-}
-
-func TestSucceededEventRoundTrip(t *testing.T) {
-	fixture := readFixture(t, "succeeded-event.example.json")
-	want := compact(t, fixture)
-
-	var event WorkerEvent
-	if err := json.Unmarshal(fixture, &event); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	got, err := json.Marshal(event)
-	if err != nil {
-		t.Fatalf("json.Marshal: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("round trip mismatch:\n got:  %s\n want: %s", got, want)
-	}
-
-	encoded, err := EncodeSucceeded(
-		event.JobID,
-		event.EngineVersion,
-		event.EngineChecksum,
-		*event.ResultFileName,
-		*event.ResultContentType,
-		*event.ResultSizeBytes,
-		*event.ResultChecksum,
-	)
-	if err != nil {
-		t.Fatalf("EncodeSucceeded: %v", err)
-	}
-	if !bytes.Equal(encoded, want) {
-		t.Fatalf("EncodeSucceeded mismatch:\n got:  %s\n want: %s", encoded, want)
-	}
-}
-
-func TestFailedEventRoundTrip(t *testing.T) {
-	fixture := readFixture(t, "failed-event.example.json")
-	want := compact(t, fixture)
-
-	var event WorkerEvent
-	if err := json.Unmarshal(fixture, &event); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	got, err := json.Marshal(event)
-	if err != nil {
-		t.Fatalf("json.Marshal: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("round trip mismatch:\n got:  %s\n want: %s", got, want)
-	}
-
-	encoded, err := EncodeFailed(event.JobID, event.EngineVersion, event.EngineChecksum, *event.Reason)
-	if err != nil {
-		t.Fatalf("EncodeFailed: %v", err)
-	}
-	if !bytes.Equal(encoded, want) {
-		t.Fatalf("EncodeFailed mismatch:\n got:  %s\n want: %s", encoded, want)
-	}
-}
-
-func TestEncodeSucceededEmitsExplicitZeroSize(t *testing.T) {
-	encoded, err := EncodeSucceeded(
-		"00000000-0000-0000-0000-000000000001",
-		"packer 0.3.0",
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"output.bin",
-		"application/octet-stream",
-		0,
-		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-	)
-	if err != nil {
-		t.Fatalf("EncodeSucceeded: %v", err)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &fields); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	size, ok := fields["resultSizeBytes"]
-	if !ok {
-		t.Fatalf("resultSizeBytes key missing from encoded succeeded event with size 0: %s", encoded)
-	}
-	if string(size) != "0" {
-		t.Fatalf("resultSizeBytes = %s, want 0", size)
-	}
-}
-
-func TestEncodeFailedEmitsExplicitEmptyReason(t *testing.T) {
-	encoded, err := EncodeFailed(
-		"00000000-0000-0000-0000-000000000001",
-		"packer 0.3.0",
-		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"",
-	)
-	if err != nil {
-		t.Fatalf("EncodeFailed: %v", err)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(encoded, &fields); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	reason, ok := fields["reason"]
-	if !ok {
-		t.Fatalf("reason key missing from encoded failed event with empty reason: %s", encoded)
-	}
-	if string(reason) != `""` {
-		t.Fatalf(`reason = %s, want ""`, reason)
-	}
-}
-
-func TestDecodeDispatchRejectsUnsupportedVersion(t *testing.T) {
-	_, err := DecodeDispatch([]byte(`{"messageVersion":2,"jobId":"00000000-0000-0000-0000-000000000001"}`))
-	if !errors.Is(err, ErrUnsupportedVersion) {
-		t.Fatalf("expected ErrUnsupportedVersion, got %v", err)
-	}
-}
-
-func TestDecodeDispatchRejectsInvalidUUID(t *testing.T) {
-	_, err := DecodeDispatch([]byte(`{"messageVersion":1,"jobId":"not-a-uuid"}`))
-	if !errors.Is(err, ErrInvalidJobID) {
-		t.Fatalf("expected ErrInvalidJobID, got %v", err)
-	}
-}
-
-// The accepting regex allows either case because a dispatch is not worth
-// refusing over one, but the id it returns has to be the one Java means:
-// PackingJobId normalises through UUID.fromString, so a canonical-lowercase
-// id is what PackingResultProcessor compares the event's jobId against and
-// what AzurePackingJobArtifactStore spells into both blob keys. Echoing the
-// casing back verbatim would make the session id, the event and the keys
-// disagree with the row.
-func TestDecodeDispatchNormalisesJobIDToLowercase(t *testing.T) {
-	dispatch, err := DecodeDispatch([]byte(`{"messageVersion":1,"jobId":"3F2504E0-4F89-41D3-9A0C-0305E82C3301"}`))
-	if err != nil {
-		t.Fatalf("DecodeDispatch: %v", err)
-	}
-	if want := "3f2504e0-4f89-41d3-9a0c-0305e82c3301"; dispatch.JobID != want {
-		t.Fatalf("JobID = %q, want %q", dispatch.JobID, want)
-	}
-}
-
-func TestDecodeDispatchRejectsMissingJobID(t *testing.T) {
-	_, err := DecodeDispatch([]byte(`{"messageVersion":1}`))
-	if !errors.Is(err, ErrInvalidJobID) {
-		t.Fatalf("expected ErrInvalidJobID, got %v", err)
-	}
-}
-
-func TestDecodeDispatchRejectsMalformedJSON(t *testing.T) {
-	_, err := DecodeDispatch([]byte(`{not json`))
-	if !errors.Is(err, ErrInvalidJSON) {
-		t.Fatalf("expected ErrInvalidJSON, got %v", err)
 	}
 }
 
