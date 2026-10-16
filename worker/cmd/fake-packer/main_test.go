@@ -16,11 +16,13 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func validSpecPath(t *testing.T) string {
+func readText(t *testing.T, path string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "spec.json")
-	writeFile(t, path, `{"boxes":[]}`)
-	return path
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return strings.ReplaceAll(string(data), "\r\n", "\n")
 }
 
 func mustNotExist(t *testing.T, path string) {
@@ -30,52 +32,43 @@ func mustNotExist(t *testing.T, path string) {
 	}
 }
 
-func TestVersionPrintsExactlyOneTrailingNewline(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--version"}, &stdout, &stderr)
-
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	if want := "fake-packer 0.1.0\n"; stdout.String() != want {
-		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
-	}
-	if stderr.Len() != 0 {
-		t.Fatalf("stderr = %q, want empty", stderr.String())
-	}
+func cubePath() string {
+	return filepath.Join("..", "..", "testdata", "cube.obj")
 }
 
-func TestMissingOrInvalidFlagsExitTwo(t *testing.T) {
-	spec := validSpecPath(t)
+func objWith(t *testing.T, directive string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "part.obj")
+	writeFile(t, path, "v 0 0 0\n"+directive+"\nf 1 1 1\n")
+	return path
+}
 
-	cases := []struct {
+func TestMissingOrInvalidArgumentsExitTwo(t *testing.T) {
+	cube := cubePath()
+	for _, tc := range []struct {
 		name string
 		args []string
 	}{
 		{"no arguments at all", nil},
-		{"missing --spec", []string{"--output", "out.json", "--time-limit-seconds", "10"}},
-		{"missing --output", []string{"--spec", spec, "--time-limit-seconds", "10"}},
-		{"missing --time-limit-seconds", []string{"--spec", spec, "--output", "out.json"}},
-		{"zero --time-limit-seconds", []string{"--spec", spec, "--output", "out.json", "--time-limit-seconds", "0"}},
-		{"negative --time-limit-seconds", []string{"--spec", spec, "--output", "out.json", "--time-limit-seconds", "-5"}},
-		{"non-numeric --time-limit-seconds", []string{"--spec", spec, "--output", "out.json", "--time-limit-seconds", "soon"}},
-		{"unrecognised flag", []string{"--spec", spec, "--output", "out.json", "--time-limit-seconds", "10", "--bogus"}},
-	}
-	for _, tc := range cases {
+		{"missing -t", []string{"-o", "out.obj", cube}},
+		{"zero -t", []string{"-t", "0", "-o", "out.obj", cube}},
+		{"non-numeric -t", []string{"-t", "soon", "-o", "out.obj", cube}},
+		{"missing -o", []string{"-t", "10", cube}},
+		{"no input", []string{"-t", "10", "-o", "out.obj"}},
+		{"unrecognised flag", []string{"-t", "10", "-o", "out.obj", "-s", "7", cube}},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			outputPath := filepath.Join(t.TempDir(), "out.json")
+			outputPath := filepath.Join(t.TempDir(), "out.obj")
 			args := make([]string, len(tc.args))
-			copy(args, tc.args)
-			for i, a := range args {
-				if a == "out.json" {
-					args[i] = outputPath
+			for i, a := range tc.args {
+				if a == "out.obj" {
+					a = outputPath
 				}
+				args[i] = a
 			}
 
-			var stdout, stderr bytes.Buffer
-			code := run(args, &stdout, &stderr)
-
-			if code != 2 {
+			var stderr bytes.Buffer
+			if code := run(args, &stderr); code != 2 {
 				t.Fatalf("exit code = %d, want 2 (stderr: %s)", code, stderr.String())
 			}
 			mustNotExist(t, outputPath)
@@ -83,30 +76,12 @@ func TestMissingOrInvalidFlagsExitTwo(t *testing.T) {
 	}
 }
 
-func TestInvalidSpecJSONExitsOne(t *testing.T) {
+func TestUnreadableInputExitsOne(t *testing.T) {
 	dir := t.TempDir()
-	specPath := filepath.Join(dir, "spec.json")
-	outputPath := filepath.Join(dir, "out.json")
-	writeFile(t, specPath, `{not valid json`)
+	outputPath := filepath.Join(dir, "out.obj")
 
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--spec", specPath, "--output", outputPath, "--time-limit-seconds", "10"}, &stdout, &stderr)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1 (stderr: %s)", code, stderr.String())
-	}
-	mustNotExist(t, outputPath)
-	if stderr.Len() == 0 {
-		t.Fatal("expected a stderr message describing the parse failure")
-	}
-}
-
-func TestSpecFileMissingExitsOne(t *testing.T) {
-	dir := t.TempDir()
-	outputPath := filepath.Join(dir, "out.json")
-
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--spec", filepath.Join(dir, "does-not-exist.json"), "--output", outputPath, "--time-limit-seconds", "10"}, &stdout, &stderr)
+	var stderr bytes.Buffer
+	code := run([]string{"-t", "10", "-o", outputPath, filepath.Join(dir, "absent.obj")}, &stderr)
 
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1 (stderr: %s)", code, stderr.String())
@@ -114,117 +89,64 @@ func TestSpecFileMissingExitsOne(t *testing.T) {
 	mustNotExist(t, outputPath)
 }
 
-func TestOutputWriteFailureExitsOne(t *testing.T) {
-	dir := t.TempDir()
-	specPath := filepath.Join(dir, "spec.json")
-	writeFile(t, specPath, `{"a":1}`)
-	// The parent directory does not exist, so the temp file can never be
-	// created: a deterministic, cross-platform write failure.
-	outputPath := filepath.Join(dir, "missing-parent", "out.json")
+func TestPacksOneObjectPerInputPathAndMatchesTheGoldenFile(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "packed.obj")
 
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--spec", specPath, "--output", outputPath, "--time-limit-seconds", "10"}, &stdout, &stderr)
-
-	if code != 1 {
-		t.Fatalf("exit code = %d, want 1 (stderr: %s)", code, stderr.String())
-	}
-	if stderr.Len() == 0 {
-		t.Fatal("expected a stderr message describing the write failure")
-	}
-}
-
-func TestSuccessEchoesSpecStripsFakeKeysAndMatchesGoldenFile(t *testing.T) {
-	outputPath := filepath.Join(t.TempDir(), "output.json")
-
-	var stdout, stderr bytes.Buffer
-	code := run([]string{
-		"--spec", filepath.Join("..", "..", "testdata", "spec.json"),
-		"--output", outputPath,
-		"--time-limit-seconds", "60",
-	}, &stdout, &stderr)
-
-	if code != 0 {
+	var stderr bytes.Buffer
+	if code := run([]string{"-t", "60", "-o", outputPath, cubePath(), cubePath()}, &stderr); code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
 
-	got, err := os.ReadFile(outputPath)
-	if err != nil {
-		t.Fatalf("read output: %v", err)
-	}
-	want, err := os.ReadFile(filepath.Join("..", "..", "testdata", "expected-output.json"))
-	if err != nil {
-		t.Fatalf("read golden file: %v", err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("output bytes do not match the golden file byte for byte:\n got:  %s\n want: %s", got, want)
-	}
-
-	if bytes.Contains(got, []byte("_fakeSleepSeconds")) {
-		t.Fatal("echoed spec still carries _fakeSleepSeconds")
-	}
-	if bytes.Contains(got, []byte("_fakeExitCode")) {
-		t.Fatal("echoed spec still carries _fakeExitCode")
+	got := readText(t, outputPath)
+	want := readText(t, filepath.Join("..", "..", "testdata", "expected-packed.obj"))
+	if got != want {
+		t.Fatalf("packed output does not match the golden file:\n got:\n%s\n want:\n%s", got, want)
 	}
 	mustNotExist(t, outputPath+".tmp")
 }
 
-func TestFakeExitCodeNonzeroOverridesExitAndSkipsOutput(t *testing.T) {
-	dir := t.TempDir()
-	specPath := filepath.Join(dir, "spec.json")
-	outputPath := filepath.Join(dir, "out.json")
-	writeFile(t, specPath, `{"_fakeExitCode":7,"keep":"me"}`)
+func TestDirectivesAreObeyedAndNeverCopied(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "packed.obj")
 
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--spec", specPath, "--output", outputPath, "--time-limit-seconds", "10"}, &stdout, &stderr)
+	var stderr bytes.Buffer
+	if code := run([]string{"-t", "5", "-o", outputPath, objWith(t, "# fake-packer: sleep=0.01")}, &stderr); code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+	if strings.Contains(readText(t, outputPath), "fake-packer") {
+		t.Fatal("a directive was copied into the packed output")
+	}
+}
 
-	if code != 7 {
+func TestExitDirectiveFailsWithoutOutputAndNamesTheInputs(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "packed.obj")
+	input := objWith(t, "# fake-packer: exit=7")
+
+	var stderr bytes.Buffer
+	if code := run([]string{"-t", "10", "-o", outputPath, input}, &stderr); code != 7 {
 		t.Fatalf("exit code = %d, want 7", code)
+	}
+	mustNotExist(t, outputPath)
+	if !strings.Contains(stderr.String(), input) {
+		t.Fatalf("stderr %q does not name the input %s", stderr.String(), input)
+	}
+}
+
+func TestMalformedDirectiveExitsOne(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "packed.obj")
+
+	var stderr bytes.Buffer
+	if code := run([]string{"-t", "10", "-o", outputPath, objWith(t, "# fake-packer: sleep")}, &stderr); code != 1 {
+		t.Fatalf("exit code = %d, want 1 (stderr: %s)", code, stderr.String())
 	}
 	mustNotExist(t, outputPath)
 }
 
-func TestFakeExitCodeZeroIsIgnored(t *testing.T) {
-	dir := t.TempDir()
-	specPath := filepath.Join(dir, "spec.json")
-	outputPath := filepath.Join(dir, "out.json")
-	writeFile(t, specPath, `{"_fakeExitCode":0,"keep":"me"}`)
-
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--spec", specPath, "--output", outputPath, "--time-limit-seconds", "10"}, &stdout, &stderr)
-
-	if code != 0 {
-		t.Fatalf("exit code = %d, want 0", code)
-	}
-	info, err := os.Stat(outputPath)
-	if err != nil {
-		t.Fatalf("expected an output file, stat failed: %v", err)
-	}
-	if info.Size() == 0 {
-		t.Fatal("output file is empty")
-	}
-	if bytes.Contains(mustRead(t, outputPath), []byte("_fakeExitCode")) {
-		t.Fatal("echoed spec still carries _fakeExitCode")
-	}
-}
-
-func mustRead(t *testing.T, path string) []byte {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	return data
-}
-
 func TestSleepUnderTheTimeLimitCompletesNormally(t *testing.T) {
-	dir := t.TempDir()
-	specPath := filepath.Join(dir, "spec.json")
-	outputPath := filepath.Join(dir, "out.json")
-	writeFile(t, specPath, `{"_fakeSleepSeconds":0.2,"keep":"me"}`)
+	outputPath := filepath.Join(t.TempDir(), "packed.obj")
 
 	started := time.Now()
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--spec", specPath, "--output", outputPath, "--time-limit-seconds", "5"}, &stdout, &stderr)
+	var stderr bytes.Buffer
+	code := run([]string{"-t", "5", "-o", outputPath, objWith(t, "# fake-packer: sleep=0.2")}, &stderr)
 	elapsed := time.Since(started)
 
 	if code != 0 {
@@ -233,20 +155,14 @@ func TestSleepUnderTheTimeLimitCompletesNormally(t *testing.T) {
 	if elapsed < 200*time.Millisecond {
 		t.Fatalf("run returned after %s, want at least 200ms (the sleep was skipped)", elapsed)
 	}
-	if _, err := os.Stat(outputPath); err != nil {
-		t.Fatalf("expected an output file: %v", err)
-	}
 }
 
 func TestSleepAtOrOverTheTimeLimitTimesOut(t *testing.T) {
-	dir := t.TempDir()
-	specPath := filepath.Join(dir, "spec.json")
-	outputPath := filepath.Join(dir, "out.json")
-	writeFile(t, specPath, `{"_fakeSleepSeconds":5,"keep":"me"}`)
+	outputPath := filepath.Join(t.TempDir(), "packed.obj")
 
 	started := time.Now()
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"--spec", specPath, "--output", outputPath, "--time-limit-seconds", "1"}, &stdout, &stderr)
+	var stderr bytes.Buffer
+	code := run([]string{"-t", "1", "-o", outputPath, objWith(t, "# fake-packer: sleep=5")}, &stderr)
 	elapsed := time.Since(started)
 
 	if code != 1 {
@@ -256,10 +172,22 @@ func TestSleepAtOrOverTheTimeLimitTimesOut(t *testing.T) {
 		t.Fatalf("run took %s, want well under the 5s sleep request: the time limit was not enforced", elapsed)
 	}
 	if elapsed < 900*time.Millisecond {
-		t.Fatalf("run took only %s, want close to the 1s limit: the timeout fired too early to be honouring the limit", elapsed)
+		t.Fatalf("run took only %s, want close to the 1s limit", elapsed)
 	}
 	if got, want := strings.TrimRight(stderr.String(), "\n"), "fake packer exceeded time limit"; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 	mustNotExist(t, outputPath)
+}
+
+func TestOutputWriteFailureExitsOne(t *testing.T) {
+	outputPath := filepath.Join(t.TempDir(), "missing-parent", "packed.obj")
+
+	var stderr bytes.Buffer
+	if code := run([]string{"-t", "10", "-o", outputPath, cubePath()}, &stderr); code != 1 {
+		t.Fatalf("exit code = %d, want 1 (stderr: %s)", code, stderr.String())
+	}
+	if stderr.Len() == 0 {
+		t.Fatal("expected a stderr message describing the write failure")
+	}
 }
