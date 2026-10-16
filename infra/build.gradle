@@ -18,6 +18,7 @@ dependencies {
     implementation 'org.apache.httpcomponents.client5:httpclient5'
 
     implementation 'org.thymeleaf:thymeleaf'
+    implementation libs.json.schema.validator
 
     implementation 'org.flywaydb:flyway-core'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
@@ -159,5 +160,12 @@ tasks.named('generateJooqClasses') {
                                 .withTo('i -> i.atOffset(java.time.ZoneOffset.UTC)'))
                         .withIncludeTypes('TIMESTAMP\\ WITH\\ TIME\\ ZONE')
         )
+    }
+}
+
+tasks.named('processResources') {
+    from(rootProject.file('contracts/packing-input')) {
+        include 'v*/job-input.schema.json'
+        into 'packing-input'
     }
 }

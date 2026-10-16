@@ -1,5 +1,6 @@
 package com.packing.backend.core.packing;
 
+import com.packing.backend.core.packing.port.out.PackingInputSchema;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
@@ -19,6 +20,7 @@ import com.packing.backend.domain.shared.ResourceNotFoundException;
 import com.packing.backend.domain.user.FirebaseUid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -38,6 +40,7 @@ public class PackingJobApplicationService {
     private final ProjectAccessLookup     access;
     private final DomainEventPublisher    events;
     private final PackingJobArtifactStore artifacts;
+    private final PackingInputSchema      schema;
     private final Clock                   clock;
 
     public PackingJobView create(CreatePackingJobCommand command) {
@@ -53,6 +56,11 @@ public class PackingJobApplicationService {
         jobs.save(job);
         events.publishAll(job.pullDomainEvents());
         return requireView(project.projectId(), job.id());
+    }
+
+    @Transactional(propagation = Propagation.SUPPORTS)
+    public PackingInputSchema.SchemaDocument inputSchema() {
+        return schema.document();
     }
 
     @Transactional(readOnly = true)

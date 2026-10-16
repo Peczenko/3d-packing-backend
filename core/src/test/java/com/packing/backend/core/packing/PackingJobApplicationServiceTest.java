@@ -4,6 +4,7 @@ import com.packing.backend.core.packing.PackingJobApplicationService.CreatePacki
 import com.packing.backend.core.packing.PackingJobApplicationService.ListPackingJobsQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
+import com.packing.backend.core.packing.port.out.PackingInputSchema;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
@@ -82,6 +83,8 @@ class PackingJobApplicationServiceTest {
     private DomainEventPublisher    events;
     @Mock
     private PackingJobArtifactStore artifacts;
+    @Mock
+    private PackingInputSchema      schema;
 
     private PackingJobApplicationService service;
 
@@ -92,6 +95,7 @@ class PackingJobApplicationServiceTest {
                                                    access,
                                                    events,
                                                    artifacts,
+                                                   schema,
                                                    Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -315,6 +319,14 @@ class PackingJobApplicationServiceTest {
                                                                                                                                    .isInstanceOf(ResourceNotFoundException.class);
 
         verify(artifacts, never()).createResultDownloadUrl(any(), any());
+    }
+
+    @Test
+    void inputSchemaIsTheAdaptersDocument() {
+        PackingInputSchema.SchemaDocument document = new PackingInputSchema.SchemaDocument(1, "{}", "e".repeat(64));
+        when(schema.document()).thenReturn(document);
+
+        assertThat(service.inputSchema()).isSameAs(document);
     }
 
     private void givenReadAccess() {
