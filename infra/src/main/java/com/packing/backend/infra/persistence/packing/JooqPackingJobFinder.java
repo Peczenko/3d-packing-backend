@@ -8,6 +8,7 @@ import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.project.ProjectId;
+import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.shared.Paging;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -95,6 +96,26 @@ public class JooqPackingJobFinder implements PackingJobFinder {
                   .from(PACKING_JOBS)
                   .where(PackingJobQueries.inProject(projectId)
                                           .and(PACKING_JOBS.ID.eq(jobId)))
+                  .fetchOptional(PackingJobQueries::toView);
+    }
+
+    @Override
+    public Optional<PackingJobView> latestOwnInProject(ProjectId projectId, UserId userId) {
+        return latest(PackingJobQueries.inProject(projectId)
+                                       .and(PACKING_JOBS.CREATED_BY.eq(userId)));
+    }
+
+    @Override
+    public Optional<PackingJobView> latestInProject(ProjectId projectId) {
+        return latest(PackingJobQueries.inProject(projectId));
+    }
+
+    private Optional<PackingJobView> latest(Condition condition) {
+        return dsl.select(PackingJobQueries.VIEW_FIELDS)
+                  .from(PACKING_JOBS)
+                  .where(condition.and(PackingJobQueries.STRUCTURED))
+                  .orderBy(PACKING_JOBS.CREATED_AT.desc(), PACKING_JOBS.ID.desc())
+                  .limit(1)
                   .fetchOptional(PackingJobQueries::toView);
     }
 

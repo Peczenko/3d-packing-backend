@@ -2,41 +2,44 @@ package engine
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/Peczenko/3d-packing-backend/worker/internal/digest"
 	"github.com/Peczenko/3d-packing-backend/worker/internal/pipeline"
 )
 
 const (
-	resultContentType = "application/octet-stream"
+	resultContentType = "model/obj"
 	terminateGrace    = 5 * time.Second
 	maxStderrBytes    = 8 << 10
-	maxVersionBytes   = 8 << 10
 )
 
-var errBlankVersion = errors.New("engine: packer --version printed nothing")
+var (
+	errBlankVersion = errors.New("engine: the packer version is blank")
+	errNoInputs     = errors.New("engine: a packing run needs at least one input")
+)
 
 type Runner struct {
-	path string
+	path    string
+	version string
+	grace   time.Duration
 
 	resolveOnce sync.Once
 	executable  string
 	resolveErr  error
 }
 
-func NewRunner(path string) *Runner {
-	return &Runner{path: path}
+func NewRunner(path, version string, grace time.Duration) *Runner {
+	return &Runner{path: path, version: version, grace: grace}
 }
 
 var _ pipeline.Engine = (*Runner)(nil)
@@ -51,41 +54,27 @@ func (r *Runner) resolve() (string, error) {
 	return r.executable, nil
 }
 
-func (r *Runner) Provenance(ctx context.Context) (pipeline.EngineProvenance, error) {
+func (r *Runner) Provenance(context.Context) (pipeline.EngineProvenance, error) {
+	if strings.TrimSpace(r.version) == "" {
+		return pipeline.EngineProvenance{}, errBlankVersion
+	}
 	executable, err := r.resolve()
 	if err != nil {
 		return pipeline.EngineProvenance{}, err
 	}
-
-	cmd := exec.CommandContext(ctx, executable, "--version")
-	var stdout headBuffer
-	var stderr tailBuffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if noise := stderr.String(); noise != "" {
-			return pipeline.EngineProvenance{}, fmt.Errorf("engine: %s --version: %w: %s", executable, err, noise)
-		}
-		return pipeline.EngineProvenance{}, fmt.Errorf("engine: %s --version: %w", executable, err)
-	}
-
-	version := strings.TrimSuffix(stdout.String(), "\n")
-	if strings.TrimSpace(version) == "" {
-		return pipeline.EngineProvenance{}, fmt.Errorf("engine: %s: %w", executable, errBlankVersion)
-	}
-
-	checksum, err := checksumFile(executable)
+	checksum, err := digest.File(executable)
 	if err != nil {
 		return pipeline.EngineProvenance{}, fmt.Errorf("engine: checksum packer %s: %w", executable, err)
 	}
-
-	return pipeline.EngineProvenance{Version: version, Checksum: checksum}, nil
+	return pipeline.EngineProvenance{Version: r.version, Checksum: checksum}, nil
 }
 
 func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline.EngineResult, error) {
 	if request.Runtime <= 0 {
 		return pipeline.EngineResult{}, fmt.Errorf("engine: runtime limit must be positive, got %s", request.Runtime)
+	}
+	if len(request.Inputs) == 0 {
+		return pipeline.EngineResult{}, errNoInputs
 	}
 	executable, err := r.resolve()
 	if err != nil {
@@ -93,14 +82,10 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 	}
 	seconds := limitSeconds(request.Runtime)
 
-	runCtx, cancel := context.WithTimeout(ctx, request.Runtime)
+	runCtx, cancel := context.WithTimeout(ctx, request.Runtime+r.grace)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, executable,
-		"--spec", request.SpecPath,
-		"--output", request.OutputPath,
-		"--time-limit-seconds", strconv.FormatInt(seconds, 10),
-	)
+	cmd := exec.CommandContext(runCtx, executable, arguments(seconds, request)...)
 	var stderr tailBuffer
 	cmd.Stderr = &stderr
 	cmd.Cancel = func() error { return terminate(cmd) }
@@ -115,9 +100,8 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 		default:
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
-				return pipeline.EngineResult{}, &pipeline.EngineFailure{
-					Reason: exitReason(exitErr.ExitCode(), exitErr.ProcessState.String(), stderr.String()),
-				}
+				reason := exitReason(exitErr.ExitCode(), exitErr.ProcessState.String(), stderr.String())
+				return pipeline.EngineResult{}, &pipeline.EngineFailure{Reason: describePaths(reason, request)}
 			}
 			return pipeline.EngineResult{}, fmt.Errorf("engine: run packer: %w", err)
 		}
@@ -134,7 +118,7 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 		return pipeline.EngineResult{}, fmt.Errorf("engine: packer output %q is empty", request.OutputPath)
 	}
 
-	checksum, err := checksumFile(request.OutputPath)
+	checksum, err := digest.File(request.OutputPath)
 	if err != nil {
 		return pipeline.EngineResult{}, fmt.Errorf("engine: checksum packer output %q: %w", request.OutputPath, err)
 	}
@@ -145,6 +129,26 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 		SizeBytes:   info.Size(),
 		Checksum:    checksum,
 	}, nil
+}
+
+func arguments(seconds int64, request pipeline.RunRequest) []string {
+	args := []string{"-t", strconv.FormatInt(seconds, 10), "-o", request.OutputPath}
+	args = append(args, request.ParameterArgs...)
+	for _, input := range request.Inputs {
+		for range input.Copies {
+			args = append(args, input.Path)
+		}
+	}
+	return args
+}
+
+func describePaths(reason string, request pipeline.RunRequest) string {
+	inputs := slices.Clone(request.Inputs)
+	slices.SortFunc(inputs, func(a, b pipeline.InputFile) int { return len(b.Path) - len(a.Path) })
+	for _, input := range inputs {
+		reason = strings.ReplaceAll(reason, input.Path, input.DisplayName)
+	}
+	return strings.ReplaceAll(reason, request.OutputPath, filepath.Base(request.OutputPath))
 }
 
 func limitSeconds(runtime time.Duration) int64 {
@@ -166,20 +170,6 @@ func exitReason(code int, state string, stderr string) string {
 	return reason
 }
 
-func checksumFile(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-
-	digest := sha256.New()
-	if _, err := io.Copy(digest, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(digest.Sum(nil)), nil
-}
-
 type tailBuffer struct {
 	data []byte
 }
@@ -198,23 +188,5 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *tailBuffer) String() string {
-	return string(b.data)
-}
-
-type headBuffer struct {
-	data []byte
-}
-
-func (b *headBuffer) Write(p []byte) (int, error) {
-	if room := maxVersionBytes - len(b.data); room > 0 {
-		if room > len(p) {
-			room = len(p)
-		}
-		b.data = append(b.data, p[:room]...)
-	}
-	return len(p), nil
-}
-
-func (b *headBuffer) String() string {
 	return string(b.data)
 }

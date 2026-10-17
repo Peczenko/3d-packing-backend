@@ -27,6 +27,8 @@ func useTestEnvironment(t *testing.T) {
 	t.Setenv("STORAGE_CONTAINER_NAME", "test-models")
 	t.Setenv("PACKER_PATH", "/test/bin/packer")
 	t.Setenv("PACKING_WORK_ROOT", t.TempDir())
+	t.Setenv("PACKER_VERSION", "v9.9.9")
+	t.Setenv("PACKING_ENGINE_OVERRUN_GRACE", "45s")
 }
 
 type fakeRunner struct {
@@ -122,8 +124,10 @@ func TestRunWithPassesTheLoadedConfigurationToTheConnector(t *testing.T) {
 		TemporalNamespace: "test-namespace",
 		TaskQueue:         "test-engine",
 		HeartbeatInterval: 7 * time.Second,
+		OverrunGrace:      45 * time.Second,
 		StorageContainer:  "test-models",
 		PackerPath:        "/test/bin/packer",
+		PackerVersion:     "v9.9.9",
 	}
 	got := spy.cfg
 	got.StorageConnectionString = ""

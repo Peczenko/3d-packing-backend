@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,12 +15,13 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/Peczenko/3d-packing-backend/worker/internal/contracts"
+	"github.com/Peczenko/3d-packing-backend/worker/internal/digest"
 )
 
 const (
 	requestFileName       = "request.json"
-	specFileName          = "input.json"
-	outputFileName        = "output"
+	inputsDirName         = "inputs"
+	outputFileName        = "packed.obj"
 	unreportedFailure     = "packer failed without reporting a reason"
 	maxEngineVersionBytes = 255
 )
@@ -63,7 +65,7 @@ func (a *Activity) RunEngine(ctx context.Context, input contracts.RunEngineInput
 	}
 	in, err := contracts.ValidateRunEngineInput(input)
 	if err != nil {
-		return contracts.EngineResult{}, temporal.NewNonRetryableApplicationError(err.Error(), contracts.InvalidInputType, err)
+		return contracts.EngineResult{}, invalidInput(err)
 	}
 
 	stopHeartbeat := a.startHeartbeat(ctx)
@@ -102,11 +104,6 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 		return StoredResult{}, err
 	}
 
-	specPath := filepath.Join(workspace, specFileName)
-	if err := os.WriteFile(specPath, envelope.Spec, 0o600); err != nil {
-		return StoredResult{}, fmt.Errorf("pipeline: write packer input for job %s: %w", jobID, err)
-	}
-
 	engine, err := a.engine.Provenance(ctx)
 	if err != nil {
 		return StoredResult{}, fmt.Errorf("pipeline: read packer provenance for job %s: %w", jobID, err)
@@ -115,15 +112,25 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 		return StoredResult{}, fmt.Errorf("pipeline: packer provenance for job %s is unusable: %w", jobID, err)
 	}
 
+	inputs, err := a.downloadInputs(ctx, jobID, workspace, envelope.Items)
+	if err != nil {
+		var failure *EngineFailure
+		if errors.As(err, &failure) {
+			return StoredResult{}, engineFailure(engine, failure.Reason)
+		}
+		return StoredResult{}, err
+	}
+
 	if err := a.signalStarted(ctx, engine); err != nil {
 		return StoredResult{}, fmt.Errorf("pipeline: signal started for job %s: %w", jobID, err)
 	}
 
 	outputPath := filepath.Join(workspace, outputFileName)
 	result, err := a.engine.Run(ctx, RunRequest{
-		SpecPath:   specPath,
-		OutputPath: outputPath,
-		Runtime:    time.Duration(envelope.MaxRuntimeSeconds) * time.Second,
+		Inputs:        inputs,
+		ParameterArgs: envelope.ParameterArgs,
+		OutputPath:    outputPath,
+		Runtime:       time.Duration(envelope.MaxRuntimeSeconds) * time.Second,
 	})
 	if err != nil {
 		var failure *EngineFailure
@@ -188,9 +195,39 @@ func (a *Activity) fetchRequest(ctx context.Context, jobID, workspace string) (c
 	}
 	envelope, err := contracts.DecodeRequest(body)
 	if err != nil {
-		return contracts.RequestEnvelope{}, fmt.Errorf("pipeline: job %s: %w", jobID, err)
+		return contracts.RequestEnvelope{}, invalidInput(fmt.Errorf("pipeline: job %s: %w", jobID, err))
 	}
 	return envelope, nil
+}
+
+func (a *Activity) downloadInputs(ctx context.Context, jobID, workspace string, items []contracts.RequestItem) ([]InputFile, error) {
+	dir := filepath.Join(workspace, inputsDirName)
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("pipeline: create input directory for job %s: %w", jobID, err)
+	}
+	inputs := make([]InputFile, 0, len(items))
+	for i, item := range items {
+		path := filepath.Join(dir, strconv.Itoa(i)+"."+contracts.AcceptedFormats[item.Format])
+		if err := a.artifacts.DownloadInput(ctx, item.StorageKey, path); err != nil {
+			if errors.Is(err, ErrInputNotFound) {
+				return nil, &EngineFailure{Reason: fmt.Sprintf("Input file '%s' is no longer available", item.FileName)}
+			}
+			return nil, fmt.Errorf("pipeline: download input %d for job %s: %w", i, jobID, err)
+		}
+		checksum, err := digest.File(path)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline: checksum input %d for job %s: %w", i, jobID, err)
+		}
+		if checksum != item.Checksum {
+			return nil, &EngineFailure{Reason: fmt.Sprintf("Input file '%s' does not match its recorded checksum", item.FileName)}
+		}
+		inputs = append(inputs, InputFile{Path: path, DisplayName: item.FileName, Copies: item.Copies})
+	}
+	return inputs, nil
+}
+
+func invalidInput(err error) error {
+	return temporal.NewNonRetryableApplicationError(err.Error(), contracts.InvalidInputType, err)
 }
 
 func engineFailure(engine EngineProvenance, reason string) error {

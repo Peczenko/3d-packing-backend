@@ -99,7 +99,7 @@ func connectTemporal(ctx context.Context, cfg config.Config, log *slog.Logger) (
 	})
 	act := pipeline.NewActivity(
 		azureio.NewBlobArtifacts(blobClient, cfg),
-		engine.NewRunner(cfg.PackerPath),
+		engine.NewRunner(cfg.PackerPath, cfg.PackerVersion, cfg.OverrunGrace),
 		c,
 		cfg.WorkRoot,
 		cfg.HeartbeatInterval,

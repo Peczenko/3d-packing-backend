@@ -28,21 +28,21 @@ class PackingEngineContractTest {
     void runEngineInputMatchesItsExample() throws IOException {
         assertRoundTrip("run-engine-input.example.json",
                         RunEngineInput.class,
-                        new RunEngineInput(2, "00000000-0000-0000-0000-000000000001"));
+                        new RunEngineInput(PackingEngineContract.VERSION, "00000000-0000-0000-0000-000000000001"));
     }
 
     @Test
     void engineStartedSignalMatchesItsExample() throws IOException {
         assertRoundTrip("engine-started-signal.example.json",
                         EngineStarted.class,
-                        new EngineStarted(2, "packer 0.3.0", CHECKSUM));
+                        new EngineStarted(PackingEngineContract.VERSION, "packer 0.3.0", CHECKSUM));
     }
 
     @Test
     void engineResultMatchesItsExample() throws IOException {
         assertRoundTrip("run-engine-result.example.json",
                         EngineResult.class,
-                        new EngineResult(2,
+                        new EngineResult(PackingEngineContract.VERSION,
                                          "packer 0.3.0",
                                          CHECKSUM,
                                          "output.bin",
@@ -55,7 +55,7 @@ class PackingEngineContractTest {
     void engineFailureDetailsMatchItsExample() throws IOException {
         assertRoundTrip("engine-failure-details.example.json",
                         EngineFailureDetails.class,
-                        new EngineFailureDetails(2, "packer 0.3.0", CHECKSUM, "packer exited with code 2"));
+                        new EngineFailureDetails(PackingEngineContract.VERSION, "packer 0.3.0", CHECKSUM, "packer exited with code 2"));
     }
 
     private <T> void assertRoundTrip(String example, Class<T> type, T expected) throws IOException {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -118,54 +119,98 @@ func TestRequestEnvelopeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDecodeRequestRejectsUnsupportedVersion(t *testing.T) {
-	_, err := DecodeRequest([]byte(`{"requestVersion":2,"maxRuntimeSeconds":60,"spec":{"a":1}}`))
-	if !errors.Is(err, ErrUnsupportedVersion) {
-		t.Fatalf("expected ErrUnsupportedVersion, got %v", err)
+type wireRequest struct {
+	RequestVersion     int             `json:"requestVersion"`
+	MaxRuntimeSeconds  int64           `json:"maxRuntimeSeconds"`
+	InputSchemaVersion int             `json:"inputSchemaVersion"`
+	Items              []RequestItem   `json:"items"`
+	Parameters         json.RawMessage `json:"parameters"`
+}
+
+func validItem() RequestItem {
+	return RequestItem{
+		StorageKey: "files/0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00",
+		FileName:   "bunny.obj",
+		Format:     "OBJ",
+		Checksum:   strings.Repeat("c", 64),
+		Copies:     3,
 	}
 }
 
-func TestDecodeRequestRejectsRuntimeAboveRange(t *testing.T) {
-	_, err := DecodeRequest([]byte(`{"requestVersion":1,"maxRuntimeSeconds":7201,"spec":{"a":1}}`))
-	if !errors.Is(err, ErrInvalidRuntime) {
-		t.Fatalf("expected ErrInvalidRuntime, got %v", err)
+func encodeRequest(t *testing.T, mutate func(*wireRequest)) []byte {
+	t.Helper()
+	request := wireRequest{
+		RequestVersion:     RequestVersion,
+		MaxRuntimeSeconds:  120,
+		InputSchemaVersion: 1,
+		Items:              []RequestItem{validItem()},
+		Parameters:         json.RawMessage(`{}`),
 	}
+	mutate(&request)
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	return data
 }
 
-func TestDecodeRequestRejectsRuntimeBelowRange(t *testing.T) {
-	_, err := DecodeRequest([]byte(`{"requestVersion":1,"maxRuntimeSeconds":0,"spec":{"a":1}}`))
-	if !errors.Is(err, ErrInvalidRuntime) {
-		t.Fatalf("expected ErrInvalidRuntime, got %v", err)
+func items(count, copies int) []RequestItem {
+	out := make([]RequestItem, count)
+	for i := range out {
+		out[i] = validItem()
+		out[i].Copies = copies
 	}
+	return out
 }
 
-func TestDecodeRequestRejectsEmptySpec(t *testing.T) {
-	_, err := DecodeRequest([]byte(`{"requestVersion":1,"maxRuntimeSeconds":60}`))
-	if !errors.Is(err, ErrInvalidSpec) {
-		t.Fatalf("expected ErrInvalidSpec, got %v", err)
-	}
-}
-
-func TestDecodeRequestRejectsNullSpec(t *testing.T) {
-	_, err := DecodeRequest([]byte(`{"requestVersion":1,"maxRuntimeSeconds":60,"spec":null}`))
-	if !errors.Is(err, ErrInvalidSpec) {
-		t.Fatalf("expected ErrInvalidSpec, got %v", err)
-	}
-}
-
-func TestDecodeRequestNeverInspectsSpecKeys(t *testing.T) {
-	fixture := []byte(`{"requestVersion":1,"maxRuntimeSeconds":60,"spec":{"anything":"the packer decides","nested":{"x":[1,2,3]}}}`)
-	env, err := DecodeRequest(fixture)
+func TestDecodeRequestAcceptsTheExampleAndKeepsItsItems(t *testing.T) {
+	envelope, err := DecodeRequest(encodeRequest(t, func(*wireRequest) {}))
 	if err != nil {
 		t.Fatalf("DecodeRequest: %v", err)
 	}
-	var raw json.RawMessage
-	if err := json.Unmarshal(fixture, &struct {
-		Spec *json.RawMessage `json:"spec"`
-	}{Spec: &raw}); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
+	if len(envelope.Items) != 1 || envelope.Items[0] != validItem() {
+		t.Fatalf("items = %+v, want the one valid item", envelope.Items)
 	}
-	if !bytes.Equal(env.Spec, raw) {
-		t.Fatalf("spec bytes mutated:\n got:  %s\n want: %s", env.Spec, raw)
+	if len(envelope.ParameterArgs) != 0 {
+		t.Fatalf("parameter args = %q, want none for empty parameters", envelope.ParameterArgs)
+	}
+}
+
+func TestDecodeRequestRejectsEnvelopesOutsideTheContract(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*wireRequest)
+		want   error
+	}{
+		{"another request version", func(r *wireRequest) { r.RequestVersion = 2 }, ErrUnsupportedVersion},
+		{"runtime below range", func(r *wireRequest) { r.MaxRuntimeSeconds = 0 }, ErrInvalidRuntime},
+		{"runtime above range", func(r *wireRequest) { r.MaxRuntimeSeconds = 7201 }, ErrInvalidRuntime},
+		{"schema version zero", func(r *wireRequest) { r.InputSchemaVersion = 0 }, ErrInvalidSchemaVersion},
+		{"no items", func(r *wireRequest) { r.Items = nil }, ErrInvalidItems},
+		{"fifty-one items", func(r *wireRequest) { r.Items = items(51, 1) }, ErrInvalidItems},
+		{"zero copies", func(r *wireRequest) { r.Items[0].Copies = 0 }, ErrInvalidItems},
+		{"a hundred and one copies", func(r *wireRequest) { r.Items[0].Copies = 101 }, ErrInvalidItems},
+		{"two hundred and one objects", func(r *wireRequest) { r.Items = items(3, 67) }, ErrInvalidItems},
+		{"storage key outside files/", func(r *wireRequest) { r.Items[0].StorageKey = "packing-jobs/x" }, ErrInvalidItems},
+		{"storage key escaping files/", func(r *wireRequest) { r.Items[0].StorageKey = "files/../packing-jobs/x" }, ErrInvalidItems},
+		{"blank file name", func(r *wireRequest) { r.Items[0].FileName = " " }, ErrInvalidItems},
+		{"checksum not sha-256", func(r *wireRequest) { r.Items[0].Checksum = "abc" }, ErrInvalidItems},
+		{"format the engine cannot read", func(r *wireRequest) { r.Items[0].Format = "STL" }, ErrUnsupportedFormat},
+		{"parameters not an object", func(r *wireRequest) { r.Parameters = json.RawMessage(`[]`) }, ErrInvalidParameters},
+		{"missing parameters", func(r *wireRequest) { r.Parameters = nil }, ErrInvalidParameters},
+		{"unknown parameter", func(r *wireRequest) { r.Parameters = json.RawMessage(`{"seed":7}`) }, ErrInvalidParameters},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := DecodeRequest(encodeRequest(t, tc.mutate))
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("expected %v, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestDecodeRequestRejectsInvalidJSON(t *testing.T) {
+	if _, err := DecodeRequest([]byte(`{not json`)); !errors.Is(err, ErrInvalidJSON) {
+		t.Fatalf("expected ErrInvalidJSON, got %v", err)
 	}
 }

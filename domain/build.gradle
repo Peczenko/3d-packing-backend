@@ -1,3 +1,7 @@
+plugins {
+    id 'java-test-fixtures'
+}
+
 description = 'Pure domain model: aggregates, entities, value objects, domain events, invariants.'
 
 dependencies {
