@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -35,7 +35,7 @@ const ciEnv = "CI"
 
 const guardEnv = "GO_BLOB_EMULATOR_GUARD"
 
-const requestFixture = "../../../contracts/packing/v1/request-envelope.example.json"
+const requestFixture = "../../../contracts/packing/v3/request-envelope.example.json"
 
 const azuriteTimeout = 30 * time.Second
 
@@ -49,7 +49,7 @@ func TestBlobArtifacts(t *testing.T) {
 			"to exercise them.", storageEnv, storageEnv))
 	}
 
-	t.Run("downloads the version 1 request from the derived key", func(t *testing.T) {
+	t.Run("downloads the request from the derived key", func(t *testing.T) {
 		ctx, client, cfg := newAzuriteContainer(t, connectionString)
 		artifacts := NewBlobArtifacts(client, cfg)
 		jobID := newJobID(t)
@@ -76,11 +76,11 @@ func TestBlobArtifacts(t *testing.T) {
 		if envelope.RequestVersion != contracts.RequestVersion {
 			t.Errorf("requestVersion = %d, want %d", envelope.RequestVersion, contracts.RequestVersion)
 		}
-		if envelope.MaxRuntimeSeconds != 60 {
-			t.Errorf("maxRuntimeSeconds = %d, want 60", envelope.MaxRuntimeSeconds)
+		if envelope.MaxRuntimeSeconds != 120 {
+			t.Errorf("maxRuntimeSeconds = %d, want 120", envelope.MaxRuntimeSeconds)
 		}
-		if got, want := compactJSON(t, envelope.Spec), `{"testField":"value"}`; got != want {
-			t.Errorf("spec = %s, want %s", got, want)
+		if len(envelope.Items) != 1 || envelope.Items[0].FileName != "bunny.obj" {
+			t.Errorf("items = %+v, want the one bunny.obj item", envelope.Items)
 		}
 	})
 
@@ -95,6 +95,35 @@ func TestBlobArtifacts(t *testing.T) {
 		}
 		if !bloberror.HasCode(err, bloberror.BlobNotFound) {
 			t.Errorf("DownloadRequest error = %v, want a BlobNotFound", err)
+		}
+	})
+
+	t.Run("downloads an input file from its storage key", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		key := "files/" + newJobID(t)
+		putBlob(t, ctx, client, cfg, key, []byte("v 0 0 0\n"), nil)
+
+		path := filepath.Join(t.TempDir(), "0.obj")
+		if err := artifacts.DownloadInput(ctx, key, path); err != nil {
+			t.Fatalf("DownloadInput: %v", err)
+		}
+		downloaded, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read downloaded input: %v", err)
+		}
+		if string(downloaded) != "v 0 0 0\n" {
+			t.Errorf("input = %q, want the stored bytes", downloaded)
+		}
+	})
+
+	t.Run("reports a missing input as not found", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+
+		err := artifacts.DownloadInput(ctx, "files/"+newJobID(t), filepath.Join(t.TempDir(), "0.obj"))
+		if !errors.Is(err, pipeline.ErrInputNotFound) {
+			t.Fatalf("DownloadInput error = %v, want pipeline.ErrInputNotFound", err)
 		}
 	})
 
@@ -497,15 +526,6 @@ func metadataNames(metadata map[string]*string) []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-func compactJSON(t *testing.T, raw []byte) string {
-	t.Helper()
-	buf := new(bytes.Buffer)
-	if err := json.Compact(buf, raw); err != nil {
-		t.Fatalf("compact json: %v", err)
-	}
-	return buf.String()
 }
 
 func newJobID(t *testing.T) string {

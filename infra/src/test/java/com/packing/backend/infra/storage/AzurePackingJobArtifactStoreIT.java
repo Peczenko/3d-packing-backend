@@ -7,7 +7,14 @@ import com.azure.storage.blob.models.BlobHttpHeaders;
 import com.azure.storage.blob.options.BlobParallelUploadOptions;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.domain.file.Checksum;
+import com.packing.backend.domain.file.FileId;
+import com.packing.backend.domain.file.FileName;
+import com.packing.backend.domain.file.ModelFormat;
+import com.packing.backend.domain.file.StorageKey;
+import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
+import com.packing.backend.domain.packing.PackingParameters;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.infra.packing.PackingContractCodec;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +32,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -66,18 +74,17 @@ class AzurePackingJobArtifactStoreIT {
     }
 
     @Test
-    void writesTheCodecEnvelopeAtTheDeterministicRequestKeyWithoutChangingNestedSpec() {
+    void writesTheCodecEnvelopeAtTheDeterministicRequestKey() {
         PackingJobId jobId = jobId();
-        PackingRequestEnvelope envelope = PackingRequestEnvelope.versionOne(60,
-                                                                            "{\"nested\":{\"flag\":true,\"values\":[1,{\"name\":\"opaque\"}]}}");
 
-        artifacts.writeRequestIfAbsent(jobId, envelope);
+        artifacts.writeRequestIfAbsent(jobId, envelope(120, "{\"seed\":7}"));
 
         byte[] request = container.getBlobClient(requestKey(jobId))
                                   .downloadContent()
                                   .toBytes();
         assertThat(new String(request, StandardCharsets.UTF_8)).isEqualTo(
-                                                                          "{\"requestVersion\":1,\"maxRuntimeSeconds\":60,\"spec\":{\"nested\":{\"flag\":true,\"values\":[1,{\"name\":\"opaque\"}]}}}");
+                                                                          "{\"requestVersion\":3,\"maxRuntimeSeconds\":120,\"inputSchemaVersion\":1,\"items\":[{\"storageKey\":\"files/0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00\",\"fileName\":\"bunny.obj\",\"format\":\"OBJ\",\"checksum\":\""
+                                                                                  + "c".repeat(64) + "\",\"copies\":3}],\"parameters\":{\"seed\":7}}");
     }
 
     @Test
@@ -90,7 +97,7 @@ class AzurePackingJobArtifactStoreIT {
                                                                                   new AccountKeyBlobSasIssuer(),
                                                                                   new PackingContractCodec(new ObjectMapper()));
 
-        freshArtifacts.writeRequestIfAbsent(jobId(), PackingRequestEnvelope.versionOne(60, "{}"));
+        freshArtifacts.writeRequestIfAbsent(jobId(), envelope(60, "{}"));
 
         assertThat(freshContainer.exists()).isTrue();
     }
@@ -98,7 +105,7 @@ class AzurePackingJobArtifactStoreIT {
     @Test
     void acceptsAnIdenticalRequestRetryWithoutReplacingTheExistingBlob() {
         PackingJobId jobId = jobId();
-        PackingRequestEnvelope envelope = PackingRequestEnvelope.versionOne(60, "{\"nested\":{\"value\":1}}");
+        PackingRequestEnvelope envelope = envelope(60, "{}");
 
         artifacts.writeRequestIfAbsent(jobId, envelope);
         String originalEtag = container.getBlobClient(requestKey(jobId))
@@ -115,11 +122,11 @@ class AzurePackingJobArtifactStoreIT {
     @Test
     void rejectsARequestRetryWhoseCodecBytesDifferFromTheStoredRequest() {
         PackingJobId jobId = jobId();
-        artifacts.writeRequestIfAbsent(jobId, PackingRequestEnvelope.versionOne(60, "{\"value\":1}"));
+        artifacts.writeRequestIfAbsent(jobId, envelope(60, "{}"));
 
         assertThatThrownBy(() -> artifacts.writeRequestIfAbsent(jobId,
-                                                                PackingRequestEnvelope.versionOne(61, "{\"value\":1}")))
-                                                                                                                        .isInstanceOf(ResourceConflictException.class);
+                                                                envelope(61, "{}")))
+                                                                                    .isInstanceOf(ResourceConflictException.class);
     }
 
     @Test
@@ -231,6 +238,20 @@ class AzurePackingJobArtifactStoreIT {
         assertThatThrownBy(() -> artifacts.findResult(jobId))
                                                              .isInstanceOf(com.packing.backend.core.shared.ExternalServiceException.class)
                                                              .hasMessageContaining("positive size");
+    }
+
+    private static PackingRequestEnvelope envelope(long runtime, String parameters) {
+        FileId fileId = new FileId(UUID.fromString("0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00"));
+        return new PackingRequestEnvelope(PackingRequestEnvelope.VERSION,
+                                          runtime,
+                                          1,
+                                          List.of(new PackingItem(fileId,
+                                                                  new FileName("bunny.obj"),
+                                                                  ModelFormat.OBJ,
+                                                                  new Checksum("c".repeat(64)),
+                                                                  StorageKey.forFile(fileId),
+                                                                  3)),
+                                          new PackingParameters(parameters));
     }
 
     private static PackingJobId jobId() {

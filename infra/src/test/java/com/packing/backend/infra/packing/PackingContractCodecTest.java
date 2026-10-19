@@ -2,16 +2,23 @@ package com.packing.backend.infra.packing;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
+import com.packing.backend.domain.file.Checksum;
+import com.packing.backend.domain.file.FileId;
+import com.packing.backend.domain.file.FileName;
+import com.packing.backend.domain.file.ModelFormat;
+import com.packing.backend.domain.file.StorageKey;
+import com.packing.backend.domain.packing.PackingItem;
+import com.packing.backend.domain.packing.PackingParameters;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.stream.Stream;
+import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -21,69 +28,41 @@ class PackingContractCodecTest {
     private final PackingContractCodec codec = new PackingContractCodec(new ObjectMapper());
 
     @Test
-    void encodesAndDecodesTheRequestEnvelopeGoldenFixture() throws IOException {
-        PackingRequestEnvelope envelope = PackingRequestEnvelope.versionOne(60, "{\"testField\":\"value\"}");
-
-        assertThat(codec.encodeRequest(envelope)).isEqualTo(fixture("request-envelope.example.json").strip());
+    void encodesTheRequestEnvelopeGoldenFixture() throws IOException {
+        assertThat(codec.encodeRequest(envelope(PackingRequestEnvelope.VERSION, "{}")))
+                                                                                       .isEqualTo(fixture("request-envelope.example.json").strip());
     }
 
     @Test
-    void encodesAnOpaqueArraySpecAsAJsonNode() {
-        PackingRequestEnvelope envelope = PackingRequestEnvelope.versionOne(60, "[\"first\",2]");
-
-        assertThat(codec.encodeRequest(envelope))
-                                                 .isEqualTo("{\"requestVersion\":1,\"maxRuntimeSeconds\":60,\"spec\":[\"first\",2]}");
+    void embedsTheParametersAsJson() {
+        assertThat(codec.encodeRequest(envelope(PackingRequestEnvelope.VERSION, "{\"seed\":7,\"volume\":{\"widthMm\":220}}")))
+                                                                                                                              .endsWith("\"parameters\":{\"seed\":7,\"volume\":{\"widthMm\":220}}}");
     }
 
     @ParameterizedTest
-    @MethodSource("nonNullScalarSpecs")
-    void encodesAnOpaqueNonNullScalarSpecAsAJsonNode(String specJson, String expectedJson) {
-        PackingRequestEnvelope envelope = PackingRequestEnvelope.versionOne(60, specJson);
-
-        assertThat(codec.encodeRequest(envelope)).isEqualTo(expectedJson);
-    }
-
-    @ParameterizedTest
-    @MethodSource("invalidSpecs")
-    void rejectsInvalidOrMissingRequestSpecs(String specJson) {
-        PackingRequestEnvelope envelope = PackingRequestEnvelope.versionOne(60, specJson);
-
-        assertThatThrownBy(() -> codec.encodeRequest(envelope))
-                                                               .isInstanceOf(DomainRuleViolationException.class);
+    @ValueSource(strings = { "[]", "42", "null", "{", "{} {}" })
+    void rejectsParametersThatAreNotOneJsonObject(String parameters) {
+        assertThatThrownBy(() -> codec.encodeRequest(envelope(PackingRequestEnvelope.VERSION, parameters)))
+                                                                                                           .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
-    void rejectsTrailingJsonDocumentsInTheSpec() {
-        PackingRequestEnvelope envelope = PackingRequestEnvelope.versionOne(60, "{\"testField\":true} {}");
-
-        assertThatThrownBy(() -> codec.encodeRequest(envelope))
-                                                               .isInstanceOf(DomainRuleViolationException.class);
+    void rejectsAnyOtherRequestVersion() {
+        assertThatThrownBy(() -> codec.encodeRequest(envelope(1, "{}"))).isInstanceOf(DomainRuleViolationException.class);
     }
 
-    @Test
-    void rejectsNonVersionOneValuesWhenEncoding() {
-        assertThatThrownBy(() -> codec.encodeRequest(new PackingRequestEnvelope(2, 60, "{}")))
-                                                                                              .isInstanceOf(DomainRuleViolationException.class);
+    static PackingRequestEnvelope envelope(int version, String parameters) {
+        FileId fileId = new FileId(UUID.fromString("0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00"));
+        PackingItem bunny = new PackingItem(fileId,
+                                            new FileName("bunny.obj"),
+                                            ModelFormat.OBJ,
+                                            new Checksum("c".repeat(64)),
+                                            StorageKey.forFile(fileId),
+                                            3);
+        return new PackingRequestEnvelope(version, 120, 1, List.of(bunny), new PackingParameters(parameters));
     }
 
     private String fixture(String name) throws IOException {
-        return Files.readString(Path.of("..", "contracts", "packing", "v1", name));
-    }
-
-    private static Stream<Arguments> nonNullScalarSpecs() {
-        return Stream.of(
-                         Arguments.of("true", "{\"requestVersion\":1,\"maxRuntimeSeconds\":60,\"spec\":true}"),
-                         Arguments.of("42", "{\"requestVersion\":1,\"maxRuntimeSeconds\":60,\"spec\":42}"),
-                         Arguments.of("\"value\"", "{\"requestVersion\":1,\"maxRuntimeSeconds\":60,\"spec\":\"value\"}"));
-    }
-
-    private static Stream<Arguments> invalidSpecs() {
-        return Stream.of(
-                         Arguments.of((String) null),
-                         Arguments.of(""),
-                         Arguments.of(" \t "),
-                         Arguments.of("{"),
-                         Arguments.of("{} {}"),
-                         Arguments.of("null"));
+        return Files.readString(Path.of("..", "contracts", "packing", "v" + PackingRequestEnvelope.VERSION, name));
     }
 }

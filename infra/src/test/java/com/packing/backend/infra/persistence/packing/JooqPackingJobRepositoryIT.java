@@ -1,9 +1,12 @@
 package com.packing.backend.infra.persistence.packing;
 
 import com.packing.backend.core.shared.ConcurrentUpdateException;
+import com.packing.backend.domain.packing.PackingInput;
+import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.PackingParameters;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectName;
@@ -22,11 +25,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jooq.JooqTest;
 import org.springframework.context.annotation.Import;
-import org.skyscreamer.jsonassert.JSONAssert;
-import org.skyscreamer.jsonassert.JSONCompareMode;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -67,7 +69,7 @@ class JooqPackingJobRepositoryIT {
         repository().save(job);
         PackingJob reloaded = repository().findById(job.id())
                                           .orElseThrow();
-        JSONAssert.assertEquals("{\"testField\":42}", reloaded.specJson(), JSONCompareMode.STRICT);
+        assertThat(reloaded.input()).isEqualTo(job.input());
         reloaded.markRunning("packer 0.3.0", ENGINE_CHECKSUM, now());
         repository().save(reloaded);
 
@@ -116,6 +118,33 @@ class JooqPackingJobRepositoryIT {
         });
     }
 
+    @Test
+    void roundTripsEveryItemAndTheParameters() {
+        PackingInput input = new PackingInput(1,
+                                              List.of(PackingInputs.item("bunny.obj", 3), PackingInputs.item("bracket.obj", 1)),
+                                              new PackingParameters("{\"seed\":7}"));
+        PackingJob job = PackingJob.queue(PackingJobId.generate(), project, user, input, 120, now());
+
+        repository().save(job);
+
+        assertThat(repository().findById(job.id())).hasValueSatisfying(found -> {
+            assertThat(found.input()).isEqualTo(input);
+            assertThat(found.maxRuntimeSeconds()).isEqualTo(120);
+        });
+    }
+
+    @Test
+    void readsALegacyRowButRefusesToSaveIt() {
+        PackingJobId id = LegacyPackingJobs.insert(dsl, project, user, PackingJobStatus.SUCCEEDED, now());
+
+        PackingJob legacy = repository().findById(id)
+                                        .orElseThrow();
+
+        assertThat(legacy.isLegacy()).isTrue();
+        assertThatThrownBy(() -> repository().save(legacy)).isInstanceOf(IllegalStateException.class)
+                                                           .hasMessageContaining("predates structured input");
+    }
+
     private JooqPackingJobRepository repository() {
         return new JooqPackingJobRepository(dsl, new AggregateWriter(dsl));
     }
@@ -124,7 +153,7 @@ class JooqPackingJobRepositoryIT {
         return PackingJob.queue(PackingJobId.generate(),
                                 project,
                                 user,
-                                "{\"testField\":42}",
+                                PackingInputs.single(),
                                 60,
                                 createdAt);
     }

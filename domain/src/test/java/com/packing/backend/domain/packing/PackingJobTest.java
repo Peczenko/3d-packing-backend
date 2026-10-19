@@ -22,16 +22,14 @@ class PackingJobTest {
     private static final String       SHA_B      = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     @Test
-    void queuesOpaqueJsonAndRaisesOneEvent() {
-        PackingJob job = PackingJob.queue(JOB_ID,
-                                          PROJECT_ID,
-                                          USER_ID,
-                                          "{\"testField\":42}",
-                                          60,
-                                          NOW);
+    void queuesItsInputAndRaisesOneEvent() {
+        PackingInput input = PackingInputs.single();
+
+        PackingJob job = PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, input, 60, NOW);
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.QUEUED);
-        assertThat(job.specJson()).isEqualTo("{\"testField\":42}");
+        assertThat(job.input()).isEqualTo(input);
+        assertThat(job.isLegacy()).isFalse();
         assertThat(job.version()).isZero();
         assertThat(job.domainEvents()).containsExactly(
                                                        new PackingJobQueued(JOB_ID, PROJECT_ID, NOW));
@@ -317,13 +315,13 @@ class PackingJobTest {
     }
 
     @Test
-    void queueRejectsBlankJsonAndOutOfRangeRuntime() {
-        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, " ", 60, NOW))
-                                                                                             .isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, "{}", 0, NOW))
-                                                                                             .isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, "{}", 7_201, NOW))
-                                                                                                 .isInstanceOf(DomainRuleViolationException.class);
+    void queueRequiresAnInputAndAnInRangeRuntime() {
+        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, null, 60, NOW))
+                                                                                              .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, PackingInputs.single(), 0, NOW))
+                                                                                                               .isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, PackingInputs.single(), 7_201, NOW))
+                                                                                                                   .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
@@ -331,7 +329,7 @@ class PackingJobTest {
         PackingJob job = PackingJob.rehydrate(JOB_ID,
                                               PROJECT_ID,
                                               USER_ID,
-                                              "{}",
+                                              PackingInputs.single(),
                                               60,
                                               PackingJobStatus.FAILED,
                                               "packer 0.3.0",
@@ -353,8 +351,33 @@ class PackingJobTest {
         assertThat(job.version()).isEqualTo(8);
     }
 
+    @Test
+    void rehydratesALegacyJobWithoutInput() {
+        PackingJob job = PackingJob.rehydrate(JOB_ID,
+                                              PROJECT_ID,
+                                              USER_ID,
+                                              null,
+                                              60,
+                                              PackingJobStatus.SUCCEEDED,
+                                              "packer 0.3.0",
+                                              SHA_A,
+                                              NOW,
+                                              NOW.plusSeconds(1),
+                                              NOW.plusSeconds(2),
+                                              "output.bin",
+                                              "application/octet-stream",
+                                              SHA_B,
+                                              12L,
+                                              null,
+                                              3,
+                                              NOW);
+
+        assertThat(job.isLegacy()).isTrue();
+        assertThat(job.input()).isNull();
+    }
+
     private PackingJob queuedJob() {
-        return PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, "{}", 60, NOW);
+        return PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, PackingInputs.single(), 60, NOW);
     }
 
     private PackingJob succeededJob() {

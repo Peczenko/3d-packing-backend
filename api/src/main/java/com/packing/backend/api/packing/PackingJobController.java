@@ -1,13 +1,16 @@
 package com.packing.backend.api.packing;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
+import com.packing.backend.core.packing.PackingJobApplicationService.DraftQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.ListPackingJobsQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -37,7 +41,12 @@ public class PackingJobController {
     private final PackingJobApplicationService jobs;
 
     @PostMapping
-    @Operation(operationId = "createPackingJob", summary = "Queue a packing job")
+    @Operation(operationId = "createPackingJob",
+               summary = "Queue a packing job",
+               description = "The body is validated against GET /api/v1/packing/input-schema.")
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "A packing job input as described by the input schema",
+                                                          required = true,
+                                                          content = @Content(schema = @Schema(type = "object")))
     @ApiResponse(responseCode = "202",
                  description = "Job queued",
                  headers = @Header(name = HttpHeaders.LOCATION,
@@ -45,13 +54,10 @@ public class PackingJobController {
                                    schema = @Schema(type = "string", format = "uri")))
     public ResponseEntity<PackingJobResponse> create(@CurrentUser AuthenticatedUser caller,
                                                      @PathVariable UUID projectId,
-                                                     @Valid @RequestBody CreatePackingJobRequest request) {
-        PackingJobResponse response = PackingJobResponse.from(jobs.create(new CreatePackingJobCommand(
-                                                                                                      caller.firebaseUid(),
+                                                     @RequestBody JsonNode body) {
+        PackingJobResponse response = PackingJobResponse.from(jobs.create(new CreatePackingJobCommand(caller.firebaseUid(),
                                                                                                       projectId,
-                                                                                                      request.spec()
-                                                                                                             .toString(),
-                                                                                                      request.effectiveMaxRuntimeSeconds())));
+                                                                                                      body.toString())));
         URI location = ServletUriComponentsBuilder.fromCurrentRequest()
                                                   .path("/{jobId}")
                                                   .buildAndExpand(response.id())
@@ -71,6 +77,17 @@ public class PackingJobController {
                                                                               caller.firebaseUid(),
                                                                               projectId,
                                                                               request.toCriteria())));
+    }
+
+    @GetMapping("/draft")
+    @Operation(operationId = "getPackingJobDraft",
+               summary = "A ready-to-submit input for the next packing job",
+               description = "Prefilled from the job named by `from`, else the caller's newest job in the project, else the project's newest job, else the schema defaults.")
+    @ApiResponse(responseCode = "200", description = "The draft")
+    public PackingJobDraftResponse draft(@CurrentUser AuthenticatedUser caller,
+                                         @PathVariable UUID projectId,
+                                         @RequestParam(required = false) UUID from) {
+        return PackingJobDraftResponse.from(jobs.draft(new DraftQuery(caller.firebaseUid(), projectId, from)));
     }
 
     @GetMapping("/{jobId}")

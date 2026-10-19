@@ -2,6 +2,7 @@ package com.packing.backend.infra.packing.temporal;
 
 import com.packing.backend.core.packing.message.PackingDispatchMessage;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
+import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
@@ -52,7 +53,7 @@ class TemporalPackingDispatchSenderTest {
         job = PackingJob.queue(PackingJobId.generate(),
                                ProjectId.generate(),
                                UserId.generate(),
-                               "{\"testField\":true}",
+                               PackingInputs.single(),
                                90,
                                Instant.parse("2026-10-14T12:00:00Z"));
         jobs = mock(PackingJobRepository.class);

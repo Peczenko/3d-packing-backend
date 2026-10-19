@@ -2,6 +2,7 @@ package com.packing.backend.core.packing;
 
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
+import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
@@ -148,7 +149,7 @@ class PackingJobRecoveryServiceTest {
         PackingJob job = PackingJob.queue(PackingJobId.generate(),
                                           ProjectId.generate(),
                                           UserId.generate(),
-                                          "{\"testField\":true}",
+                                          PackingInputs.single(),
                                           60,
                                           NOW.minusSeconds(30));
         job.pullDomainEvents();

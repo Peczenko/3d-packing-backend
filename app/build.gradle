@@ -27,6 +27,7 @@ dependencies {
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
     testImplementation testFixtures(project(':infra'))
+    testImplementation testFixtures(project(':domain'))
 
     testImplementation libs.archunit.junit5
     testImplementation libs.temporal.spring.boot.starter
