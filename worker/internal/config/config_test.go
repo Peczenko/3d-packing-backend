@@ -41,7 +41,7 @@ func TestLoadDefaults(t *testing.T) {
 		TemporalNamespace:       "packing",
 		TaskQueue:               "packing-engine",
 		HeartbeatInterval:       10 * time.Second,
-		OverrunGrace:            60 * time.Second,
+		OverrunGrace:            120 * time.Second,
 		StorageConnectionString: "DefaultEndpointsProtocol=https;AccountName=example;AccountKey=z",
 		StorageContainer:        "models",
 		PackerPath:              "/usr/local/bin/packer",

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Peczenko/3d-packing-backend/worker/internal/digest"
@@ -21,6 +22,7 @@ const (
 	resultContentType = "model/obj"
 	terminateGrace    = 5 * time.Second
 	maxStderrBytes    = 8 << 10
+	killedReason      = "packer was killed, most likely for exceeding the worker's memory limit"
 )
 
 var (
@@ -101,6 +103,9 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
 				reason := exitReason(exitErr.ExitCode(), exitErr.ProcessState.String(), stderr.String())
+				if killedBySystem(exitErr.ProcessState) {
+					reason = withStderr(killedReason, stderr.String())
+				}
 				return pipeline.EngineResult{}, &pipeline.EngineFailure{Reason: describePaths(reason, request)}
 			}
 			return pipeline.EngineResult{}, fmt.Errorf("engine: run packer: %w", err)
@@ -164,10 +169,19 @@ func exitReason(code int, state string, stderr string) string {
 	if code < 0 {
 		reason = "packer did not exit normally: " + state
 	}
+	return withStderr(reason, stderr)
+}
+
+func withStderr(reason, stderr string) string {
 	if stderr = strings.TrimRight(stderr, "\r\n"); stderr != "" {
 		reason += ": " + stderr
 	}
 	return reason
+}
+
+func killedBySystem(state *os.ProcessState) bool {
+	status, ok := state.Sys().(syscall.WaitStatus)
+	return ok && status.Signaled() && status.Signal() == syscall.SIGKILL
 }
 
 type tailBuffer struct {
