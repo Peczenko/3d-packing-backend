@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
 import com.packing.backend.core.packing.PackingJobApplicationService;
+import com.packing.backend.core.packing.PackingJobApplicationService.CancelPackingJobCommand;
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
 import com.packing.backend.core.packing.PackingJobApplicationService.DraftQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.ListPackingJobsQuery;
@@ -88,6 +89,18 @@ public class PackingJobController {
                                          @PathVariable UUID projectId,
                                          @RequestParam(required = false) UUID from) {
         return PackingJobDraftResponse.from(jobs.draft(new DraftQuery(caller.firebaseUid(), projectId, from)));
+    }
+
+    @PostMapping("/{jobId}/cancel")
+    @Operation(operationId = "cancelPackingJob",
+               summary = "Cancel a queued or running packing job",
+               description = "The job is CANCELLED at once and its engine run is stopped shortly after. Cancelling a cancelled job changes nothing.")
+    @ApiResponse(responseCode = "200", description = "The cancelled job")
+    @ApiResponse(responseCode = "409", description = "The job has already finished, or the project is disabled")
+    public PackingJobResponse cancel(@CurrentUser AuthenticatedUser caller,
+                                     @PathVariable UUID projectId,
+                                     @PathVariable UUID jobId) {
+        return PackingJobResponse.from(jobs.cancel(new CancelPackingJobCommand(caller.firebaseUid(), projectId, jobId)));
     }
 
     @GetMapping("/{jobId}")

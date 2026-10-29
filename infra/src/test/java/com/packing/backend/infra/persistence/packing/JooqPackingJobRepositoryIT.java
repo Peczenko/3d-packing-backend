@@ -83,6 +83,24 @@ class JooqPackingJobRepositoryIT {
     }
 
     @Test
+    void persistsACancelledJob() {
+        PackingJob job = queuedJob(now());
+        repository().save(job);
+        PackingJob reloaded = repository().findById(job.id())
+                                          .orElseThrow();
+        Instant cancelledAt = now();
+
+        reloaded.cancel(cancelledAt);
+        repository().save(reloaded);
+
+        assertThat(repository().findById(job.id())).hasValueSatisfying(found -> {
+            assertThat(found.status()).isEqualTo(PackingJobStatus.CANCELLED);
+            assertThat(found.finishedAt()).isEqualTo(cancelledAt);
+            assertThat(found.failureReason()).isNull();
+        });
+    }
+
+    @Test
     void rejectsTheSecondSaveOfTwoCopiesOfTheSameRow() {
         PackingJob job = queuedJob(now());
         repository().save(job);

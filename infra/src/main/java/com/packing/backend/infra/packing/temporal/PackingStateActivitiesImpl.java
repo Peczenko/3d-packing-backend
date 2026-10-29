@@ -55,6 +55,11 @@ public class PackingStateActivitiesImpl implements PackingStateActivities {
         recovery.failStalled(id(jobId), reason);
     }
 
+    @Override
+    public void recordCancelled(String jobId) {
+        recovery.cancel(id(jobId));
+    }
+
     private static PackingJobId id(String jobId) {
         return new PackingJobId(UUID.fromString(jobId));
     }

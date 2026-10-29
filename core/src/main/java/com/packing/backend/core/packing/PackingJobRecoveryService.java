@@ -21,11 +21,26 @@ public class PackingJobRecoveryService {
     private final Clock                clock;
 
     public void failStalled(PackingJobId id, String reason) {
-        PackingJob job = jobs.findById(id)
-                             .orElseThrow(() -> PackingJobNotFoundException.byId(id));
+        PackingJob job = require(id);
         if (job.failStalled(reason, clock.instant())) {
-            jobs.save(job);
-            events.publishAll(job.pullDomainEvents());
+            save(job);
         }
+    }
+
+    public void cancel(PackingJobId id) {
+        PackingJob job = require(id);
+        if (job.cancel(clock.instant())) {
+            save(job);
+        }
+    }
+
+    private PackingJob require(PackingJobId id) {
+        return jobs.findById(id)
+                   .orElseThrow(() -> PackingJobNotFoundException.byId(id));
+    }
+
+    private void save(PackingJob job) {
+        jobs.save(job);
+        events.publishAll(job.pullDomainEvents());
     }
 }

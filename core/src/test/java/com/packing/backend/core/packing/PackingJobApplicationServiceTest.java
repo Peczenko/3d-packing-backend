@@ -1,5 +1,6 @@
 package com.packing.backend.core.packing;
 
+import com.packing.backend.core.packing.PackingJobApplicationService.CancelPackingJobCommand;
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
 import com.packing.backend.core.packing.PackingJobApplicationService.DraftQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.DraftSource;
@@ -38,6 +39,7 @@ import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingParameters;
+import com.packing.backend.domain.packing.event.PackingJobCancelled;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectNotFoundException;
@@ -390,6 +392,91 @@ class PackingJobApplicationServiceTest {
     }
 
     @Test
+    void cancelStopsARunningJobAndPublishesTheCancellation() {
+        UUID jobId = UUID.randomUUID();
+        PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.RUNNING);
+        PackingJobView expected = view(jobId, PROJECT_ID.value());
+        givenAccess(ProjectPermission.WRITE);
+        when(repository.findById(job.id())).thenReturn(Optional.of(job));
+        when(finder.detailInProject(PROJECT_ID, job.id())).thenReturn(Optional.of(expected));
+
+        PackingJobView result = service.cancel(cancel(jobId));
+
+        assertThat(result).isEqualTo(expected);
+        assertThat(job.status()).isEqualTo(PackingJobStatus.CANCELLED);
+        assertThat(job.finishedAt()).isEqualTo(NOW);
+        InOrder order = inOrder(repository, events);
+        order.verify(repository)
+             .save(job);
+        order.verify(events)
+             .publishAll(List.of(new PackingJobCancelled(job.id(), PROJECT_ID, NOW)));
+    }
+
+    @Test
+    void cancelOfAnAlreadyCancelledJobChangesNothing() {
+        UUID jobId = UUID.randomUUID();
+        PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.CANCELLED);
+        givenAccess(ProjectPermission.WRITE);
+        when(repository.findById(job.id())).thenReturn(Optional.of(job));
+        when(finder.detailInProject(PROJECT_ID, job.id())).thenReturn(Optional.of(view(jobId, PROJECT_ID.value())));
+
+        service.cancel(cancel(jobId));
+
+        verify(repository, never()).save(any());
+        verify(events, never()).publishAll(any());
+    }
+
+    @Test
+    void cancelOfAFinishedJobIsAConflict() {
+        for (PackingJobStatus finished : List.of(PackingJobStatus.SUCCEEDED, PackingJobStatus.FAILED)) {
+            UUID jobId = UUID.randomUUID();
+            PackingJob job = job(jobId, PROJECT_ID, finished);
+            givenAccess(ProjectPermission.WRITE);
+            when(repository.findById(job.id())).thenReturn(Optional.of(job));
+
+            assertThatThrownBy(() -> service.cancel(cancel(jobId))).isInstanceOf(ResourceConflictException.class);
+
+            assertThat(job.status()).isEqualTo(finished);
+        }
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void cancelNeedsWritePermissionBeforeLoadingTheJob() {
+        givenReadAccess();
+
+        assertThatThrownBy(() -> service.cancel(cancel(UUID.randomUUID()))).isInstanceOf(PermissionDeniedException.class);
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void cancelIsRefusedWhileTheProjectIsDisabled() {
+        when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(Optional.of(
+                                                                                                  new ProjectAccess(USER_ID,
+                                                                                                                    PROJECT_ID,
+                                                                                                                    ProjectStatus.DISABLED,
+                                                                                                                    ProjectPermission.WRITE)));
+
+        assertThatThrownBy(() -> service.cancel(cancel(UUID.randomUUID()))).isInstanceOf(ResourceConflictException.class);
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void cancelHidesAJobFromAnotherProject() {
+        UUID jobId = UUID.randomUUID();
+        PackingJob job = job(jobId, OTHER_PROJECT_ID, PackingJobStatus.RUNNING);
+        givenAccess(ProjectPermission.WRITE);
+        when(repository.findById(job.id())).thenReturn(Optional.of(job));
+
+        assertThatThrownBy(() -> service.cancel(cancel(jobId))).isInstanceOf(PackingJobNotFoundException.class);
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.RUNNING);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
     void inputSchemaIsTheAdaptersDocument() {
         PackingInputSchema.SchemaDocument document = new PackingInputSchema.SchemaDocument(1, "{}", "e".repeat(64));
         when(schema.document()).thenReturn(document);
@@ -551,6 +638,10 @@ class PackingJobApplicationServiceTest {
 
     private static CreatePackingJobCommand create() {
         return new CreatePackingJobCommand(FIREBASE_UID, PROJECT_ID.value(), BODY);
+    }
+
+    private static CancelPackingJobCommand cancel(UUID jobId) {
+        return new CancelPackingJobCommand(FIREBASE_UID, PROJECT_ID.value(), jobId);
     }
 
     private static ValidatedInput validated(RequestedItem... items) {

@@ -9,9 +9,13 @@ import io.temporal.activity.Activity;
 import io.temporal.activity.ActivityOptions;
 import io.temporal.api.enums.v1.RetryState;
 import io.temporal.api.enums.v1.TimeoutType;
+import io.temporal.client.WorkflowClient;
+import io.temporal.client.WorkflowFailedException;
 import io.temporal.client.WorkflowOptions;
+import io.temporal.client.WorkflowStub;
 import io.temporal.failure.ActivityFailure;
 import io.temporal.failure.ApplicationFailure;
+import io.temporal.failure.CanceledFailure;
 import io.temporal.failure.TimeoutFailure;
 import io.temporal.testing.TestWorkflowEnvironment;
 import io.temporal.worker.Worker;
@@ -23,12 +27,15 @@ import org.mockito.InOrder;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.ENGINE_FAILURE;
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.ENGINE_TASK_QUEUE;
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.STATE_TASK_QUEUE;
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
@@ -42,16 +49,17 @@ import static org.mockito.Mockito.withSettings;
 
 class PackingJobWorkflowImplTest {
 
-    private static final String        JOB_ID   = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
-    private static final String        CHECKSUM = "a".repeat(64);
-    private static final EngineStarted STARTED  = new EngineStarted(VERSION, "packer 0.3.0", CHECKSUM);
-    private static final EngineResult  RESULT   = new EngineResult(VERSION,
-                                                                   "packer 0.3.0",
-                                                                   CHECKSUM,
-                                                                   "output",
-                                                                   "application/json",
-                                                                   12,
-                                                                   "b".repeat(64));
+    private static final String          JOB_ID   = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    private static final PackingJobInput INPUT    = new PackingJobInput(JOB_ID, 60);
+    private static final String          CHECKSUM = "a".repeat(64);
+    private static final EngineStarted   STARTED  = new EngineStarted(VERSION, "packer 0.3.0", CHECKSUM);
+    private static final EngineResult    RESULT   = new EngineResult(VERSION,
+                                                                     "packer 0.3.0",
+                                                                     CHECKSUM,
+                                                                     "output",
+                                                                     "application/json",
+                                                                     12,
+                                                                     "b".repeat(64));
 
     private final List<RunEngineInput> engineInputs = new CopyOnWriteArrayList<>();
 
@@ -170,6 +178,29 @@ class PackingJobWorkflowImplTest {
     }
 
     @Test
+    void cancellingTheWorkflowFailsTheJobInsteadOfLeavingItRunning() throws InterruptedException {
+        CountDownLatch engineRunning = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        PackingJobWorkflow workflow = newJob(input -> {
+            engineRunning.countDown();
+            await(released);
+            return RESULT;
+        });
+        WorkflowClient.start(workflow::run, INPUT);
+        assertThat(engineRunning.await(10, TimeUnit.SECONDS)).isTrue();
+
+        WorkflowStub stub = WorkflowStub.fromTyped(workflow);
+        stub.cancel();
+
+        assertThatThrownBy(() -> stub.getResult(Void.class)).isInstanceOf(WorkflowFailedException.class)
+                                                            .hasCauseInstanceOf(CanceledFailure.class);
+        verify(state).recordCancelled(JOB_ID);
+        verify(state, never()).recordStalled(anyString(), anyString());
+        verify(state, never()).recordSucceeded(anyString(), any());
+        released.countDown();
+    }
+
+    @Test
     void engineOptionsBoundTheEngineByItsRuntimePlusTransferMargin() {
         ActivityOptions options = PackingJobWorkflowImpl.engineOptions(120);
 
@@ -180,7 +211,7 @@ class PackingJobWorkflowImplTest {
         assertThat(options.getRetryOptions()
                           .getMaximumAttempts()).isEqualTo(3);
         assertThat(options.getRetryOptions()
-                          .getDoNotRetry()).containsExactly(ENGINE_FAILURE);
+                          .getDoNotRetry()).containsExactly(ENGINE_FAILURE, "TemporalTimeout:StartToClose");
     }
 
     @Test
@@ -205,6 +236,10 @@ class PackingJobWorkflowImplTest {
     }
 
     private void runJob(Engine engine) {
+        newJob(engine).run(INPUT);
+    }
+
+    private PackingJobWorkflow newJob(Engine engine) {
         Worker stateWorker = env.newWorker(STATE_TASK_QUEUE);
         stateWorker.registerWorkflowImplementationTypes(PackingJobWorkflowImpl.class);
         stateWorker.registerActivitiesImplementations(state);
@@ -215,13 +250,21 @@ class PackingJobWorkflowImplTest {
         });
         env.start();
 
-        PackingJobWorkflow workflow = env.getWorkflowClient()
-                                         .newWorkflowStub(PackingJobWorkflow.class,
-                                                          WorkflowOptions.newBuilder()
-                                                                         .setWorkflowId(PackingEngineContract.WORKFLOW_ID_PREFIX + JOB_ID)
-                                                                         .setTaskQueue(STATE_TASK_QUEUE)
-                                                                         .build());
-        workflow.run(new PackingJobInput(JOB_ID, 60));
+        return env.getWorkflowClient()
+                  .newWorkflowStub(PackingJobWorkflow.class,
+                                   WorkflowOptions.newBuilder()
+                                                  .setWorkflowId(PackingEngineContract.WORKFLOW_ID_PREFIX + JOB_ID)
+                                                  .setTaskQueue(STATE_TASK_QUEUE)
+                                                  .build());
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread()
+                  .interrupt();
+        }
     }
 
     private void signalStarted(EngineStarted started) {

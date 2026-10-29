@@ -7,6 +7,7 @@ import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.event.PackingJobCancelled;
 import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.DomainEvent;
@@ -127,6 +128,35 @@ class PackingJobRecoveryServiceTest {
                                                                           null,
                                                                           NOW.minusSeconds(10),
                                                                           NOW));
+    }
+
+    @Test
+    void cancelRecordsACancellationObservedByTheWorkflow() {
+        PackingJob job = runningJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.cancel(job.id());
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.CANCELLED);
+        assertThat(job.finishedAt()).isEqualTo(NOW);
+        verify(jobs).save(job);
+        verify(events).publishAll(published.capture());
+        assertThat(published.getValue()).singleElement()
+                                        .isEqualTo(new PackingJobCancelled(job.id(), job.projectId(), NOW));
+    }
+
+    @Test
+    void cancelLeavesAFinishedJobAloneSoTheWorkflowsRetriesSettle() {
+        PackingJob job = runningJob();
+        job.fail("packer exited with code 2", "packer 0.1.0", CHECKSUM, NOW.minusSeconds(1));
+        job.pullDomainEvents();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.cancel(job.id());
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.FAILED);
+        verify(jobs, never()).save(any());
+        verify(events, never()).publishAll(any());
     }
 
     @Test

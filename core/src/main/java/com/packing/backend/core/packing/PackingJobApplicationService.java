@@ -80,6 +80,19 @@ public class PackingJobApplicationService {
         return requireView(project.projectId(), job.id());
     }
 
+    public PackingJobView cancel(CancelPackingJobCommand command) {
+        ProjectAccess project = requireAccess(command.firebaseUid(),
+                                              command.projectId(),
+                                              ProjectPermission.WRITE).requireWritable();
+        PackingJob job = requireJob(project.projectId(), new PackingJobId(command.jobId()));
+        job.requireCancellable();
+        if (job.cancel(clock.instant())) {
+            jobs.save(job);
+            events.publishAll(job.pullDomainEvents());
+        }
+        return requireView(project.projectId(), job.id());
+    }
+
     @Transactional(propagation = Propagation.SUPPORTS)
     public PackingInputSchema.SchemaDocument inputSchema() {
         return schema.document();
@@ -107,10 +120,7 @@ public class PackingJobApplicationService {
                                               query.projectId(),
                                               ProjectPermission.READ);
         PackingJobId jobId = new PackingJobId(query.jobId());
-        PackingJob job = jobs.findById(jobId)
-                             .filter(candidate -> candidate.projectId()
-                                                           .equals(project.projectId()))
-                             .orElseThrow(() -> PackingJobNotFoundException.byId(jobId));
+        PackingJob job = requireJob(project.projectId(), jobId);
         if (job.status() != PackingJobStatus.SUCCEEDED) {
             throw new ResourceConflictException(
                                                 "Packing job result is not available until the job succeeds");
@@ -215,6 +225,13 @@ public class PackingJobApplicationService {
                                                             .collect(Collectors.joining(", "));
     }
 
+    private PackingJob requireJob(ProjectId projectId, PackingJobId jobId) {
+        return jobs.findById(jobId)
+                   .filter(candidate -> candidate.projectId()
+                                                 .equals(projectId))
+                   .orElseThrow(() -> PackingJobNotFoundException.byId(jobId));
+    }
+
     private ProjectAccess requireAccess(String firebaseUid,
                                         UUID projectId,
                                         ProjectPermission required) {
@@ -258,6 +275,9 @@ public class PackingJobApplicationService {
     }
 
     public record ListPackingJobsQuery(String firebaseUid, UUID projectId, PackingJobListCriteria criteria) {
+    }
+
+    public record CancelPackingJobCommand(String firebaseUid, UUID projectId, UUID jobId) {
     }
 
     public record PackingJobQuery(String firebaseUid, UUID projectId, UUID jobId) {
