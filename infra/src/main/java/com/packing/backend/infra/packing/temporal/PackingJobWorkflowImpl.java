@@ -8,6 +8,7 @@ import io.temporal.activity.ActivityOptions;
 import io.temporal.common.RetryOptions;
 import io.temporal.failure.ActivityFailure;
 import io.temporal.failure.ApplicationFailure;
+import io.temporal.failure.CanceledFailure;
 import io.temporal.failure.TimeoutFailure;
 import io.temporal.spring.boot.WorkflowImpl;
 import io.temporal.workflow.Async;
@@ -24,12 +25,13 @@ import static com.packing.backend.infra.packing.temporal.PackingEngineContract.V
 @WorkflowImpl(taskQueues = PackingEngineContract.STATE_TASK_QUEUE)
 public class PackingJobWorkflowImpl implements PackingJobWorkflow {
 
-    static final Duration TRANSFER_MARGIN     = Duration.ofMinutes(5);
-    static final Duration HEARTBEAT_TIMEOUT   = Duration.ofSeconds(60);
-    static final int      ENGINE_ATTEMPTS     = 3;
-    static final String   STOPPED_RESPONDING  = "Packing engine stopped responding";
-    static final String   EXCEEDED_TIME_LIMIT = "Packing engine exceeded its time limit";
-    static final String   COULD_NOT_COMPLETE  = "Packing engine could not complete the job";
+    static final Duration TRANSFER_MARGIN        = Duration.ofMinutes(30);
+    static final Duration HEARTBEAT_TIMEOUT      = Duration.ofSeconds(60);
+    static final int      ENGINE_ATTEMPTS        = 3;
+    static final String   START_TO_CLOSE_TIMEOUT = "TemporalTimeout:StartToClose";
+    static final String   STOPPED_RESPONDING     = "Packing engine stopped responding";
+    static final String   EXCEEDED_TIME_LIMIT    = "Packing engine exceeded its time limit";
+    static final String   COULD_NOT_COMPLETE     = "Packing engine could not complete the job";
 
     private static final ActivityOptions STATE_OPTIONS = ActivityOptions.newBuilder()
                                                                         .setStartToCloseTimeout(Duration.ofSeconds(30))
@@ -54,6 +56,11 @@ public class PackingJobWorkflowImpl implements PackingJobWorkflow {
         try {
             result = engine.runEngine(new RunEngineInput(VERSION, jobId));
         } catch (ActivityFailure failure) {
+            if (failure.getCause() instanceof CanceledFailure canceled) {
+                Workflow.newDetachedCancellationScope(() -> state.recordCancelled(jobId))
+                        .run();
+                throw canceled;
+            }
             awaitStarted();
             Optional<EngineFailureDetails> engineFailure = engineFailure(failure);
             if (engineFailure.isPresent()) {
@@ -90,7 +97,7 @@ public class PackingJobWorkflowImpl implements PackingJobWorkflow {
                                                            .setMaximumAttempts(ENGINE_ATTEMPTS)
                                                            .setInitialInterval(Duration.ofSeconds(5))
                                                            .setBackoffCoefficient(2)
-                                                           .setDoNotRetry(ENGINE_FAILURE)
+                                                           .setDoNotRetry(ENGINE_FAILURE, START_TO_CLOSE_TIMEOUT)
                                                            .build())
                               .build();
     }

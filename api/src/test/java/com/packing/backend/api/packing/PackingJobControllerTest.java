@@ -2,6 +2,7 @@ package com.packing.backend.api.packing;
 
 import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.packing.PackingJobApplicationService;
+import com.packing.backend.core.packing.PackingJobApplicationService.CancelPackingJobCommand;
 import com.packing.backend.core.packing.PackingJobApplicationService.CreatePackingJobCommand;
 import com.packing.backend.core.packing.PackingJobApplicationService.DraftQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.DraftSource;
@@ -18,6 +19,7 @@ import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.shared.ResourceConflictException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -150,6 +152,43 @@ class PackingJobControllerTest {
                .andExpect(status().isBadRequest());
 
         verify(jobs, never()).create(any());
+    }
+
+    @Test
+    void cancelAnswersWithTheCancelledJob() throws Exception {
+        authenticate();
+        UUID jobId = UUID.randomUUID();
+        PackingJobView view = view(jobId);
+        when(jobs.cancel(any())).thenReturn(new PackingJobView(jobId,
+                                                               PROJECT_ID,
+                                                               PackingJobStatus.CANCELLED,
+                                                               null,
+                                                               null,
+                                                               view.createdAt(),
+                                                               null,
+                                                               null,
+                                                               null,
+                                                               null,
+                                                               null,
+                                                               null,
+                                                               null,
+                                                               INPUT));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs/{jobId}/cancel", PROJECT_ID, jobId))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.id").value(jobId.toString()))
+               .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        verify(jobs).cancel(new CancelPackingJobCommand(UID, PROJECT_ID, jobId));
+    }
+
+    @Test
+    void cancelOfAFinishedJobIs409() throws Exception {
+        authenticate();
+        when(jobs.cancel(any())).thenThrow(new ResourceConflictException("Packing job has already finished"));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs/{jobId}/cancel", PROJECT_ID, UUID.randomUUID()))
+               .andExpect(status().isConflict());
     }
 
     @Test

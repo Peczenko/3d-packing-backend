@@ -1,9 +1,11 @@
 package com.packing.backend.domain.packing;
 
+import com.packing.backend.domain.packing.event.PackingJobCancelled;
 import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.user.UserId;
 import org.junit.jupiter.api.Test;
 
@@ -311,6 +313,63 @@ class PackingJobTest {
         job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(4));
         job.failStalled("dead-lettered", NOW.plusSeconds(5));
 
+        assertThat(job.domainEvents()).isEmpty();
+    }
+
+    @Test
+    void cancellingARunningJobFinishesItWithoutAFinishedEvent() {
+        PackingJob job = queuedJob();
+        job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(1));
+        job.pullDomainEvents();
+
+        assertThat(job.cancel(NOW.plusSeconds(2))).isTrue();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.CANCELLED);
+        assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(2));
+        assertThat(job.failureReason()).isNull();
+        assertThat(job.domainEvents()).containsExactly(new PackingJobCancelled(JOB_ID, PROJECT_ID, NOW.plusSeconds(2)));
+    }
+
+    @Test
+    void cancellingIsIdempotent() {
+        PackingJob job = queuedJob();
+        job.cancel(NOW.plusSeconds(1));
+        job.pullDomainEvents();
+
+        job.requireCancellable();
+        assertThat(job.cancel(NOW.plusSeconds(2))).isFalse();
+
+        assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(1));
+        assertThat(job.domainEvents()).isEmpty();
+    }
+
+    @Test
+    void aFinishedJobCannotBeCancelledButTheTransitionItselfStaysANoOp() {
+        PackingJob succeeded = succeededJob();
+        PackingJob failed = failedJob();
+
+        assertThatThrownBy(succeeded::requireCancellable).isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(failed::requireCancellable).isInstanceOf(ResourceConflictException.class);
+        assertThat(succeeded.cancel(NOW.plusSeconds(5))).isFalse();
+        assertThat(failed.cancel(NOW.plusSeconds(5))).isFalse();
+        assertThat(succeeded.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
+        assertThat(failed.status()).isEqualTo(PackingJobStatus.FAILED);
+    }
+
+    @Test
+    void aCancelledJobDiscardsEveryLateEngineMessage() {
+        PackingJob job = queuedJob();
+        job.cancel(NOW.plusSeconds(1));
+        job.pullDomainEvents();
+
+        assertThat(job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(2))).isFalse();
+        assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B, "packer 0.3.0", SHA_A, NOW.plusSeconds(3))).isFalse();
+        assertThat(job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(4))).isFalse();
+        assertThat(job.failStalled("dead-lettered", NOW.plusSeconds(5))).isFalse();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.CANCELLED);
+        assertThat(job.startedAt()).isNull();
+        assertThat(job.resultFileName()).isNull();
         assertThat(job.domainEvents()).isEmpty();
     }
 

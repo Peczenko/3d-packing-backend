@@ -83,6 +83,13 @@ class PackingStateActivitiesImplTest {
     }
 
     @Test
+    void recordsCancelledThroughRecovery() {
+        activities.recordCancelled(JOB);
+
+        verify(recovery).cancel(JOB_ID);
+    }
+
+    @Test
     void isDiscoveredOnTheStateTaskQueue() {
         assertThat(PackingStateActivitiesImpl.class.getAnnotation(ActivityImpl.class)
                                                    .taskQueues()).containsExactly(PackingEngineContract.STATE_TASK_QUEUE);

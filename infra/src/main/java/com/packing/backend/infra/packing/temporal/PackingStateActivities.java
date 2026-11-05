@@ -15,4 +15,6 @@ public interface PackingStateActivities {
     void recordFailed(String jobId, EngineFailureDetails failure);
 
     void recordStalled(String jobId, String reason);
+
+    void recordCancelled(String jobId);
 }

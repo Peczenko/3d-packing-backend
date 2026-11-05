@@ -4,5 +4,6 @@ public enum PackingJobStatus {
     QUEUED,
     RUNNING,
     SUCCEEDED,
-    FAILED
+    FAILED,
+    CANCELLED
 }

@@ -112,7 +112,10 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 		return StoredResult{}, fmt.Errorf("pipeline: packer provenance for job %s is unusable: %w", jobID, err)
 	}
 
+	log := activity.GetLogger(ctx)
+	phase := time.Now()
 	inputs, err := a.downloadInputs(ctx, jobID, workspace, envelope.Items)
+	log.Info("inputs downloaded", "jobId", jobID, "items", len(envelope.Items), "elapsed", time.Since(phase).String(), "error", err)
 	if err != nil {
 		var failure *EngineFailure
 		if errors.As(err, &failure) {
@@ -126,12 +129,14 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 	}
 
 	outputPath := filepath.Join(workspace, outputFileName)
+	phase = time.Now()
 	result, err := a.engine.Run(ctx, RunRequest{
 		Inputs:        inputs,
 		ParameterArgs: envelope.ParameterArgs,
 		OutputPath:    outputPath,
 		Runtime:       time.Duration(envelope.MaxRuntimeSeconds) * time.Second,
 	})
+	log.Info("packer finished", "jobId", jobID, "limitSeconds", envelope.MaxRuntimeSeconds, "elapsed", time.Since(phase).String(), "resultBytes", result.SizeBytes, "error", err)
 	if err != nil {
 		var failure *EngineFailure
 		if errors.As(err, &failure) && ctx.Err() == nil {
@@ -140,7 +145,9 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 		return StoredResult{}, fmt.Errorf("pipeline: run packer for job %s: %w", jobID, err)
 	}
 
+	phase = time.Now()
 	created, err := a.artifacts.CreateResult(ctx, jobID, outputPath, StoredResult{Engine: engine, Result: result})
+	log.Info("result uploaded", "jobId", jobID, "resultBytes", result.SizeBytes, "elapsed", time.Since(phase).String(), "error", err)
 	if err != nil {
 		return StoredResult{}, fmt.Errorf("pipeline: upload result for job %s: %w", jobID, err)
 	}

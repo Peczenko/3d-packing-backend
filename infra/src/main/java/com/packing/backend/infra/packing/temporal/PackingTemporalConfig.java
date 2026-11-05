@@ -40,6 +40,11 @@ public class PackingTemporalConfig {
     }
 
     @Bean
+    PackingJobCancelledListener packingJobCancelledListener(WorkflowClient client) {
+        return new PackingJobCancelledListener(client);
+    }
+
+    @Bean
     PackingDispatchSweeper packingDispatchSweeper(PackingJobFinder finder, PackingJobDispatchService dispatcher) {
         return new PackingDispatchSweeper(finder, dispatcher);
     }

@@ -15,7 +15,7 @@ const (
 	defaultStorageContainer  = "models"
 	defaultPackerPath        = "/usr/local/bin/packer"
 	defaultHeartbeatInterval = 10 * time.Second
-	defaultOverrunGrace      = 60 * time.Second
+	defaultOverrunGrace      = 120 * time.Second
 )
 
 var (

@@ -1,10 +1,12 @@
 package com.packing.backend.domain.packing;
 
+import com.packing.backend.domain.packing.event.PackingJobCancelled;
 import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.AggregateRoot;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.user.UserId;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -232,6 +234,22 @@ public final class PackingJob extends AggregateRoot {
         return true;
     }
 
+    public void requireCancellable() {
+        if (status == PackingJobStatus.SUCCEEDED || status == PackingJobStatus.FAILED) {
+            throw new ResourceConflictException("Packing job " + id + " has already finished");
+        }
+    }
+
+    public boolean cancel(Instant now) {
+        if (isTerminal()) {
+            return false;
+        }
+        status = PackingJobStatus.CANCELLED;
+        finishedAt = Objects.requireNonNull(now, "now");
+        recordEvent(new PackingJobCancelled(id, projectId, finishedAt));
+        return true;
+    }
+
     public void markPersisted() {
         version++;
     }
@@ -253,7 +271,9 @@ public final class PackingJob extends AggregateRoot {
     }
 
     private boolean isTerminal() {
-        return status == PackingJobStatus.SUCCEEDED || status == PackingJobStatus.FAILED;
+        return status == PackingJobStatus.SUCCEEDED
+                || status == PackingJobStatus.FAILED
+                || status == PackingJobStatus.CANCELLED;
     }
 
     private void requireStatus(PackingJobStatus expected) {

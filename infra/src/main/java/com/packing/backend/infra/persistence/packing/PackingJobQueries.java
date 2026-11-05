@@ -38,7 +38,9 @@ final class PackingJobQueries {
                                                                                                                                                1)
                                                                                                                                          .when(PACKING_JOBS.STATUS.eq(com.packing.backend.domain.packing.PackingJobStatus.SUCCEEDED),
                                                                                                                                                2)
-                                                                                                                                         .otherwise(3);
+                                                                                                                                         .when(PACKING_JOBS.STATUS.eq(com.packing.backend.domain.packing.PackingJobStatus.FAILED),
+                                                                                                                                               3)
+                                                                                                                                         .otherwise(4);
 
     static final Condition STRUCTURED = PACKING_JOBS.ITEMS.isNotNull();
 
