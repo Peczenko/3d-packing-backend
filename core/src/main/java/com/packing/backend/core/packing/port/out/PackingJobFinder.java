@@ -5,6 +5,7 @@ import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.project.ProjectId;
+import com.packing.backend.domain.user.UserId;
 
 import java.util.List;
 import java.util.Optional;
@@ -15,7 +16,9 @@ public interface PackingJobFinder {
 
     Optional<PackingJobView> detailInProject(ProjectId projectId, PackingJobId jobId);
 
-    List<PackingJobId> findUndispatched(int limit);
+    Optional<PackingJobView> latestOwnInProject(ProjectId projectId, UserId userId);
 
-    List<PackingJobId> findRunning(int limit);
+    Optional<PackingJobView> latestInProject(ProjectId projectId);
+
+    List<PackingJobId> findUndispatched(int limit);
 }

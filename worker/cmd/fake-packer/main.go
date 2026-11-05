@@ -2,15 +2,14 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
-
-const versionLine = "fake-packer 0.1.0"
 
 const (
 	exitOK    = 0
@@ -19,109 +18,112 @@ const (
 )
 
 const (
-	sleepSpecKey    = "_fakeSleepSeconds"
-	exitCodeSpecKey = "_fakeExitCode"
+	directivePrefix = "# fake-packer:"
+	timeoutMessage  = "fake packer exceeded time limit"
 )
 
-const timeoutMessage = "fake packer exceeded time limit"
-
-func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+type directives struct {
+	sleep    time.Duration
+	exitCode int
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 1 && args[0] == "--version" {
-		fmt.Fprintln(stdout, versionLine)
-		return exitOK
-	}
+func main() {
+	os.Exit(run(os.Args[1:], os.Stderr))
+}
 
+func run(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("fake-packer", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	specPath := fs.String("spec", "", "path to the input spec JSON")
-	outputPath := fs.String("output", "", "path to write the result JSON")
-	timeLimitSeconds := fs.Int64("time-limit-seconds", 0, "wall-clock budget in seconds")
+	seconds := fs.Int64("t", 0, "annealing time in seconds")
+	outputPath := fs.String("o", "", "path of the packed OBJ")
 	if err := fs.Parse(args); err != nil {
 		return exitUsage
 	}
-	if *specPath == "" || *outputPath == "" || *timeLimitSeconds <= 0 {
-		fmt.Fprintln(stderr, "fake-packer: --spec, --output and a positive --time-limit-seconds are required")
+	inputs := fs.Args()
+	if *seconds <= 0 || *outputPath == "" || len(inputs) == 0 {
+		fmt.Fprintln(stderr, "fake-packer: -t <seconds>, -o <output.obj> and at least one input OBJ are required")
 		return exitUsage
 	}
 
-	raw, err := os.ReadFile(*specPath)
-	if err != nil {
-		fmt.Fprintln(stderr, "fake-packer: read spec:", err)
-		return exitInput
+	var packed bytes.Buffer
+	var injected directives
+	for i, path := range inputs {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "fake-packer: read %s: %v\n", path, err)
+			return exitInput
+		}
+		fmt.Fprintf(&packed, "o Object_%d\n", i+1)
+		if err := copyGeometry(&packed, data, &injected); err != nil {
+			fmt.Fprintf(stderr, "fake-packer: %s: %v\n", path, err)
+			return exitInput
+		}
 	}
 
-	spec := map[string]any{}
-	if err := json.Unmarshal(raw, &spec); err != nil {
-		fmt.Fprintln(stderr, "fake-packer: parse spec:", err)
-		return exitInput
-	}
-
-	sleepSeconds := popFloat(spec, sleepSpecKey)
-	exitCode := popInt(spec, exitCodeSpecKey)
-
-	limit := time.Duration(*timeLimitSeconds) * time.Second
-	if sleepSeconds > 0 {
-		sleep := time.Duration(sleepSeconds * float64(time.Second))
-		if sleep >= limit {
+	limit := time.Duration(*seconds) * time.Second
+	if injected.sleep > 0 {
+		if injected.sleep >= limit {
 			time.Sleep(limit)
 			fmt.Fprintln(stderr, timeoutMessage)
 			return exitInput
 		}
-		time.Sleep(sleep)
+		time.Sleep(injected.sleep)
+	}
+	if injected.exitCode != 0 {
+		fmt.Fprintf(stderr, "fake-packer: injected failure while packing %s\n", strings.Join(inputs, " "))
+		return injected.exitCode
 	}
 
-	if exitCode != 0 {
-		return exitCode
-	}
-
-	if err := writeOutput(*outputPath, spec); err != nil {
+	if err := writeAtomically(*outputPath, packed.Bytes()); err != nil {
 		fmt.Fprintln(stderr, "fake-packer: write output:", err)
 		return exitInput
 	}
 	return exitOK
 }
 
-func popFloat(spec map[string]any, key string) float64 {
-	value, ok := spec[key]
-	delete(spec, key)
-	if !ok {
-		return 0
+func copyGeometry(out *bytes.Buffer, data []byte, injected *directives) error {
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+		case strings.HasPrefix(trimmed, directivePrefix):
+			if err := injected.parse(strings.TrimSpace(strings.TrimPrefix(trimmed, directivePrefix))); err != nil {
+				return err
+			}
+		case strings.HasPrefix(trimmed, "o "):
+		default:
+			out.WriteString(trimmed)
+			out.WriteByte('\n')
+		}
 	}
-	number, ok := value.(float64)
-	if !ok {
-		return 0
-	}
-	return number
+	return nil
 }
 
-func popInt(spec map[string]any, key string) int {
-	value, ok := spec[key]
-	delete(spec, key)
+func (d *directives) parse(directive string) error {
+	key, value, ok := strings.Cut(directive, "=")
 	if !ok {
-		return 0
+		return fmt.Errorf("directive %q is not key=value", directive)
 	}
-	number, ok := value.(float64)
-	if !ok {
-		return 0
+	switch key {
+	case "sleep":
+		seconds, err := strconv.ParseFloat(value, 64)
+		if err != nil || seconds < 0 {
+			return fmt.Errorf("sleep %q is not a non-negative number of seconds", value)
+		}
+		d.sleep = max(d.sleep, time.Duration(seconds*float64(time.Second)))
+	case "exit":
+		code, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("exit %q is not an integer", value)
+		}
+		d.exitCode = code
+	default:
+		return fmt.Errorf("unknown directive %q", key)
 	}
-	return int(number)
+	return nil
 }
 
-type result struct {
-	Fake bool           `json:"fake"`
-	Spec map[string]any `json:"spec"`
-}
-
-func writeOutput(path string, spec map[string]any) error {
-	data, err := marshalCompact(result{Fake: true, Spec: spec})
-	if err != nil {
-		return err
-	}
-
+func writeAtomically(path string, data []byte) error {
 	tmpPath := path + ".tmp"
 	file, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -146,14 +148,4 @@ func writeOutput(path string, spec map[string]any) error {
 		return err
 	}
 	return nil
-}
-
-func marshalCompact(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }

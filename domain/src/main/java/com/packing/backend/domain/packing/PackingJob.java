@@ -1,10 +1,12 @@
 package com.packing.backend.domain.packing;
 
+import com.packing.backend.domain.packing.event.PackingJobCancelled;
 import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.AggregateRoot;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.user.UserId;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -27,11 +29,11 @@ public final class PackingJob extends AggregateRoot {
     @EqualsAndHashCode.Include
     private final PackingJobId id;
 
-    private final ProjectId projectId;
-    private final UserId    requestedBy;
-    private final String    specJson;
-    private final long      maxRuntimeSeconds;
-    private final Instant   createdAt;
+    private final ProjectId    projectId;
+    private final UserId       requestedBy;
+    private final PackingInput input;
+    private final long         maxRuntimeSeconds;
+    private final Instant      createdAt;
 
     private PackingJobStatus status;
     private String           engineVersion;
@@ -49,7 +51,7 @@ public final class PackingJob extends AggregateRoot {
     private PackingJob(PackingJobId id,
                        ProjectId projectId,
                        UserId requestedBy,
-                       String specJson,
+                       PackingInput input,
                        long maxRuntimeSeconds,
                        PackingJobStatus status,
                        String engineVersion,
@@ -67,7 +69,7 @@ public final class PackingJob extends AggregateRoot {
         this.id = Objects.requireNonNull(id, "id");
         this.projectId = Objects.requireNonNull(projectId, "projectId");
         this.requestedBy = Objects.requireNonNull(requestedBy, "requestedBy");
-        this.specJson = requireText(specJson, "specJson");
+        this.input = input;
         requireRuntime(maxRuntimeSeconds);
         this.maxRuntimeSeconds = maxRuntimeSeconds;
         this.status = Objects.requireNonNull(status, "status");
@@ -88,13 +90,13 @@ public final class PackingJob extends AggregateRoot {
     public static PackingJob queue(PackingJobId id,
                                    ProjectId projectId,
                                    UserId requestedBy,
-                                   String specJson,
+                                   PackingInput input,
                                    long maxRuntimeSeconds,
                                    Instant now) {
         PackingJob job = new PackingJob(id,
                                         projectId,
                                         requestedBy,
-                                        specJson,
+                                        Objects.requireNonNull(input, "input"),
                                         maxRuntimeSeconds,
                                         PackingJobStatus.QUEUED,
                                         null,
@@ -116,7 +118,7 @@ public final class PackingJob extends AggregateRoot {
     public static PackingJob rehydrate(PackingJobId id,
                                        ProjectId projectId,
                                        UserId requestedBy,
-                                       String specJson,
+                                       PackingInput input,
                                        long maxRuntimeSeconds,
                                        PackingJobStatus status,
                                        String engineVersion,
@@ -134,7 +136,7 @@ public final class PackingJob extends AggregateRoot {
         return new PackingJob(id,
                               projectId,
                               requestedBy,
-                              specJson,
+                              input,
                               maxRuntimeSeconds,
                               status,
                               engineVersion,
@@ -232,8 +234,28 @@ public final class PackingJob extends AggregateRoot {
         return true;
     }
 
+    public void requireCancellable() {
+        if (status == PackingJobStatus.SUCCEEDED || status == PackingJobStatus.FAILED) {
+            throw new ResourceConflictException("Packing job " + id + " has already finished");
+        }
+    }
+
+    public boolean cancel(Instant now) {
+        if (isTerminal()) {
+            return false;
+        }
+        status = PackingJobStatus.CANCELLED;
+        finishedAt = Objects.requireNonNull(now, "now");
+        recordEvent(new PackingJobCancelled(id, projectId, finishedAt));
+        return true;
+    }
+
     public void markPersisted() {
         version++;
+    }
+
+    public boolean isLegacy() {
+        return input == null;
     }
 
     private void recordFinished(Instant now) {
@@ -249,7 +271,9 @@ public final class PackingJob extends AggregateRoot {
     }
 
     private boolean isTerminal() {
-        return status == PackingJobStatus.SUCCEEDED || status == PackingJobStatus.FAILED;
+        return status == PackingJobStatus.SUCCEEDED
+                || status == PackingJobStatus.FAILED
+                || status == PackingJobStatus.CANCELLED;
     }
 
     private void requireStatus(PackingJobStatus expected) {

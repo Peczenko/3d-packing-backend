@@ -1,9 +1,11 @@
 package com.packing.backend.domain.packing;
 
+import com.packing.backend.domain.packing.event.PackingJobCancelled;
 import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
+import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.user.UserId;
 import org.junit.jupiter.api.Test;
 
@@ -22,16 +24,14 @@ class PackingJobTest {
     private static final String       SHA_B      = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     @Test
-    void queuesOpaqueJsonAndRaisesOneEvent() {
-        PackingJob job = PackingJob.queue(JOB_ID,
-                                          PROJECT_ID,
-                                          USER_ID,
-                                          "{\"testField\":42}",
-                                          60,
-                                          NOW);
+    void queuesItsInputAndRaisesOneEvent() {
+        PackingInput input = PackingInputs.single();
+
+        PackingJob job = PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, input, 60, NOW);
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.QUEUED);
-        assertThat(job.specJson()).isEqualTo("{\"testField\":42}");
+        assertThat(job.input()).isEqualTo(input);
+        assertThat(job.isLegacy()).isFalse();
         assertThat(job.version()).isZero();
         assertThat(job.domainEvents()).containsExactly(
                                                        new PackingJobQueued(JOB_ID, PROJECT_ID, NOW));
@@ -317,13 +317,70 @@ class PackingJobTest {
     }
 
     @Test
-    void queueRejectsBlankJsonAndOutOfRangeRuntime() {
-        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, " ", 60, NOW))
-                                                                                             .isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, "{}", 0, NOW))
-                                                                                             .isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, "{}", 7_201, NOW))
-                                                                                                 .isInstanceOf(DomainRuleViolationException.class);
+    void cancellingARunningJobFinishesItWithoutAFinishedEvent() {
+        PackingJob job = queuedJob();
+        job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(1));
+        job.pullDomainEvents();
+
+        assertThat(job.cancel(NOW.plusSeconds(2))).isTrue();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.CANCELLED);
+        assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(2));
+        assertThat(job.failureReason()).isNull();
+        assertThat(job.domainEvents()).containsExactly(new PackingJobCancelled(JOB_ID, PROJECT_ID, NOW.plusSeconds(2)));
+    }
+
+    @Test
+    void cancellingIsIdempotent() {
+        PackingJob job = queuedJob();
+        job.cancel(NOW.plusSeconds(1));
+        job.pullDomainEvents();
+
+        job.requireCancellable();
+        assertThat(job.cancel(NOW.plusSeconds(2))).isFalse();
+
+        assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(1));
+        assertThat(job.domainEvents()).isEmpty();
+    }
+
+    @Test
+    void aFinishedJobCannotBeCancelledButTheTransitionItselfStaysANoOp() {
+        PackingJob succeeded = succeededJob();
+        PackingJob failed = failedJob();
+
+        assertThatThrownBy(succeeded::requireCancellable).isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(failed::requireCancellable).isInstanceOf(ResourceConflictException.class);
+        assertThat(succeeded.cancel(NOW.plusSeconds(5))).isFalse();
+        assertThat(failed.cancel(NOW.plusSeconds(5))).isFalse();
+        assertThat(succeeded.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
+        assertThat(failed.status()).isEqualTo(PackingJobStatus.FAILED);
+    }
+
+    @Test
+    void aCancelledJobDiscardsEveryLateEngineMessage() {
+        PackingJob job = queuedJob();
+        job.cancel(NOW.plusSeconds(1));
+        job.pullDomainEvents();
+
+        assertThat(job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(2))).isFalse();
+        assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B, "packer 0.3.0", SHA_A, NOW.plusSeconds(3))).isFalse();
+        assertThat(job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(4))).isFalse();
+        assertThat(job.failStalled("dead-lettered", NOW.plusSeconds(5))).isFalse();
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.CANCELLED);
+        assertThat(job.startedAt()).isNull();
+        assertThat(job.resultFileName()).isNull();
+        assertThat(job.domainEvents()).isEmpty();
+    }
+
+    @Test
+    void queueRequiresAnInputAndAnInRangeRuntime() {
+        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, null, 60, NOW))
+                                                                                              .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, PackingInputs.single(), 0, NOW))
+                                                                                                               .isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, PackingInputs.single(), 7_201, NOW))
+                                                                                                                   .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
@@ -331,7 +388,7 @@ class PackingJobTest {
         PackingJob job = PackingJob.rehydrate(JOB_ID,
                                               PROJECT_ID,
                                               USER_ID,
-                                              "{}",
+                                              PackingInputs.single(),
                                               60,
                                               PackingJobStatus.FAILED,
                                               "packer 0.3.0",
@@ -353,8 +410,33 @@ class PackingJobTest {
         assertThat(job.version()).isEqualTo(8);
     }
 
+    @Test
+    void rehydratesALegacyJobWithoutInput() {
+        PackingJob job = PackingJob.rehydrate(JOB_ID,
+                                              PROJECT_ID,
+                                              USER_ID,
+                                              null,
+                                              60,
+                                              PackingJobStatus.SUCCEEDED,
+                                              "packer 0.3.0",
+                                              SHA_A,
+                                              NOW,
+                                              NOW.plusSeconds(1),
+                                              NOW.plusSeconds(2),
+                                              "output.bin",
+                                              "application/octet-stream",
+                                              SHA_B,
+                                              12L,
+                                              null,
+                                              3,
+                                              NOW);
+
+        assertThat(job.isLegacy()).isTrue();
+        assertThat(job.input()).isNull();
+    }
+
     private PackingJob queuedJob() {
-        return PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, "{}", 60, NOW);
+        return PackingJob.queue(JOB_ID, PROJECT_ID, USER_ID, PackingInputs.single(), 60, NOW);
     }
 
     private PackingJob succeededJob() {

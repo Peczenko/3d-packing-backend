@@ -9,7 +9,6 @@ public record PackingJobView(
         UUID id,
         UUID projectId,
         PackingJobStatus status,
-        long maxRuntimeSeconds,
         String engineVersion,
         String engineChecksum,
         Instant createdAt,
@@ -19,5 +18,6 @@ public record PackingJobView(
         String resultFileName,
         String resultContentType,
         Long resultSizeBytes,
-        String resultChecksum) {
+        String resultChecksum,
+        PackingJobInputView input) {
 }

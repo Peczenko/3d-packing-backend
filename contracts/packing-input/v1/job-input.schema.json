@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:3d-packing:packing-job-input:1",
+  "title": "Packing job input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items"],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "description": "Optional. When sent and not the current version, the request is rejected with 409."
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "title": "Models",
+      "x-widget": "project-files",
+      "x-acceptedFormats": ["OBJ"],
+      "x-maxTotalCopies": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fileId"],
+        "properties": {
+          "fileId": { "type": "string", "format": "uuid" },
+          "fileName": { "type": "string", "readOnly": true },
+          "copies": { "type": "integer", "minimum": 1, "maximum": 100, "default": 1, "title": "Copies" }
+        }
+      }
+    },
+    "maxRuntimeSeconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 7200,
+      "default": 60,
+      "title": "Time limit",
+      "description": "How long the solver searches",
+      "x-unit": "s"
+    },
+    "parameters": {
+      "type": "object",
+      "title": "Engine options",
+      "additionalProperties": false,
+      "properties": {},
+      "default": {}
+    }
+  }
+}

@@ -8,6 +8,7 @@ import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.project.ProjectId;
+import com.packing.backend.domain.user.UserId;
 import com.packing.backend.infra.persistence.shared.Paging;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -99,6 +100,26 @@ public class JooqPackingJobFinder implements PackingJobFinder {
     }
 
     @Override
+    public Optional<PackingJobView> latestOwnInProject(ProjectId projectId, UserId userId) {
+        return latest(PackingJobQueries.inProject(projectId)
+                                       .and(PACKING_JOBS.CREATED_BY.eq(userId)));
+    }
+
+    @Override
+    public Optional<PackingJobView> latestInProject(ProjectId projectId) {
+        return latest(PackingJobQueries.inProject(projectId));
+    }
+
+    private Optional<PackingJobView> latest(Condition condition) {
+        return dsl.select(PackingJobQueries.VIEW_FIELDS)
+                  .from(PACKING_JOBS)
+                  .where(condition.and(PackingJobQueries.STRUCTURED))
+                  .orderBy(PACKING_JOBS.CREATED_AT.desc(), PACKING_JOBS.ID.desc())
+                  .limit(1)
+                  .fetchOptional(PackingJobQueries::toView);
+    }
+
+    @Override
     public List<PackingJobId> findUndispatched(int limit) {
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be positive");
@@ -109,20 +130,6 @@ public class JooqPackingJobFinder implements PackingJobFinder {
                   .where(PACKING_JOBS.STATUS.eq(PackingJobStatus.QUEUED)
                                             .and(PACKING_JOBS.DISPATCHED_AT.isNull()))
                   .orderBy(PACKING_JOBS.CREATED_AT.asc(), PACKING_JOBS.ID.asc())
-                  .limit(limit)
-                  .fetch(PACKING_JOBS.ID);
-    }
-
-    @Override
-    public List<PackingJobId> findRunning(int limit) {
-        if (limit <= 0) {
-            throw new IllegalArgumentException("limit must be positive");
-        }
-
-        return dsl.select(PACKING_JOBS.ID)
-                  .from(PACKING_JOBS)
-                  .where(PACKING_JOBS.STATUS.eq(PackingJobStatus.RUNNING))
-                  .orderBy(PACKING_JOBS.STARTED_AT.asc(), PACKING_JOBS.ID.asc())
                   .limit(limit)
                   .fetch(PACKING_JOBS.ID);
     }

@@ -20,11 +20,12 @@ import (
 	"github.com/Peczenko/3d-packing-backend/worker/internal/pipeline"
 )
 
+const testVersion = "v0.0.2"
+
 const (
 	helperEnabled    = "GO_WANT_HELPER_PROCESS"
-	helperVersion    = "GO_HELPER_VERSION"
-	helperNewlines   = "GO_HELPER_TRAILING_NEWLINES"
 	helperArgvFile   = "GO_HELPER_ARGV_FILE"
+	helperEchoArgs   = "GO_HELPER_ECHO_ARGS"
 	helperWriteOut   = "GO_HELPER_WRITE_OUTPUT"
 	helperOutput     = "GO_HELPER_OUTPUT"
 	helperStderrSize = "GO_HELPER_STDERR_BYTES"
@@ -51,17 +52,16 @@ func runHelper() int {
 		}
 	}
 
-	if len(args) == 1 && args[0] == "--version" {
-		newlines, _ := strconv.Atoi(os.Getenv(helperNewlines))
-		fmt.Print(os.Getenv(helperVersion) + strings.Repeat("\n", newlines))
-		return helperExitCodeValue()
+	output := ""
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-o" {
+			output = args[i+1]
+		}
 	}
 
-	flags := map[string]string{}
-	for i := 0; i+1 < len(args); i += 2 {
-		flags[args[i]] = args[i+1]
+	if os.Getenv(helperEchoArgs) == "1" {
+		fmt.Fprint(os.Stderr, strings.Join(args, " "))
 	}
-
 	if size, _ := strconv.Atoi(os.Getenv(helperStderrSize)); size > 0 {
 		if _, err := os.Stderr.Write(helperNoise(size)); err != nil {
 			return 90
@@ -92,7 +92,7 @@ func runHelper() int {
 	}
 
 	if os.Getenv(helperWriteOut) == "1" {
-		if err := os.WriteFile(flags["--output"], []byte(os.Getenv(helperOutput)), 0o600); err != nil {
+		if err := os.WriteFile(output, []byte(os.Getenv(helperOutput)), 0o600); err != nil {
 			fmt.Fprintln(os.Stderr, "helper: write output:", err)
 			return 90
 		}
@@ -117,26 +117,35 @@ func helperNoise(size int) []byte {
 	return noise
 }
 
-func testRunner(t *testing.T) *Runner {
+func testRunnerWithGrace(t *testing.T, grace time.Duration) *Runner {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatalf("os.Executable: %v", err)
 	}
 	t.Setenv(helperEnabled, "1")
-	return NewRunner(executable)
+	return NewRunner(executable, testVersion, grace)
+}
+
+func testRunner(t *testing.T) *Runner {
+	t.Helper()
+	return testRunnerWithGrace(t, 0)
 }
 
 func testRequest(t *testing.T, runtime time.Duration) pipeline.RunRequest {
 	t.Helper()
 	dir := t.TempDir()
-	request := pipeline.RunRequest{
-		SpecPath:   filepath.Join(dir, "input.json"),
-		OutputPath: filepath.Join(dir, "output.json"),
+	inputs := filepath.Join(dir, "inputs")
+	if err := os.Mkdir(inputs, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	input := filepath.Join(inputs, "0.obj")
+	writeFile(t, input, "v 0 0 0\n")
+	return pipeline.RunRequest{
+		Inputs:     []pipeline.InputFile{{Path: input, DisplayName: "bunny.obj", Copies: 1}},
+		OutputPath: filepath.Join(dir, "packed.obj"),
 		Runtime:    runtime,
 	}
-	writeFile(t, request.SpecPath, `{"boxes":[]}`)
-	return request
 }
 
 func writeFile(t *testing.T, path, content string) {
@@ -197,36 +206,8 @@ func requireInfrastructureError(t *testing.T, err error) {
 	}
 }
 
-func TestProvenanceTrimsExactlyOneTrailingNewline(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		newlines string
-		want     string
-	}{
-		{"one trailing newline", "1", "packer 1.2.3"},
-		{"two trailing newlines", "2", "packer 1.2.3\n"},
-		{"no trailing newline", "0", "packer 1.2.3"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			runner := testRunner(t)
-			t.Setenv(helperVersion, "packer 1.2.3")
-			t.Setenv(helperNewlines, tc.newlines)
-
-			provenance, err := runner.Provenance(context.Background())
-			if err != nil {
-				t.Fatalf("Provenance: %v", err)
-			}
-			if provenance.Version != tc.want {
-				t.Fatalf("Version = %q, want %q", provenance.Version, tc.want)
-			}
-		})
-	}
-}
-
-func TestProvenanceHashesTheExecutableNotTheVersionOutput(t *testing.T) {
+func TestProvenanceReportsThePinnedVersionAndTheExecutablesDigest(t *testing.T) {
 	runner := testRunner(t)
-	t.Setenv(helperVersion, "packer 1.2.3")
-	t.Setenv(helperNewlines, "1")
 
 	provenance, err := runner.Provenance(context.Background())
 	if err != nil {
@@ -237,67 +218,30 @@ func TestProvenanceHashesTheExecutableNotTheVersionOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("os.Executable: %v", err)
 	}
-	if want := sha256File(t, executable); provenance.Checksum != want {
-		t.Fatalf("Checksum = %q, want the SHA-256 of %s (%q)", provenance.Checksum, executable, want)
-	}
-
-	printed := sha256.Sum256([]byte("packer 1.2.3\n"))
-	if provenance.Checksum == hex.EncodeToString(printed[:]) {
-		t.Fatal("Checksum hashes the --version output rather than the executable's bytes")
-	}
-	if len(provenance.Checksum) != 64 || provenance.Checksum != strings.ToLower(provenance.Checksum) {
-		t.Fatalf("Checksum = %q, want 64 lowercase hex characters", provenance.Checksum)
+	want := pipeline.EngineProvenance{Version: testVersion, Checksum: sha256File(t, executable)}
+	if provenance != want {
+		t.Fatalf("Provenance = %+v, want %+v", provenance, want)
 	}
 }
 
-func TestProvenanceRejectsBlankVersion(t *testing.T) {
-	runner := testRunner(t)
-	t.Setenv(helperVersion, "   ")
-	t.Setenv(helperNewlines, "1")
+func TestProvenanceRejectsABlankVersion(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
 
-	_, err := runner.Provenance(context.Background())
+	_, err = NewRunner(executable, "  ", 0).Provenance(context.Background())
 	if !errors.Is(err, errBlankVersion) {
 		t.Fatalf("expected errBlankVersion, got %v", err)
 	}
 	requireInfrastructureError(t, err)
 }
 
-func TestProvenanceFailureIsInfrastructure(t *testing.T) {
-	t.Run("missing executable", func(t *testing.T) {
-		runner := NewRunner(filepath.Join(t.TempDir(), "packer-does-not-exist"))
-		_, err := runner.Provenance(context.Background())
-		requireInfrastructureError(t, err)
-	})
+func TestProvenanceMissingExecutableIsInfrastructure(t *testing.T) {
+	runner := NewRunner(filepath.Join(t.TempDir(), "packer-does-not-exist"), testVersion, 0)
 
-	t.Run("version command exits nonzero", func(t *testing.T) {
-		runner := testRunner(t)
-		t.Setenv(helperVersion, "packer 1.2.3")
-		t.Setenv(helperNewlines, "1")
-		t.Setenv(helperExitCode, "2")
-
-		_, err := runner.Provenance(context.Background())
-		requireInfrastructureError(t, err)
-	})
-}
-
-func TestProvenanceBoundsVersionOutput(t *testing.T) {
-	runner := testRunner(t)
-	noise := helperNoise(3 * maxVersionBytes)
-	t.Setenv(helperVersion, string(noise))
-	t.Setenv(helperNewlines, "0")
-
-	provenance, err := runner.Provenance(context.Background())
-	if err != nil {
-		t.Fatalf("Provenance: %v", err)
-	}
-
-	want := string(noise[:maxVersionBytes])
-	if len(provenance.Version) != maxVersionBytes {
-		t.Fatalf("Version is %d bytes, want exactly %d: stdout is not bounded", len(provenance.Version), maxVersionBytes)
-	}
-	if provenance.Version != want {
-		t.Fatalf("Version is not the head of stdout: got %q", truncateForLog(provenance.Version))
-	}
+	_, err := runner.Provenance(context.Background())
+	requireInfrastructureError(t, err)
 }
 
 func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
@@ -307,15 +251,13 @@ func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
 
 	dir := t.TempDir()
 	shim := filepath.Join(dir, "packer")
-	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = \"--version\" ]; then echo 'packer 9.9.9'; exit 0; fi\n" +
-		"echo packed > \"$4\"\n"
+	script := "#!/bin/sh\necho packed > \"$4\"\n"
 	if err := os.WriteFile(shim, []byte(script), 0o700); err != nil {
 		t.Fatalf("write shim: %v", err)
 	}
 
 	t.Setenv("PATH", dir)
-	runner := NewRunner("packer")
+	runner := NewRunner("packer", testVersion, 0)
 	if _, err := runner.Provenance(context.Background()); err != nil {
 		t.Fatalf("Provenance: %v", err)
 	}
@@ -327,10 +269,15 @@ func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
 	}
 }
 
-func TestRunPassesExactlyTheDocumentedArguments(t *testing.T) {
+func TestRunPassesTheBudgetOutputParametersAndOnePathPerCopy(t *testing.T) {
 	runner := testRunner(t)
 	request := testRequest(t, 60*time.Second)
-	argvPath := filepath.Join(filepath.Dir(request.SpecPath), "argv")
+	second := filepath.Join(filepath.Dir(request.Inputs[0].Path), "1.obj")
+	writeFile(t, second, "v 1 1 1\n")
+	request.Inputs[0].Copies = 2
+	request.Inputs = append(request.Inputs, pipeline.InputFile{Path: second, DisplayName: "bracket.obj", Copies: 1})
+	request.ParameterArgs = []string{"-x", "1"}
+	argvPath := filepath.Join(t.TempDir(), "argv")
 	t.Setenv(helperArgvFile, argvPath)
 	t.Setenv(helperWriteOut, "1")
 	t.Setenv(helperOutput, "packed")
@@ -341,9 +288,10 @@ func TestRunPassesExactlyTheDocumentedArguments(t *testing.T) {
 
 	got := strings.Split(readFile(t, argvPath), "\x00")
 	want := []string{
-		"--spec", request.SpecPath,
-		"--output", request.OutputPath,
-		"--time-limit-seconds", "60",
+		"-t", "60",
+		"-o", request.OutputPath,
+		"-x", "1",
+		request.Inputs[0].Path, request.Inputs[0].Path, second,
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("argv = %q, want %q", got, want)
@@ -351,7 +299,7 @@ func TestRunPassesExactlyTheDocumentedArguments(t *testing.T) {
 }
 
 func TestRunDescribesTheOutputFile(t *testing.T) {
-	const content = `{"placements":[{"id":"a"}]}`
+	const content = "o Object_1\nv 0 0 0\n"
 	runner := testRunner(t)
 	request := testRequest(t, 60*time.Second)
 	t.Setenv(helperWriteOut, "1")
@@ -364,8 +312,8 @@ func TestRunDescribesTheOutputFile(t *testing.T) {
 
 	digest := sha256.Sum256([]byte(content))
 	want := pipeline.EngineResult{
-		FileName:    "output.json",
-		ContentType: "application/octet-stream",
+		FileName:    "packed.obj",
+		ContentType: "model/obj",
 		SizeBytes:   int64(len(content)),
 		Checksum:    hex.EncodeToString(digest[:]),
 	}
@@ -377,7 +325,7 @@ func TestRunDescribesTheOutputFile(t *testing.T) {
 func TestRunTimeoutIsAnEngineFailure(t *testing.T) {
 	runner := testRunner(t)
 	request := testRequest(t, time.Second)
-	t.Setenv(helperTermFile, filepath.Join(filepath.Dir(request.SpecPath), "term"))
+	t.Setenv(helperTermFile, filepath.Join(t.TempDir(), "term"))
 	t.Setenv(helperSleep, "5m")
 
 	started := time.Now()
@@ -390,6 +338,18 @@ func TestRunTimeoutIsAnEngineFailure(t *testing.T) {
 	}
 	if elapsed > 30*time.Second {
 		t.Fatalf("Run took %s after a 1s runtime limit", elapsed)
+	}
+}
+
+func TestRunGivesThePackerItsGraceBeyondTheBudget(t *testing.T) {
+	runner := testRunnerWithGrace(t, 5*time.Second)
+	request := testRequest(t, time.Second)
+	t.Setenv(helperSleep, "1500ms")
+	t.Setenv(helperWriteOut, "1")
+	t.Setenv(helperOutput, "packed")
+
+	if _, err := runner.Run(context.Background(), request); err != nil {
+		t.Fatalf("Run killed a packer still inside its grace period: %v", err)
 	}
 }
 
@@ -471,6 +431,23 @@ func TestRunNonzeroExitIsAnEngineFailureWithBoundedStderr(t *testing.T) {
 	}
 }
 
+func TestRunNamesInputsByTheirFileNamesInAFailure(t *testing.T) {
+	runner := testRunner(t)
+	request := testRequest(t, 60*time.Second)
+	second := filepath.Join(filepath.Dir(request.Inputs[0].Path), "1.obj")
+	writeFile(t, second, "v 1 1 1\n")
+	request.Inputs = append(request.Inputs, pipeline.InputFile{Path: second, DisplayName: "bracket.obj", Copies: 1})
+	t.Setenv(helperEchoArgs, "1")
+	t.Setenv(helperExitCode, "3")
+
+	_, err := runner.Run(context.Background(), request)
+
+	failure := requireEngineFailure(t, err)
+	if got, want := failure.Error(), "packer exited with code 3: -t 60 -o packed.obj bunny.obj bracket.obj"; got != want {
+		t.Fatalf("reason = %q, want %q", got, want)
+	}
+}
+
 func TestExitReasonDescribesASignaledPacker(t *testing.T) {
 	if got, want := exitReason(3, "exit status 3", ""), "packer exited with code 3"; got != want {
 		t.Fatalf("exitReason = %q, want %q", got, want)
@@ -518,10 +495,10 @@ func TestRunOutputProblemsAreInfrastructureErrors(t *testing.T) {
 }
 
 func TestRunMissingExecutableIsInfrastructureError(t *testing.T) {
-	runner := NewRunner(filepath.Join(t.TempDir(), "packer-does-not-exist"))
+	runner := NewRunner(filepath.Join(t.TempDir(), "packer-does-not-exist"), testVersion, 0)
 	_, err := runner.Run(context.Background(), pipeline.RunRequest{
-		SpecPath:   "input.json",
-		OutputPath: "output.json",
+		Inputs:     []pipeline.InputFile{{Path: "0.obj", DisplayName: "bunny.obj", Copies: 1}},
+		OutputPath: "packed.obj",
 		Runtime:    time.Second,
 	})
 	requireInfrastructureError(t, err)
@@ -535,6 +512,18 @@ func TestRunRejectsNonPositiveRuntime(t *testing.T) {
 	requireInfrastructureError(t, err)
 }
 
+func TestRunRejectsARequestWithoutInputs(t *testing.T) {
+	runner := testRunner(t)
+	request := testRequest(t, 60*time.Second)
+	request.Inputs = nil
+
+	_, err := runner.Run(context.Background(), request)
+	if !errors.Is(err, errNoInputs) {
+		t.Fatalf("expected errNoInputs, got %v", err)
+	}
+	requireInfrastructureError(t, err)
+}
+
 func TestRunCancellationTerminatesTheChildGracefully(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.Process.Signal on Windows accepts only os.Kill, so there is no SIGTERM to observe; terminate_unix.go's path is exercised on Linux")
@@ -542,7 +531,7 @@ func TestRunCancellationTerminatesTheChildGracefully(t *testing.T) {
 
 	runner := testRunner(t)
 	request := testRequest(t, 5*time.Minute)
-	dir := filepath.Dir(request.SpecPath)
+	dir := t.TempDir()
 	readyPath := filepath.Join(dir, "ready")
 	termPath := filepath.Join(dir, "term")
 	t.Setenv(helperReadyFile, readyPath)
@@ -582,7 +571,7 @@ func TestRunCancellationTerminatesTheChildGracefully(t *testing.T) {
 func TestRunKillsAChildThatIgnoresTermination(t *testing.T) {
 	runner := testRunner(t)
 	request := testRequest(t, 5*time.Minute)
-	dir := filepath.Dir(request.SpecPath)
+	dir := t.TempDir()
 	readyPath := filepath.Join(dir, "ready")
 	termPath := filepath.Join(dir, "term")
 	t.Setenv(helperReadyFile, readyPath)

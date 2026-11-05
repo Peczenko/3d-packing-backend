@@ -32,9 +32,7 @@ public class PackingJobDispatchService {
         }
 
         artifacts.writeRequestIfAbsent(id,
-                                       PackingRequestEnvelope.versionOne(
-                                                                         job.maxRuntimeSeconds(),
-                                                                         job.specJson()));
+                                       PackingRequestEnvelope.forJob(job));
         dispatch.send(PackingDispatchMessage.versionOne(id));
         if (job.markDispatched(clock.instant())) {
             jobs.save(job);

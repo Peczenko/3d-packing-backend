@@ -79,6 +79,24 @@ class ModuleBoundaryTest {
                                                             .because("cloud SDK types must not leak past the driven adapter");
 
     @ArchTest
+    static final ArchRule temporalSdkStaysInInfra = noClasses()
+                                                               .that()
+                                                               .resideOutsideOfPackage(INFRA)
+                                                               .should()
+                                                               .dependOnClassesThat()
+                                                               .resideInAnyPackage("io.temporal..")
+                                                               .because("workflows, activities and the Temporal client are driven-adapter details");
+
+    @ArchTest
+    static final ArchRule jsonSchemaValidatorStaysInInfra = noClasses()
+                                                                       .that()
+                                                                       .resideOutsideOfPackage(INFRA)
+                                                                       .should()
+                                                                       .dependOnClassesThat()
+                                                                       .resideInAnyPackage("com.networknt..")
+                                                                       .because("JSON Schema validation is a driven-adapter detail behind PackingInputSchema");
+
+    @ArchTest
     static final ArchRule generatedJooqCodeStaysInInfra = noClasses()
                                                                      .that()
                                                                      .resideOutsideOfPackage(INFRA)
