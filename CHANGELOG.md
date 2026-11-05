@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.4.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.3.0...v1.4.0) (2026-11-05)
+
+
+### Features
+
+* migrate to Temporal packing ([#74](https://github.com/Peczenko/3d-packing-backend/issues/74)) ([6f8be47](https://github.com/Peczenko/3d-packing-backend/commit/6f8be4774d96f90054c91b5e3a7e3c49324301b4))
+* packing job input ([#75](https://github.com/Peczenko/3d-packing-backend/issues/75)) ([99fd61a](https://github.com/Peczenko/3d-packing-backend/commit/99fd61a68a681583f162d2fc3e6ac1d3b78093d3))
+* update packer cli to v0.0.3 ([#79](https://github.com/Peczenko/3d-packing-backend/issues/79)) ([be54a38](https://github.com/Peczenko/3d-packing-backend/commit/be54a3806c93284573de2a53db793e2150fb8f2b))
+
+
+### Chores & Dependencies
+
+* **ci:** bump actions/setup-go from 6 to 7 ([#68](https://github.com/Peczenko/3d-packing-backend/issues/68)) ([74734d5](https://github.com/Peczenko/3d-packing-backend/commit/74734d5e0ac96c858bb10c0824ccf8e1adafb951))
+* **ci:** bump actions/setup-java from 5 to 6 ([#73](https://github.com/Peczenko/3d-packing-backend/issues/73)) ([785e636](https://github.com/Peczenko/3d-packing-backend/commit/785e636fb0220bf99d6bfbdb80c38ac969488b7e))
+* **ci:** bump actions/upload-artifact from 4 to 7 ([#57](https://github.com/Peczenko/3d-packing-backend/issues/57)) ([6e4f217](https://github.com/Peczenko/3d-packing-backend/commit/6e4f217b5e2178c0fe4f150a44742927511b34c7))
+* **ci:** bump azure/cli from 2 to 3 ([#70](https://github.com/Peczenko/3d-packing-backend/issues/70)) ([efe0062](https://github.com/Peczenko/3d-packing-backend/commit/efe006262e43f5c96b34b124e963a5ddb86ba146))
+* **ci:** bump azure/login from 2 to 3 ([#60](https://github.com/Peczenko/3d-packing-backend/issues/60)) ([8888f98](https://github.com/Peczenko/3d-packing-backend/commit/8888f985c4e05f65a6fc18ec11126ae911921934))
+* **ci:** bump docker/setup-buildx-action from 3 to 4 ([#59](https://github.com/Peczenko/3d-packing-backend/issues/59)) ([2485a67](https://github.com/Peczenko/3d-packing-backend/commit/2485a676cfa331caa382b0d03ff886e63b9fea95))
+* **ci:** bump googleapis/release-please-action from 4 to 5 ([#58](https://github.com/Peczenko/3d-packing-backend/issues/58)) ([9ac0fc1](https://github.com/Peczenko/3d-packing-backend/commit/9ac0fc1c79a12c85a0f41e6f06c2369641e6afeb))
+* **ci:** bump gradle/actions from 4 to 6 ([#56](https://github.com/Peczenko/3d-packing-backend/issues/56)) ([9960149](https://github.com/Peczenko/3d-packing-backend/commit/99601495b966156110b268af2b4803c10f5ad437))
+* **ci:** ignore dependabot updates that break version lockstep ([#65](https://github.com/Peczenko/3d-packing-backend/issues/65)) ([1f284d5](https://github.com/Peczenko/3d-packing-backend/commit/1f284d565eaf6ec8335ab4fba07acef4237bbe62))
+* **deps:** bump dev.monosoul.jooq-docker from 8.0.30 to 9.0.1 ([#62](https://github.com/Peczenko/3d-packing-backend/issues/62)) ([1e2688f](https://github.com/Peczenko/3d-packing-backend/commit/1e2688fb2f4e418b336f7662ff67aee1b52adb31))
+* **deps:** bump org.postgresql:postgresql from 42.7.11 to 42.7.13 ([#63](https://github.com/Peczenko/3d-packing-backend/issues/63)) ([29e2555](https://github.com/Peczenko/3d-packing-backend/commit/29e25551c4510a4ddd15a81c5e4a0bd9f59965a4))
+
+## [1.3.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.2.1...v1.3.0) (2026-08-19)
+
+
+### Features
+
+* extend pageable endpoints with collection queries ([#53](https://github.com/Peczenko/3d-packing-backend/issues/53)) ([51e10f3](https://github.com/Peczenko/3d-packing-backend/commit/51e10f3a3d147bcaa57d83dda6c73114df1bcc28))
+* user search autocomplete ([#52](https://github.com/Peczenko/3d-packing-backend/issues/52)) ([a3e7201](https://github.com/Peczenko/3d-packing-backend/commit/a3e720182de1159cc22ce7699dd6e06e6d16509a))
+
 ## [1.2.1](https://github.com/Peczenko/3d-packing-backend/compare/v1.2.0...v1.2.1) (2026-08-17)
 
 
