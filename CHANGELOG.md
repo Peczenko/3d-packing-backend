@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.4.0...v1.5.0) (2026-11-06)
+
+
+### Features
+
+* lighter glTF previews of packing results ([#83](https://github.com/Peczenko/3d-packing-backend/issues/83)) ([0e66f9b](https://github.com/Peczenko/3d-packing-backend/commit/0e66f9b6360e84305a5a977874e5638792103138))
+
+
+### Chores & Dependencies
+
+* merge master into dev ([455bfb9](https://github.com/Peczenko/3d-packing-backend/commit/455bfb95bed4b32d329786b9bbf38f289c848c90))
+
 ## [1.4.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.3.0...v1.4.0) (2026-11-05)
 
 
