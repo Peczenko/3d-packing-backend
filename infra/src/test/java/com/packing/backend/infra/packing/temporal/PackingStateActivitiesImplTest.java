@@ -1,6 +1,7 @@
 package com.packing.backend.infra.packing.temporal;
 
 import com.packing.backend.core.packing.PackingJobRecoveryService;
+import com.packing.backend.core.packing.PackingPreviewService;
 import com.packing.backend.core.packing.PackingWorkerEventService;
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.domain.packing.PackingJobId;
@@ -32,6 +33,9 @@ class PackingStateActivitiesImplTest {
 
     @Mock
     private PackingJobRecoveryService recovery;
+
+    @Mock
+    private PackingPreviewService previews;
 
     @InjectMocks
     private PackingStateActivitiesImpl activities;
@@ -80,6 +84,13 @@ class PackingStateActivitiesImplTest {
         activities.recordStalled(JOB, "Packing engine stopped responding");
 
         verify(recovery).failStalled(JOB_ID, "Packing engine stopped responding");
+    }
+
+    @Test
+    void recordsAFailedPreviewThroughThePreviewService() {
+        activities.recordPreviewFailed(JOB);
+
+        verify(previews).fail(JOB_ID);
     }
 
     @Test

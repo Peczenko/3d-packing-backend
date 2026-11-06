@@ -4,7 +4,10 @@ import com.packing.backend.core.packing.message.PackingRequestEnvelope;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.domain.packing.PackingJobId;
+import com.packing.backend.domain.packing.PreviewQuality;
 
+import java.io.InputStream;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 
@@ -26,6 +29,21 @@ class UnavailablePackingJobArtifactStore implements PackingJobArtifactStore {
 
     @Override
     public TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity) {
+        throw unavailable();
+    }
+
+    @Override
+    public InputStream openResult(PackingJobId jobId) {
+        throw unavailable();
+    }
+
+    @Override
+    public void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb) {
+        throw unavailable();
+    }
+
+    @Override
+    public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
         throw unavailable();
     }
 

@@ -20,7 +20,8 @@ public record PackingJobResponse(
         String resultContentType,
         Long resultSizeBytes,
         String resultChecksum,
-        PackingJobInputResponse input) {
+        PackingJobInputResponse input,
+        PackingJobPreviewResponse preview) {
 
     public static PackingJobResponse from(PackingJobView view) {
         return new PackingJobResponse(
@@ -37,6 +38,7 @@ public record PackingJobResponse(
                                       view.resultContentType(),
                                       view.resultSizeBytes(),
                                       view.resultChecksum(),
-                                      view.input() == null ? null : PackingJobInputResponse.from(view.input()));
+                                      view.input() == null ? null : PackingJobInputResponse.from(view.input()),
+                                      PackingJobPreviewResponse.from(view.preview()));
     }
 }

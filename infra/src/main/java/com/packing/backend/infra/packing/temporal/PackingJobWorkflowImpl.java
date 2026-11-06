@@ -32,6 +32,8 @@ public class PackingJobWorkflowImpl implements PackingJobWorkflow {
     static final String   STOPPED_RESPONDING     = "Packing engine stopped responding";
     static final String   EXCEEDED_TIME_LIMIT    = "Packing engine exceeded its time limit";
     static final String   COULD_NOT_COMPLETE     = "Packing engine could not complete the job";
+    static final String   PREVIEW_CHANGE         = "build-preview";
+    static final int      PREVIEW_ATTEMPTS       = 3;
 
     private static final ActivityOptions STATE_OPTIONS = ActivityOptions.newBuilder()
                                                                         .setStartToCloseTimeout(Duration.ofSeconds(30))
@@ -41,6 +43,17 @@ public class PackingJobWorkflowImpl implements PackingJobWorkflow {
                                                                                                      .setMaximumInterval(Duration.ofMinutes(1))
                                                                                                      .build())
                                                                         .build();
+
+    static final ActivityOptions PREVIEW_OPTIONS = ActivityOptions.newBuilder()
+                                                                  .setTaskQueue(PackingPreviewActivity.TASK_QUEUE)
+                                                                  .setStartToCloseTimeout(Duration.ofMinutes(20))
+                                                                  .setHeartbeatTimeout(HEARTBEAT_TIMEOUT)
+                                                                  .setRetryOptions(RetryOptions.newBuilder()
+                                                                                               .setMaximumAttempts(PREVIEW_ATTEMPTS)
+                                                                                               .setInitialInterval(Duration.ofSeconds(10))
+                                                                                               .setBackoffCoefficient(2)
+                                                                                               .build())
+                                                                  .build();
 
     private final PackingStateActivities state = Workflow.newActivityStub(PackingStateActivities.class, STATE_OPTIONS);
 
@@ -72,12 +85,29 @@ public class PackingJobWorkflowImpl implements PackingJobWorkflow {
         }
         awaitStarted();
         state.recordSucceeded(jobId, result);
+        buildPreview();
     }
 
     @Override
     public void engineStarted(EngineStarted signal) {
         if (started == null) {
             started = Async.procedure(state::recordStarted, jobId, signal);
+        }
+    }
+
+    private void buildPreview() {
+        if (Workflow.getVersion(PREVIEW_CHANGE, Workflow.DEFAULT_VERSION, 1) == Workflow.DEFAULT_VERSION) {
+            return;
+        }
+        PackingPreviewActivity preview = Workflow.newActivityStub(PackingPreviewActivity.class, PREVIEW_OPTIONS);
+        try {
+            preview.buildPreview(jobId);
+        } catch (ActivityFailure failure) {
+            Workflow.newDetachedCancellationScope(() -> state.recordPreviewFailed(jobId))
+                    .run();
+            if (failure.getCause() instanceof CanceledFailure canceled) {
+                throw canceled;
+            }
         }
     }
 

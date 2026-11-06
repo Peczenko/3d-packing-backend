@@ -10,6 +10,8 @@ import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.PreviewQuality;
+import com.packing.backend.domain.packing.PreviewStatus;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectName;
 import com.packing.backend.domain.user.Email;
@@ -23,6 +25,7 @@ import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineRe
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.RunEngineInput;
 import com.packing.backend.infra.packing.temporal.PackingJobWorkflow;
+import com.packing.backend.infra.packing.temporal.PackingPreviewActivity;
 import io.temporal.activity.Activity;
 import io.temporal.client.WorkflowClient;
 import io.temporal.spring.boot.ActivityImpl;
@@ -36,6 +39,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -77,6 +84,7 @@ class PackingTemporalWiringIT {
     @Test
     void aDispatchedJobRunsThroughTheWorkflowToSucceeded() throws InterruptedException {
         assertThat(workerFactory.tryGetWorker(PackingEngineContract.STATE_TASK_QUEUE)).isNotNull();
+        assertThat(workerFactory.tryGetWorker(PackingPreviewActivity.TASK_QUEUE)).isNotNull();
         assertThat(workerFactory.isStarted()).isTrue();
         Instant now = Instant.now()
                              .truncatedTo(ChronoUnit.MICROS);
@@ -105,6 +113,29 @@ class PackingTemporalWiringIT {
         assertThat(finished.engineVersion()).isEqualTo("packer 0.3.0");
         assertThat(finished.resultFileName()).isEqualTo("output");
         assertThat(artifacts.requested).containsExactly(job.id());
+
+        PackingJob previewed = awaitPreview(job.id());
+        assertThat(previewed.preview()
+                            .status()).isEqualTo(PreviewStatus.FAILED);
+        assertThat(artifacts.resultsOpened).contains(job.id());
+    }
+
+    private PackingJob awaitPreview(PackingJobId id) throws InterruptedException {
+        Instant deadline = Instant.now()
+                                  .plus(Duration.ofSeconds(30));
+        while (Instant.now()
+                      .isBefore(deadline)) {
+            PackingJob current = jobs.findById(id)
+                                     .orElseThrow();
+            if (current.preview()
+                       .status()
+                    != PreviewStatus.PENDING) {
+                return current;
+            }
+            Thread.sleep(200);
+        }
+        return jobs.findById(id)
+                   .orElseThrow();
     }
 
     private PackingJob awaitTerminal(PackingJobId id) throws InterruptedException {
@@ -167,7 +198,8 @@ class PackingTemporalWiringIT {
 
     static class RecordingArtifactStore implements PackingJobArtifactStore {
 
-        private final List<PackingJobId> requested = new CopyOnWriteArrayList<>();
+        private final List<PackingJobId> requested     = new CopyOnWriteArrayList<>();
+        private final List<PackingJobId> resultsOpened = new CopyOnWriteArrayList<>();
 
         @Override
         public void writeRequestIfAbsent(PackingJobId jobId, PackingRequestEnvelope envelope) {
@@ -181,6 +213,22 @@ class PackingTemporalWiringIT {
 
         @Override
         public TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public InputStream openResult(PackingJobId jobId) {
+            resultsOpened.add(jobId);
+            return new ByteArrayInputStream("o Object_0\nv 0 0 0\n".getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
             throw new UnsupportedOperationException();
         }
     }

@@ -17,4 +17,6 @@ public interface PackingStateActivities {
     void recordStalled(String jobId, String reason);
 
     void recordCancelled(String jobId);
+
+    void recordPreviewFailed(String jobId);
 }

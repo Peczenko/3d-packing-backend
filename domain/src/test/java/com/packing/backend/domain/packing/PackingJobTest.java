@@ -6,10 +6,12 @@ import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.shared.ResourceConflictException;
+import com.packing.backend.domain.shared.ResourceNotFoundException;
 import com.packing.backend.domain.user.UserId;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -401,6 +403,7 @@ class PackingJobTest {
                                               null,
                                               null,
                                               "engine exited",
+                                              PackingPreview.NONE,
                                               7,
                                               NOW);
 
@@ -428,11 +431,96 @@ class PackingJobTest {
                                               SHA_B,
                                               12L,
                                               null,
+                                              PackingPreview.NONE,
                                               3,
                                               NOW);
 
         assertThat(job.isLegacy()).isTrue();
         assertThat(job.input()).isNull();
+    }
+
+    @Test
+    void aQueuedJobHasNoPreview() {
+        assertThat(queuedJob().preview()).isEqualTo(PackingPreview.NONE);
+    }
+
+    @Test
+    void succeedingLeavesThePreviewPending() {
+        assertThat(succeededJob().preview()).isEqualTo(PackingPreview.PENDING);
+    }
+
+    @Test
+    void failingOrCancellingNeverAsksForAPreview() {
+        PackingJob failed = queuedJob();
+        failed.failStalled("lost", NOW.plusSeconds(1));
+        PackingJob cancelled = queuedJob();
+        cancelled.cancel(NOW.plusSeconds(1));
+
+        assertThat(failed.preview()).isEqualTo(PackingPreview.NONE);
+        assertThat(cancelled.preview()).isEqualTo(PackingPreview.NONE);
+        assertThat(failed.completePreview(List.of(model(PreviewQuality.HIGH)))).isFalse();
+        assertThat(cancelled.failPreview()).isFalse();
+    }
+
+    @Test
+    void completingAPendingPreviewListsItsModelsFromLowToHigh() {
+        PackingJob job = succeededJob();
+
+        boolean changed = job.completePreview(List.of(model(PreviewQuality.HIGH), model(PreviewQuality.LOW)));
+
+        assertThat(changed).isTrue();
+        assertThat(job.preview()
+                      .status()).isEqualTo(PreviewStatus.READY);
+        assertThat(job.preview()
+                      .models()).extracting(PreviewModel::quality)
+                                .containsExactly(PreviewQuality.LOW, PreviewQuality.HIGH);
+    }
+
+    @Test
+    void aSettledPreviewIgnoresEveryLaterOutcome() {
+        PackingJob ready = succeededJob();
+        ready.completePreview(List.of(model(PreviewQuality.HIGH)));
+        PackingJob failed = succeededJob();
+        failed.failPreview();
+
+        assertThat(ready.failPreview()).isFalse();
+        assertThat(ready.completePreview(List.of(model(PreviewQuality.LOW)))).isFalse();
+        assertThat(ready.preview()
+                        .models()).extracting(PreviewModel::quality)
+                                  .containsExactly(PreviewQuality.HIGH);
+        assertThat(failed.completePreview(List.of(model(PreviewQuality.HIGH)))).isFalse();
+        assertThat(failed.preview()).isEqualTo(PackingPreview.FAILED);
+    }
+
+    @Test
+    void aReadyPreviewNeedsAtLeastOneModelAndNoQualityTwice() {
+        PackingJob job = succeededJob();
+
+        assertThatThrownBy(() -> job.completePreview(List.of())).isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> job.completePreview(List.of(model(PreviewQuality.LOW), model(PreviewQuality.LOW))))
+                                                                                                                    .isInstanceOf(DomainRuleViolationException.class);
+        assertThat(job.preview()).isEqualTo(PackingPreview.PENDING);
+    }
+
+    @Test
+    void requirePreviewDistinguishesAPreviewNotReadyFromAQualityNeverProduced() {
+        PackingJob pending = succeededJob();
+        PackingJob ready = succeededJob();
+        ready.completePreview(List.of(model(PreviewQuality.HIGH)));
+
+        assertThatThrownBy(() -> pending.requirePreview(PreviewQuality.HIGH)).isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> ready.requirePreview(PreviewQuality.LOW)).isInstanceOf(ResourceNotFoundException.class);
+        assertThat(ready.requirePreview(PreviewQuality.HIGH)).isEqualTo(model(PreviewQuality.HIGH));
+    }
+
+    @Test
+    void previewModelsRejectEmptyGeometryAndEmptyFiles() {
+        assertThatThrownBy(() -> new PreviewModel(PreviewQuality.LOW, 0, 10)).isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> new PreviewModel(PreviewQuality.LOW, 10, 0)).isInstanceOf(DomainRuleViolationException.class);
+    }
+
+    private static PreviewModel model(PreviewQuality quality) {
+        return new PreviewModel(quality, 100L * (quality.ordinal() + 1), 1_000L * (quality.ordinal() + 1));
     }
 
     private PackingJob queuedJob() {

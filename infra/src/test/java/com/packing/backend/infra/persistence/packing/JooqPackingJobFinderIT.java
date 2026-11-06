@@ -12,6 +12,7 @@ import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.PackingPreview;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectName;
@@ -578,6 +579,7 @@ class JooqPackingJobFinderIT {
                                               resultFileName == null ? null : "b".repeat(64),
                                               resultSizeBytes,
                                               failureReason,
+                                              status == PackingJobStatus.SUCCEEDED ? PackingPreview.PENDING : PackingPreview.NONE,
                                               0,
                                               createdAt);
         persist(job);
