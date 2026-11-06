@@ -54,6 +54,18 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Install the gltfpack pinned in the Dockerfile
+        run: |
+          version="$(sed -n 's/^ARG GLTFPACK_VERSION=//p' Dockerfile)"
+          digest="$(sed -n 's/^ARG GLTFPACK_SHA256=//p' Dockerfile)"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/gltfpack.zip" \
+            "https://github.com/zeux/meshoptimizer/releases/download/${version}/gltfpack-ubuntu.zip"
+          echo "${digest}  $RUNNER_TEMP/gltfpack.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/gltfpack.zip" -d "$RUNNER_TEMP/gltfpack"
+          chmod 0755 "$RUNNER_TEMP/gltfpack/gltfpack"
+          "$RUNNER_TEMP/gltfpack/gltfpack" -v
+          echo "GLTFPACK_PATH=$RUNNER_TEMP/gltfpack/gltfpack" >> "$GITHUB_ENV"
+
       - name: Build and test
         run: ./gradlew build --no-daemon
 

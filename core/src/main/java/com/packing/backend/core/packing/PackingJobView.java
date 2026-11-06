@@ -1,6 +1,7 @@
 package com.packing.backend.core.packing;
 
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.PackingPreview;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -19,5 +20,6 @@ public record PackingJobView(
         String resultContentType,
         Long resultSizeBytes,
         String resultChecksum,
-        PackingJobInputView input) {
+        PackingJobInputView input,
+        PackingPreview preview) {
 }

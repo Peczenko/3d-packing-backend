@@ -7,6 +7,9 @@ import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingParameters;
+import com.packing.backend.domain.packing.PackingPreview;
+import com.packing.backend.domain.packing.PreviewModel;
+import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectName;
@@ -20,6 +23,7 @@ import com.packing.backend.infra.persistence.project.JooqProjectRepository;
 import com.packing.backend.infra.persistence.shared.AggregateWriter;
 import com.packing.backend.infra.persistence.user.JooqUserRepository;
 import org.jooq.DSLContext;
+import org.jooq.JSONB;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +34,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
+import static com.packing.backend.infra.persistence.jooq.tables.PackingJobs.PACKING_JOBS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -134,6 +139,45 @@ class JooqPackingJobRepositoryIT {
             assertThat(found.engineChecksum()).isEqualTo(ENGINE_CHECKSUM);
             assertThat(found.resultChecksum()).isEqualTo(RESULT_CHECKSUM);
         });
+    }
+
+    @Test
+    void persistsAPendingPreviewAndThenItsModels() {
+        PackingJob job = queuedJob(now());
+        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, "packer 0.3.0", ENGINE_CHECKSUM, now());
+        repository().save(job);
+        PackingJob pending = repository().findById(job.id())
+                                         .orElseThrow();
+        assertThat(pending.preview()).isEqualTo(PackingPreview.PENDING);
+
+        List<PreviewModel> models = List.of(new PreviewModel(PreviewQuality.HIGH, 69_451, 1_234_567),
+                                            new PreviewModel(PreviewQuality.LOW, 3_472, 45_678));
+        pending.completePreview(models);
+        repository().save(pending);
+
+        assertThat(repository().findById(job.id())).hasValueSatisfying(found -> assertThat(found.preview()).isEqualTo(PackingPreview.ready(models)));
+    }
+
+    @Test
+    void persistsAFailedPreview() {
+        PackingJob job = queuedJob(now());
+        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, "packer 0.3.0", ENGINE_CHECKSUM, now());
+        job.failPreview();
+
+        repository().save(job);
+
+        assertThat(repository().findById(job.id())).hasValueSatisfying(found -> assertThat(found.preview()).isEqualTo(PackingPreview.FAILED));
+    }
+
+    @Test
+    void theDatabaseRejectsModelsOnAPreviewThatIsNotReady() {
+        PackingJob job = queuedJob(now());
+        repository().save(job);
+
+        assertThatThrownBy(() -> dsl.update(PACKING_JOBS)
+                                    .set(PACKING_JOBS.PREVIEW_MODELS, JSONB.valueOf("[]"))
+                                    .where(PACKING_JOBS.ID.eq(job.id()))
+                                    .execute()).hasStackTraceContaining("ck_packing_jobs_preview_models");
     }
 
     @Test

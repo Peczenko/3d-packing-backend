@@ -61,7 +61,11 @@ class PackingJobWorkflowImplTest {
                                                                      12,
                                                                      "b".repeat(64));
 
-    private final List<RunEngineInput> engineInputs = new CopyOnWriteArrayList<>();
+    private final List<RunEngineInput> engineInputs  = new CopyOnWriteArrayList<>();
+    private final List<String>         previewInputs = new CopyOnWriteArrayList<>();
+
+    private Preview preview = jobId -> {
+    };
 
     private TestWorkflowEnvironment env;
     private PackingStateActivities  state;
@@ -201,6 +205,74 @@ class PackingJobWorkflowImplTest {
     }
 
     @Test
+    void aSucceededJobBuildsItsPreviewAfterTheSuccessIsRecorded() {
+        runJob(input -> {
+            signalStarted(STARTED);
+            return RESULT;
+        });
+
+        assertThat(previewInputs).containsExactly(JOB_ID);
+        verify(state).recordSucceeded(JOB_ID, RESULT);
+        verify(state, never()).recordPreviewFailed(anyString());
+    }
+
+    @Test
+    void aPreviewThatKeepsFailingIsRecordedAsFailedWithoutFailingTheJob() {
+        preview = jobId -> {
+            throw new IllegalStateException("gltfpack exited with 3");
+        };
+
+        runJob(input -> {
+            signalStarted(STARTED);
+            return RESULT;
+        });
+
+        InOrder order = inOrder(state);
+        order.verify(state)
+             .recordSucceeded(JOB_ID, RESULT);
+        order.verify(state)
+             .recordPreviewFailed(JOB_ID);
+        assertThat(previewInputs).hasSize(PackingJobWorkflowImpl.PREVIEW_ATTEMPTS);
+    }
+
+    @Test
+    void anUnrecognizedResultFailsThePreviewWithoutRetrying() {
+        preview = jobId -> {
+            throw ApplicationFailure.newNonRetryableFailure("not a rotated copy", PackingPreviewActivityImpl.UNRECOGNIZED_OUTPUT);
+        };
+
+        runJob(input -> {
+            signalStarted(STARTED);
+            return RESULT;
+        });
+
+        verify(state).recordPreviewFailed(JOB_ID);
+        assertThat(previewInputs).hasSize(1);
+    }
+
+    @Test
+    void aJobThatDidNotSucceedNeverBuildsAPreview() {
+        runJob(input -> {
+            throw ApplicationFailure.newFailure("packer exited with code 2",
+                                                ENGINE_FAILURE,
+                                                new EngineFailureDetails(VERSION, "packer 0.3.0", CHECKSUM, "packer exited with code 2"));
+        });
+
+        assertThat(previewInputs).isEmpty();
+        verify(state, never()).recordPreviewFailed(anyString());
+    }
+
+    @Test
+    void previewOptionsUseTheirOwnQueueAHeartbeatAndThreeAttempts() {
+        ActivityOptions options = PackingJobWorkflowImpl.PREVIEW_OPTIONS;
+
+        assertThat(options.getTaskQueue()).isEqualTo(PackingPreviewActivity.TASK_QUEUE);
+        assertThat(options.getHeartbeatTimeout()).isEqualTo(Duration.ofSeconds(60));
+        assertThat(options.getRetryOptions()
+                          .getMaximumAttempts()).isEqualTo(3);
+    }
+
+    @Test
     void engineOptionsBoundTheEngineByItsRuntimePlusTransferMargin() {
         ActivityOptions options = PackingJobWorkflowImpl.engineOptions(120);
 
@@ -248,6 +320,11 @@ class PackingJobWorkflowImplTest {
             engineInputs.add(input);
             return engine.run(input);
         });
+        Worker previewWorker = env.newWorker(PackingPreviewActivity.TASK_QUEUE);
+        previewWorker.registerActivitiesImplementations((PackingPreviewActivity) jobId -> {
+            previewInputs.add(jobId);
+            preview.build(jobId);
+        });
         env.start();
 
         return env.getWorkflowClient()
@@ -280,5 +357,11 @@ class PackingJobWorkflowImplTest {
     private interface Engine {
 
         EngineResult run(RunEngineInput input);
+    }
+
+    @FunctionalInterface
+    private interface Preview {
+
+        void build(String jobId);
     }
 }

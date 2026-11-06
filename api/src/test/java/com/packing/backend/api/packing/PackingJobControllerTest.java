@@ -19,6 +19,7 @@ import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.PackingPreview;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -98,7 +99,9 @@ class PackingJobControllerTest {
                .andExpect(jsonPath("$.input.parameters.seed").value(7))
                .andExpect(jsonPath("$.input.items[0].fileId").value(FILE_ID.toString()))
                .andExpect(jsonPath("$.input.items[0].fileName").value("bunny.obj"))
-               .andExpect(jsonPath("$.input.items[0].copies").value(3));
+               .andExpect(jsonPath("$.input.items[0].copies").value(3))
+               .andExpect(jsonPath("$.preview.status").value("NONE"))
+               .andExpect(jsonPath("$.preview.models").isEmpty());
 
         ArgumentCaptor<CreatePackingJobCommand> command = ArgumentCaptor.forClass(CreatePackingJobCommand.class);
         verify(jobs).create(command.capture());
@@ -172,7 +175,8 @@ class PackingJobControllerTest {
                                                                null,
                                                                null,
                                                                null,
-                                                               INPUT));
+                                                               INPUT,
+                                                               PackingPreview.NONE));
 
         mockMvc.perform(post("/api/v1/projects/{projectId}/packing-jobs/{jobId}/cancel", PROJECT_ID, jobId))
                .andExpect(status().isOk())
@@ -208,7 +212,8 @@ class PackingJobControllerTest {
                                                    null,
                                                    null,
                                                    null,
-                                                   null);
+                                                   null,
+                                                   PackingPreview.NONE);
         when(jobs.get(any())).thenReturn(legacy);
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}", PROJECT_ID, jobId))
@@ -455,6 +460,7 @@ class PackingJobControllerTest {
                                   null,
                                   null,
                                   null,
-                                  INPUT);
+                                  INPUT,
+                                  PackingPreview.NONE);
     }
 }

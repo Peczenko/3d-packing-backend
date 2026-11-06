@@ -1,6 +1,7 @@
 package com.packing.backend.infra.packing.temporal;
 
 import com.packing.backend.core.packing.PackingJobRecoveryService;
+import com.packing.backend.core.packing.PackingPreviewService;
 import com.packing.backend.core.packing.PackingWorkerEventService;
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.domain.packing.PackingJobId;
@@ -20,6 +21,7 @@ public class PackingStateActivitiesImpl implements PackingStateActivities {
 
     private final PackingWorkerEventService workerEvents;
     private final PackingJobRecoveryService recovery;
+    private final PackingPreviewService     previews;
 
     @Override
     public void recordStarted(String jobId, EngineStarted started) {
@@ -58,6 +60,11 @@ public class PackingStateActivitiesImpl implements PackingStateActivities {
     @Override
     public void recordCancelled(String jobId) {
         recovery.cancel(id(jobId));
+    }
+
+    @Override
+    public void recordPreviewFailed(String jobId) {
+        previews.fail(id(jobId));
     }
 
     private static PackingJobId id(String jobId) {

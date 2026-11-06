@@ -12,6 +12,10 @@ import com.packing.backend.domain.packing.PackingInput;
 import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingParameters;
+import com.packing.backend.domain.packing.PackingPreview;
+import com.packing.backend.domain.packing.PreviewModel;
+import com.packing.backend.domain.packing.PreviewQuality;
+import com.packing.backend.domain.packing.PreviewStatus;
 import com.packing.backend.infra.persistence.jooq.tables.records.PackingJobsRecord;
 import com.packing.backend.infra.persistence.shared.AggregateTable;
 import org.jooq.Field;
@@ -39,9 +43,11 @@ final class PackingJobRecordMapper {
                                                                                                  PACKING_JOBS.MAX_RUNTIME_SECONDS,
                                                                                                  PACKING_JOBS.CREATED_AT));
 
-    private static final ObjectMapper                  JSON      = new ObjectMapper();
-    private static final TypeReference<List<ItemJson>> ITEM_LIST = new TypeReference<>() {
-                                                                 };
+    private static final ObjectMapper                          JSON               = new ObjectMapper();
+    private static final TypeReference<List<ItemJson>>         ITEM_LIST          = new TypeReference<>() {
+                                                                                  };
+    private static final TypeReference<List<PreviewModelJson>> PREVIEW_MODEL_LIST = new TypeReference<>() {
+                                                                                  };
 
     private PackingJobRecordMapper() {
     }
@@ -64,6 +70,7 @@ final class PackingJobRecordMapper {
                                     record.getResultChecksumSha256(),
                                     record.getResultSizeBytes(),
                                     record.getFailureReason(),
+                                    previewOf(record),
                                     record.getVersion(),
                                     record.getCreatedAt());
     }
@@ -90,6 +97,9 @@ final class PackingJobRecordMapper {
         record.setResultContentType(job.resultContentType());
         record.setResultSizeBytes(job.resultSizeBytes());
         record.setResultChecksumSha256(job.resultChecksum());
+        record.setPreviewStatus(job.preview()
+                                   .status());
+        record.setPreviewModels(previewModelsToJson(job.preview()));
         record.setVersion(job.version());
         record.setCreatedAt(job.createdAt());
         return record;
@@ -103,6 +113,43 @@ final class PackingJobRecordMapper {
         return new PackingInput(record.get(PACKING_JOBS.INPUT_SCHEMA_VERSION),
                                 itemsFromJson(items),
                                 new PackingParameters(compact(record.get(PACKING_JOBS.PARAMETERS))));
+    }
+
+    static PackingPreview previewOf(Record record) {
+        JSONB models = record.get(PACKING_JOBS.PREVIEW_MODELS);
+        return new PackingPreview(record.get(PACKING_JOBS.PREVIEW_STATUS),
+                                  models == null ? List.of() : previewModelsFromJson(models));
+    }
+
+    private static JSONB previewModelsToJson(PackingPreview preview) {
+        if (preview.status() != PreviewStatus.READY) {
+            return null;
+        }
+        List<PreviewModelJson> json = preview.models()
+                                             .stream()
+                                             .map(model -> new PreviewModelJson(model.quality()
+                                                                                     .name(),
+                                                                                model.triangles(),
+                                                                                model.sizeBytes()))
+                                             .toList();
+        try {
+            return JSONB.valueOf(JSON.writeValueAsString(json));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Cannot encode preview models", e);
+        }
+    }
+
+    private static List<PreviewModel> previewModelsFromJson(JSONB models) {
+        try {
+            return JSON.readValue(models.data(), PREVIEW_MODEL_LIST)
+                       .stream()
+                       .map(model -> new PreviewModel(PreviewQuality.valueOf(model.quality()),
+                                                      model.triangles(),
+                                                      model.sizeBytes()))
+                       .toList();
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Stored preview models are unreadable", e);
+        }
     }
 
     private static JSONB itemsToJson(List<PackingItem> items) {
@@ -152,5 +199,8 @@ final class PackingJobRecordMapper {
     }
 
     record ItemJson(UUID fileId, String fileName, String format, String checksum, String storageKey, int copies) {
+    }
+
+    record PreviewModelJson(String quality, long triangles, long sizeBytes) {
     }
 }

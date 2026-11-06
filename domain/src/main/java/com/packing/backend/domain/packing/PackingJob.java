@@ -7,11 +7,13 @@ import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.AggregateRoot;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import com.packing.backend.domain.shared.ResourceConflictException;
+import com.packing.backend.domain.shared.ResourceNotFoundException;
 import com.packing.backend.domain.user.UserId;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -46,6 +48,7 @@ public final class PackingJob extends AggregateRoot {
     private String           resultChecksum;
     private Long             resultSizeBytes;
     private String           failureReason;
+    private PackingPreview   preview;
     private long             version;
 
     private PackingJob(PackingJobId id,
@@ -64,6 +67,7 @@ public final class PackingJob extends AggregateRoot {
                        String resultChecksum,
                        Long resultSizeBytes,
                        String failureReason,
+                       PackingPreview preview,
                        long version,
                        Instant createdAt) {
         this.id = Objects.requireNonNull(id, "id");
@@ -83,6 +87,7 @@ public final class PackingJob extends AggregateRoot {
         this.resultChecksum = resultChecksum;
         this.resultSizeBytes = resultSizeBytes;
         this.failureReason = failureReason;
+        this.preview = Objects.requireNonNull(preview, "preview");
         this.version = version;
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
     }
@@ -109,6 +114,7 @@ public final class PackingJob extends AggregateRoot {
                                         null,
                                         null,
                                         null,
+                                        PackingPreview.NONE,
                                         INITIAL_VERSION,
                                         now);
         job.recordEvent(new PackingJobQueued(id, projectId, now));
@@ -131,6 +137,7 @@ public final class PackingJob extends AggregateRoot {
                                        String resultChecksum,
                                        Long resultSizeBytes,
                                        String failureReason,
+                                       PackingPreview preview,
                                        long version,
                                        Instant createdAt) {
         return new PackingJob(id,
@@ -149,6 +156,7 @@ public final class PackingJob extends AggregateRoot {
                               resultChecksum,
                               resultSizeBytes,
                               failureReason,
+                              preview,
                               version,
                               createdAt);
     }
@@ -201,6 +209,7 @@ public final class PackingJob extends AggregateRoot {
         this.engineChecksum = requiredEngineChecksum;
         status = PackingJobStatus.SUCCEEDED;
         finishedAt = finished;
+        preview = PackingPreview.PENDING;
         recordFinished(finished);
         return true;
     }
@@ -248,6 +257,30 @@ public final class PackingJob extends AggregateRoot {
         finishedAt = Objects.requireNonNull(now, "now");
         recordEvent(new PackingJobCancelled(id, projectId, finishedAt));
         return true;
+    }
+
+    public boolean completePreview(List<PreviewModel> models) {
+        if (preview.status() != PreviewStatus.PENDING) {
+            return false;
+        }
+        preview = PackingPreview.ready(models);
+        return true;
+    }
+
+    public boolean failPreview() {
+        if (preview.status() != PreviewStatus.PENDING) {
+            return false;
+        }
+        preview = PackingPreview.FAILED;
+        return true;
+    }
+
+    public PreviewModel requirePreview(PreviewQuality quality) {
+        if (preview.status() != PreviewStatus.READY) {
+            throw new ResourceConflictException("Packing job " + id + " has no preview ready");
+        }
+        return preview.model(quality)
+                      .orElseThrow(() -> new ResourceNotFoundException("Packing job " + id + " has no " + quality + " preview"));
     }
 
     public void markPersisted() {
