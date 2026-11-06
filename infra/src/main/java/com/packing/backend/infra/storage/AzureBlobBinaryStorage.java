@@ -17,8 +17,6 @@ import lombok.RequiredArgsConstructor;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -62,7 +60,7 @@ public class AzureBlobBinaryStorage implements BinaryStorage {
                                                                                  new BlobSasPermission().setReadPermission(true))
                                                                                                                                  .setStartTime(now.minusMinutes(CLOCK_SKEW_ALLOWANCE_MINUTES))
                                                                                                                                  .setContentType(contentType)
-                                                                                                                                 .setContentDisposition(contentDisposition(downloadFilename));
+                                                                                                                                 .setContentDisposition(AttachmentDisposition.of(downloadFilename));
 
         try {
             BlobClient blob = container().getBlobClient(key.value());
@@ -84,14 +82,6 @@ public class AzureBlobBinaryStorage implements BinaryStorage {
         } catch (BlobStorageException e) {
             throw new ExternalServiceException(SERVICE, "Could not delete blob " + key, e);
         }
-    }
-
-    private static String contentDisposition(String filename) {
-        String asciiFallback = filename.replaceAll("[^\\x20-\\x7E]", "_")
-                                       .replace("\"", "");
-        String encoded = URLEncoder.encode(filename, StandardCharsets.UTF_8)
-                                   .replace("+", "%20");
-        return "attachment; filename=\"" + asciiFallback + "\"; filename*=UTF-8''" + encoded;
     }
 
     private BlobContainerClient container() {

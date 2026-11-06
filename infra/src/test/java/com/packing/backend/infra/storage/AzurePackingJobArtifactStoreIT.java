@@ -4,6 +4,7 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobHttpHeaders;
+import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.options.BlobParallelUploadOptions;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
@@ -15,6 +16,7 @@ import com.packing.backend.domain.file.StorageKey;
 import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingParameters;
+import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.infra.packing.PackingContractCodec;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,11 +27,14 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
@@ -238,6 +243,62 @@ class AzurePackingJobArtifactStoreIT {
         assertThatThrownBy(() -> artifacts.findResult(jobId))
                                                              .isInstanceOf(com.packing.backend.core.shared.ExternalServiceException.class)
                                                              .hasMessageContaining("positive size");
+    }
+
+    @Test
+    void streamsTheResultBlob() throws Exception {
+        PackingJobId jobId = jobId();
+        byte[] output = "o Object_0\nv 0 0 0\n".getBytes(StandardCharsets.UTF_8);
+        container.getBlobClient(resultKey(jobId))
+                 .upload(new ByteArrayInputStream(output), output.length);
+
+        try (InputStream result = artifacts.openResult(jobId)) {
+            assertThat(result.readAllBytes()).isEqualTo(output);
+        }
+    }
+
+    @Test
+    void storesAPreviewAsACacheableGltfBinaryAndSignsAnInlineUrlForIt() throws Exception {
+        PackingJobId jobId = jobId();
+        byte[] glb = "glTF preview bytes".getBytes(StandardCharsets.UTF_8);
+        Path file = Files.createTempFile("preview", ".glb");
+        Files.write(file, glb);
+
+        artifacts.storePreview(jobId, PreviewQuality.MEDIUM, file);
+        artifacts.storePreview(jobId, PreviewQuality.MEDIUM, file);
+
+        BlobProperties properties = container.getBlobClient("packing-jobs/" + jobId + "/preview/medium.glb")
+                                             .getProperties();
+        assertThat(properties.getContentType()).isEqualTo("model/gltf-binary");
+        assertThat(properties.getCacheControl()).contains("immutable");
+        PackingJobArtifactStore.TemporaryUrl url = artifacts.createPreviewUrl(jobId, PreviewQuality.MEDIUM, Duration.ofMinutes(10), null);
+        HttpResponse<byte[]> response = fetch(url.url());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo(glb);
+        assertThat(response.headers()
+                           .firstValue("Content-Disposition")).isEmpty();
+        assertThat(url.expiresAt()).isAfter(java.time.Instant.now()
+                                                             .plus(Duration.ofMinutes(10)));
+        Files.delete(file);
+    }
+
+    @Test
+    void signsAnAttachmentUrlWhenTheCallerWantsToSaveThePreview() throws Exception {
+        PackingJobId jobId = jobId();
+        Path file = Files.createTempFile("preview", ".glb");
+        Files.write(file, new byte[] { 1, 2, 3 });
+        artifacts.storePreview(jobId, PreviewQuality.HIGH, file);
+
+        PackingJobArtifactStore.TemporaryUrl url = artifacts.createPreviewUrl(jobId,
+                                                                              PreviewQuality.HIGH,
+                                                                              Duration.ofMinutes(10),
+                                                                              "packing-job-" + jobId + "-high.glb");
+
+        assertThat(fetch(url.url()).headers()
+                                   .firstValue("Content-Disposition")).hasValueSatisfying(disposition -> assertThat(disposition).startsWith("attachment;")
+                                                                                                                                .contains("packing-job-" + jobId
+                                                                                                                                        + "-high.glb"));
+        Files.delete(file);
     }
 
     private static PackingRequestEnvelope envelope(long runtime, String parameters) {

@@ -2,6 +2,7 @@ package com.packing.backend.infra.packing.temporal;
 
 import com.packing.backend.core.packing.PackingJobDispatchService;
 import com.packing.backend.core.packing.PackingJobRecoveryService;
+import com.packing.backend.core.packing.PackingPreviewService;
 import com.packing.backend.core.packing.PackingWorkerEventService;
 import com.packing.backend.core.packing.port.out.PackingDispatchSender;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
@@ -51,8 +52,14 @@ public class PackingTemporalConfig {
 
     @Bean
     PackingStateActivitiesImpl packingStateActivities(PackingWorkerEventService workerEvents,
-                                                      PackingJobRecoveryService recovery) {
-        return new PackingStateActivitiesImpl(workerEvents, recovery);
+                                                      PackingJobRecoveryService recovery,
+                                                      PackingPreviewService previews) {
+        return new PackingStateActivitiesImpl(workerEvents, recovery, previews);
+    }
+
+    @Bean
+    PackingPreviewActivityImpl packingPreviewActivity(PackingPreviewService previews) {
+        return new PackingPreviewActivityImpl(previews);
     }
 
     @Bean

@@ -23,6 +23,8 @@ import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingParameters;
+import com.packing.backend.domain.packing.PreviewModel;
+import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectNotFoundException;
 import com.packing.backend.domain.project.ProjectPermission;
@@ -39,6 +41,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -50,7 +53,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PackingJobApplicationService {
 
-    private static final String FILE_NOT_AVAILABLE = "File is not available in this project";
+    private static final String   FILE_NOT_AVAILABLE    = "File is not available in this project";
+    private static final Duration DOWNLOAD_URL_VALIDITY = Duration.ofMinutes(10);
 
     private final PackingJobRepository    jobs;
     private final PackingJobFinder        finder;
@@ -128,7 +132,18 @@ public class PackingJobApplicationService {
         artifacts.findResult(jobId)
                  .orElseThrow(() -> new ResourceNotFoundException(
                                                                   "Result artifact for packing job " + jobId + " was not found"));
-        return artifacts.createResultDownloadUrl(jobId, Duration.ofMinutes(10));
+        return artifacts.createResultDownloadUrl(jobId, DOWNLOAD_URL_VALIDITY);
+    }
+
+    @Transactional(readOnly = true)
+    public PackingJobArtifactStore.TemporaryUrl preparePreviewDownload(PackingJobPreviewQuery query) {
+        ProjectAccess project = requireAccess(query.firebaseUid(),
+                                              query.projectId(),
+                                              ProjectPermission.READ);
+        PackingJob job = requireJob(project.projectId(), new PackingJobId(query.jobId()));
+        PreviewModel model = job.requirePreview(query.quality());
+        String attachment = query.download() ? previewFileName(job.id(), model.quality()) : null;
+        return artifacts.createPreviewUrl(job.id(), model.quality(), DOWNLOAD_URL_VALIDITY, attachment);
     }
 
     @Transactional(readOnly = true)
@@ -225,6 +240,12 @@ public class PackingJobApplicationService {
                                                             .collect(Collectors.joining(", "));
     }
 
+    private static String previewFileName(PackingJobId jobId, PreviewQuality quality) {
+        return "packing-job-" + jobId + "-" + quality.name()
+                                                     .toLowerCase(Locale.ROOT)
+                + ".glb";
+    }
+
     private PackingJob requireJob(ProjectId projectId, PackingJobId jobId) {
         return jobs.findById(jobId)
                    .filter(candidate -> candidate.projectId()
@@ -284,5 +305,8 @@ public class PackingJobApplicationService {
     }
 
     public record PackingJobResultQuery(String firebaseUid, UUID projectId, UUID jobId) {
+    }
+
+    public record PackingJobPreviewQuery(String firebaseUid, UUID projectId, UUID jobId, PreviewQuality quality, boolean download) {
     }
 }

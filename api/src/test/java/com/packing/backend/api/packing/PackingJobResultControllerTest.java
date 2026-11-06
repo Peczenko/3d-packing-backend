@@ -2,10 +2,12 @@ package com.packing.backend.api.packing;
 
 import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.packing.PackingJobApplicationService;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobId;
+import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -103,6 +106,60 @@ class PackingJobResultControllerTest {
                             PROJECT_ID,
                             UUID.randomUUID()))
                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void previewRedirectsToTheTemporaryUrlOfTheRequestedQuality() throws Exception {
+        authenticate();
+        UUID jobId = UUID.randomUUID();
+        when(jobs.preparePreviewDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+                                                                                                     URI.create("https://storage.example/packing-jobs/preview/medium.glb?sig=secret"),
+                                                                                                     Instant.parse("2026-11-06T10:25:30Z")));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/preview/MEDIUM", PROJECT_ID, jobId))
+               .andExpect(status().isFound())
+               .andExpect(header().string("Location", "https://storage.example/packing-jobs/preview/medium.glb?sig=secret"))
+               .andExpect(header().string("Cache-Control", "no-store"));
+
+        ArgumentCaptor<PackingJobPreviewQuery> query = ArgumentCaptor.forClass(PackingJobPreviewQuery.class);
+        verify(jobs).preparePreviewDownload(query.capture());
+        assertThat(query.getValue()).isEqualTo(new PackingJobPreviewQuery(UID, PROJECT_ID, jobId, PreviewQuality.MEDIUM, false));
+    }
+
+    @Test
+    void previewPassesTheDownloadFlagThrough() throws Exception {
+        authenticate();
+        UUID jobId = UUID.randomUUID();
+        when(jobs.preparePreviewDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+                                                                                                     URI.create("https://storage.example/high.glb?sig=secret"),
+                                                                                                     Instant.parse("2026-11-06T10:25:30Z")));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/preview/HIGH", PROJECT_ID, jobId).param("download", "true"))
+               .andExpect(status().isFound());
+
+        ArgumentCaptor<PackingJobPreviewQuery> query = ArgumentCaptor.forClass(PackingJobPreviewQuery.class);
+        verify(jobs).preparePreviewDownload(query.capture());
+        assertThat(query.getValue()
+                        .download()).isTrue();
+    }
+
+    @Test
+    void anUnknownQualityIsABadRequest() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/preview/ULTRA", PROJECT_ID, UUID.randomUUID()))
+               .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(jobs);
+    }
+
+    @Test
+    void aPreviewThatIsNotReadyIsAConflict() throws Exception {
+        authenticate();
+        when(jobs.preparePreviewDownload(any())).thenThrow(new ResourceConflictException("No preview ready"));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/preview/LOW", PROJECT_ID, UUID.randomUUID()))
+               .andExpect(status().isConflict());
     }
 
     private void authenticate() {
