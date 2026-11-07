@@ -1,0 +1,4 @@
+[
+  { "id": "wedge", "file": "wedge.obj", "name": "Wedge", "description": "A tetrahedron." },
+  { "id": "unit-cube", "file": "cube.obj", "name": "Cube", "description": "A single triangle." }
+]

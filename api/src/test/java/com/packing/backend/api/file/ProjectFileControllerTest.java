@@ -3,6 +3,8 @@ package com.packing.backend.api.file;
 import com.packing.backend.core.file.FileView;
 import com.packing.backend.core.notification.port.out.ErrorAlerter;
 import com.packing.backend.core.file.FileApplicationService;
+import com.packing.backend.core.file.FileApplicationService.AddSampleCommand;
+import com.packing.backend.core.file.SampleModelNotFoundException;
 import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
 import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
 import com.packing.backend.core.file.FileListCriteria;
@@ -168,6 +170,45 @@ class ProjectFileControllerTest {
 
         mockMvc.perform(multipart("/api/v1/projects/{projectId}/files", PROJECT).file(part(BYTES)))
                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void addSampleReturns201WithTheCopiedFile() throws Exception {
+        authenticate();
+        UUID id = UUID.randomUUID();
+        when(files.addSample(any())).thenReturn(view(id));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/files/samples", PROJECT)
+                                                                                   .contentType(MediaType.APPLICATION_JSON)
+                                                                                   .content("{\"sampleId\":\"cube\"}"))
+               .andExpect(status().isCreated())
+               .andExpect(jsonPath("$.id").value(id.toString()))
+               .andExpect(jsonPath("$.projectId").value(PROJECT.toString()));
+
+        ArgumentCaptor<AddSampleCommand> command = ArgumentCaptor.forClass(AddSampleCommand.class);
+        verify(files).addSample(command.capture());
+        assertThat(command.getValue()).isEqualTo(new AddSampleCommand(UID, PROJECT, "cube"));
+    }
+
+    @Test
+    void addSampleRejectsABlankSampleId() throws Exception {
+        authenticate();
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/files/samples", PROJECT)
+                                                                                   .contentType(MediaType.APPLICATION_JSON)
+                                                                                   .content("{\"sampleId\":\" \"}"))
+               .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void addingAnUnknownSampleGets404() throws Exception {
+        authenticate();
+        when(files.addSample(any())).thenThrow(SampleModelNotFoundException.byId("teapot"));
+
+        mockMvc.perform(post("/api/v1/projects/{projectId}/files/samples", PROJECT)
+                                                                                   .contentType(MediaType.APPLICATION_JSON)
+                                                                                   .content("{\"sampleId\":\"teapot\"}"))
+               .andExpect(status().isNotFound());
     }
 
     @Test

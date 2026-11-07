@@ -3,6 +3,7 @@ package com.packing.backend.api.file;
 import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
 import com.packing.backend.core.file.FileApplicationService;
+import com.packing.backend.core.file.FileApplicationService.AddSampleCommand;
 import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
 import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
 import com.packing.backend.core.file.FileApplicationService.PrepareDownloadCommand;
@@ -62,6 +63,20 @@ public class ProjectFileController {
                                                                     file.getOriginalFilename(),
                                                                     file.getSize(),
                                                                     file::getInputStream)));
+    }
+
+    @PostMapping(path = "/samples", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(operationId = "addSampleProjectFile",
+               summary = "Add a copy of a sample model to a project",
+               description = "The copy is an ordinary file: it can be renamed, deleted and packed like an upload.")
+    @ApiResponse(responseCode = "201", description = "File stored")
+    public FileResponse addSample(@CurrentUser AuthenticatedUser caller,
+                                  @PathVariable UUID projectId,
+                                  @Valid @RequestBody AddSampleFileRequest request) {
+        return FileResponse.from(files.addSample(new AddSampleCommand(caller.firebaseUid(),
+                                                                      projectId,
+                                                                      request.sampleId())));
     }
 
     @GetMapping
