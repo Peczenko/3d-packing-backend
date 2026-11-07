@@ -17,7 +17,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 concurrency:
   group: cd
@@ -28,9 +27,7 @@ jobs:
     name: Build & push API image (GHCR)
     runs-on: ubuntu-latest
     outputs:
-      image: ${{ steps.meta.outputs.image }}
       version: ${{ steps.meta.outputs.version }}
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -66,7 +63,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -80,10 +76,6 @@ jobs:
   image-worker:
     name: Build & push worker image (GHCR)
     runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.meta.outputs.image }}
-      version: ${{ steps.meta.outputs.version }}
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -107,7 +99,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -120,34 +111,33 @@ jobs:
           cache-to: type=gha,mode=max,scope=image-worker
 
   deploy:
-    name: Deploy to Azure Container Apps
+    name: Point the deploy repo at the release
     needs: [image-api, image-worker]
     runs-on: ubuntu-latest
-    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
     steps:
-      - name: Azure login (OIDC)
-        uses: azure/login@v3
+      - uses: actions/checkout@v7
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          repository: Peczenko/3d-packing-deployment
+          ssh-key: ${{ secrets.DEPLOY_REPO_SSH_KEY }}
 
-      - name: Update container app image
-        uses: azure/cli@v3
-        with:
-          azcliversion: latest
-          inlineScript: |
-            az containerapp update \
-              --name "${{ vars.AZURE_CONTAINERAPP_NAME }}" \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --image "${{ needs.image-api.outputs.image }}@${{ needs.image-api.outputs.digest }}"
+      - name: Bump the GCP overlay image tags
+        env:
+          VERSION: ${{ needs.image-api.outputs.version }}
+          FILE: overlays/gcp/kustomization.yaml
+        run: |
+          images='.name == "packing-backend" or .name == "packing-worker"'
+          yq -i "(.images[] | select($images)).newTag = strenv(VERSION)" "$FILE"
+          test "$(yq "[.images[] | select(($images) and .newTag == strenv(VERSION))] | length" "$FILE")" = 2
 
-      - name: Update worker job image
-        uses: azure/cli@v3
-        with:
-          azcliversion: latest
-          inlineScript: |
-            az containerapp job update \
-              --name "${{ vars.AZURE_CONTAINERAPP_JOB_NAME }}" \
-              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-              --image "${{ needs.image-worker.outputs.image }}@${{ needs.image-worker.outputs.digest }}"
+      - name: Commit and push
+        env:
+          VERSION: ${{ needs.image-api.outputs.version }}
+        run: |
+          if git diff --quiet; then
+            echo "Already on $VERSION"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: backend $VERSION"
+          git push || { git pull --rebase && git push; }
