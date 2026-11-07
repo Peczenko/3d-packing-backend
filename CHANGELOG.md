@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.6.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.5.0...v1.6.0) (2026-11-07)
+
+
+### Features
+
+* sample models that can be added to a project ([#89](https://github.com/Peczenko/3d-packing-backend/issues/89)) ([d636233](https://github.com/Peczenko/3d-packing-backend/commit/d6362331d77b0c268465f9e29f8a35daf8fdeb0e))
+
+
+### Documentation
+
+* add README and MIT license ([#87](https://github.com/Peczenko/3d-packing-backend/issues/87)) ([4f8b835](https://github.com/Peczenko/3d-packing-backend/commit/4f8b83503e0d10d72d0b78fbe20c5cdfa33028bd))
+
+
+### CI/CD
+
+* bump deploy repo image tags on release ([#88](https://github.com/Peczenko/3d-packing-backend/issues/88)) ([885883e](https://github.com/Peczenko/3d-packing-backend/commit/885883eeee04309472360295b26cb9a2537c800a))
+
+
+### Chores & Dependencies
+
+* merge master into dev ([9799b4f](https://github.com/Peczenko/3d-packing-backend/commit/9799b4f7c1efd63a38a5b92ad854bb4e39606390))
+
 ## [1.5.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.4.0...v1.5.0) (2026-11-06)
 
 
