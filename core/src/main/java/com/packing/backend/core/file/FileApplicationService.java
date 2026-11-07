@@ -3,6 +3,7 @@ package com.packing.backend.core.file;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.file.port.out.FileFinder;
 import com.packing.backend.core.file.port.out.FileRepository;
+import com.packing.backend.core.file.port.out.SampleModelCatalog;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.ContentSource;
@@ -30,6 +31,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -42,6 +44,7 @@ public class FileApplicationService {
     private final FileRepository       files;
     private final FileFinder           fileFinder;
     private final BinaryStorage        storage;
+    private final SampleModelCatalog   samples;
     private final ProjectAccessLookup  projectAccess;
     private final DomainEventPublisher eventPublisher;
     private final Clock                clock;
@@ -50,28 +53,23 @@ public class FileApplicationService {
         ProjectAccess access = requireAccess(command.firebaseUid(),
                                              command.projectId(),
                                              ProjectPermission.WRITE).requireWritable();
-        FileName name = new FileName(command.originalFilename());
-        FileId id = FileId.generate();
+        return store(access, new FileName(command.originalFilename()), command.content());
+    }
 
-        Content content = digestAndCount(command.content());
+    public FileView addSample(AddSampleCommand command) {
+        ProjectAccess access = requireAccess(command.firebaseUid(),
+                                             command.projectId(),
+                                             ProjectPermission.WRITE).requireWritable();
+        SampleModel sample = requireSample(command.sampleId());
+        return store(access, sample.filename(), sample.content());
+    }
 
-        StoredFile file = StoredFile.upload(id,
-                                            access.userId(),
-                                            access.projectId(),
-                                            name,
-                                            content.sizeBytes(),
-                                            content.checksum(),
-                                            clock.instant());
+    public List<SampleModel> listSamples() {
+        return samples.list();
+    }
 
-        try (InputStream stream = command.content()
-                                         .open()) {
-            storage.write(file.storageKey(), stream, file.sizeBytes(), file.contentType());
-        } catch (IOException e) {
-            throw new UncheckedIOException("Could not read the upload for file " + id, e);
-        }
-
-        files.save(file);
-        return FileView.from(file);
+    public SampleModel sample(String sampleId) {
+        return requireSample(sampleId);
     }
 
     @Transactional(readOnly = true)
@@ -119,12 +117,40 @@ public class FileApplicationService {
         eventPublisher.publishAll(saved.pullDomainEvents());
     }
 
+    private FileView store(ProjectAccess access, FileName name, ContentSource source) {
+        FileId id = FileId.generate();
+
+        Content content = digestAndCount(source);
+
+        StoredFile file = StoredFile.upload(id,
+                                            access.userId(),
+                                            access.projectId(),
+                                            name,
+                                            content.sizeBytes(),
+                                            content.checksum(),
+                                            clock.instant());
+
+        try (InputStream stream = source.open()) {
+            storage.write(file.storageKey(), stream, file.sizeBytes(), file.contentType());
+        } catch (IOException e) {
+            throw new UncheckedIOException("Could not read the upload for file " + id, e);
+        }
+
+        files.save(file);
+        return FileView.from(file);
+    }
+
     private ProjectAccess requireAccess(String firebaseUid, UUID projectId,
                                         ProjectPermission required) {
         ProjectId id = new ProjectId(projectId);
         return projectAccess.findAccess(new FirebaseUid(firebaseUid), id)
                             .orElseThrow(() -> ProjectNotFoundException.byId(id))
                             .requireAtLeast(required);
+    }
+
+    private SampleModel requireSample(String sampleId) {
+        return samples.find(sampleId)
+                      .orElseThrow(() -> SampleModelNotFoundException.byId(sampleId));
     }
 
     private StoredFile requireReachable(UUID fileId, ProjectId projectId) {
@@ -175,6 +201,9 @@ public class FileApplicationService {
             String originalFilename,
             long declaredSizeBytes,
             ContentSource content) {
+    }
+
+    public record AddSampleCommand(String firebaseUid, UUID projectId, String sampleId) {
     }
 
     public record PrepareDownloadCommand(String firebaseUid, UUID projectId, UUID fileId) {

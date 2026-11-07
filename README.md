@@ -14,6 +14,7 @@ This repository is the API and job orchestration. The web frontend and the packi
 
 - **Projects and sharing**: projects with `OWNER`, `WRITE` and `READ` members. A project can be disabled, which turns it into a read-only archive.
 - **Model files**: STL, OBJ and STEP uploads go to object storage; downloads use short-lived signed URLs.
+- **Sample models**: a small catalogue of ready-made OBJ models ships with the backend. Adding one copies it into a project as an ordinary file, so a new account can try packing without uploading anything.
 - **Packing jobs**: job input is validated against a versioned JSON Schema ([`contracts/packing-input`](contracts/packing-input)), which the frontend also uses to render its form. Jobs run asynchronously, can be cancelled, and send an email when they finish.
 - **Result previews**: the packed OBJ is converted into instanced, compressed GLB files at up to three quality levels, so even very large results load quickly in the browser.
 - **Authentication**: Firebase ID tokens. Roles and project access are read from the database on every request, never from token claims.
