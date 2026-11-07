@@ -1,5 +1,6 @@
 package com.packing.backend.core.file;
 
+import com.packing.backend.core.file.FileApplicationService.AddSampleCommand;
 import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
 import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
 import com.packing.backend.core.file.FileApplicationService.PrepareDownloadCommand;
@@ -8,6 +9,7 @@ import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.file.port.out.FileFinder;
 import com.packing.backend.core.file.port.out.FileRepository;
+import com.packing.backend.core.file.port.out.SampleModelCatalog;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.ContentSource;
@@ -64,6 +66,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -85,6 +88,8 @@ class FileApplicationServiceTest {
     @Mock
     private BinaryStorage        storage;
     @Mock
+    private SampleModelCatalog   samples;
+    @Mock
     private ProjectAccessLookup  projectAccess;
     @Mock
     private DomainEventPublisher eventPublisher;
@@ -96,6 +101,7 @@ class FileApplicationServiceTest {
         service = new FileApplicationService(files,
                                              fileFinder,
                                              storage,
+                                             samples,
                                              projectAccess,
                                              eventPublisher,
                                              Clock.fixed(NOW, ZoneOffset.UTC));
@@ -126,6 +132,20 @@ class FileApplicationServiceTest {
                                  BYTES.length,
                                  Checksum.ofHex(BYTES_SHA256),
                                  NOW);
+    }
+
+    private static SampleModel sample(String id) {
+        return new SampleModel(id,
+                               "Cube",
+                               "A 20 mm cube",
+                               new FileName("cube.obj"),
+                               BYTES.length,
+                               Checksum.ofHex(BYTES_SHA256),
+                               sourceOf(BYTES));
+    }
+
+    private AddSampleCommand addSample(String sampleId) {
+        return new AddSampleCommand(UID, PROJECT.value(), sampleId);
     }
 
     private UploadFileCommand upload(String filename, byte[] bytes) {
@@ -276,6 +296,101 @@ class FileApplicationServiceTest {
                                                                            .isInstanceOf(ProjectNotFoundException.class);
 
         verify(storage, never()).write(any(), any(), anyLong(), anyString());
+    }
+
+    @Test
+    void addSampleStoresACopyOfTheSampleAsAnOrdinaryFileInTheProject() {
+        access(ProjectPermission.WRITE);
+        when(samples.find("cube")).thenReturn(Optional.of(sample("cube")));
+        when(files.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        ArgumentCaptor<StorageKey> key = ArgumentCaptor.forClass(StorageKey.class);
+
+        FileView view = service.addSample(addSample("cube"));
+
+        verify(storage).write(key.capture(), any(), eq((long) BYTES.length), eq("model/obj"));
+        assertThat(key.getValue()).isEqualTo(StorageKey.forFile(new FileId(view.id())));
+        assertThat(view.projectId()).isEqualTo(PROJECT.value());
+        assertThat(view.filename()).isEqualTo("cube.obj");
+        assertThat(view.format()).isEqualTo(ModelFormat.OBJ);
+        assertThat(view.checksumSha256()).isEqualTo(BYTES_SHA256);
+    }
+
+    @Test
+    void addSampleRecordsTheCallerAsTheUploader() {
+        access(ProjectPermission.WRITE);
+        when(samples.find("cube")).thenReturn(Optional.of(sample("cube")));
+        when(files.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        ArgumentCaptor<StoredFile> saved = ArgumentCaptor.forClass(StoredFile.class);
+
+        service.addSample(addSample("cube"));
+
+        verify(files).save(saved.capture());
+        assertThat(saved.getValue()
+                        .ownerId()).isEqualTo(CALLER);
+    }
+
+    @Test
+    void addingTheSameSampleTwiceGivesTwoIndependentFiles() {
+        access(ProjectPermission.WRITE);
+        when(samples.find("cube")).thenReturn(Optional.of(sample("cube")));
+        when(files.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        FileView first = service.addSample(addSample("cube"));
+        FileView second = service.addSample(addSample("cube"));
+
+        assertThat(first.id()).isNotEqualTo(second.id());
+        ArgumentCaptor<StorageKey> keys = ArgumentCaptor.forClass(StorageKey.class);
+        verify(storage, times(2)).write(keys.capture(), any(), anyLong(), anyString());
+        assertThat(keys.getAllValues()).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void addSampleRejectsAnUnknownSampleBeforeTouchingStorage() {
+        access(ProjectPermission.WRITE);
+        when(samples.find("teapot")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.addSample(addSample("teapot")))
+                                                                        .isInstanceOf(SampleModelNotFoundException.class);
+
+        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(files, never()).save(any());
+    }
+
+    @Test
+    void addSampleRejectsAReadOnlyMember() {
+        access(ProjectPermission.READ);
+
+        assertThatThrownBy(() -> service.addSample(addSample("cube")))
+                                                                      .isInstanceOf(PermissionDeniedException.class);
+
+        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+    }
+
+    @Test
+    void addSampleIsRefusedWhileTheProjectIsDisabled() {
+        access(ProjectPermission.OWNER, ProjectStatus.DISABLED);
+
+        assertThatThrownBy(() -> service.addSample(addSample("cube")))
+                                                                      .isInstanceOf(ResourceConflictException.class);
+
+        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+    }
+
+    @Test
+    void addSampleReportsANonMemberAsAMissingProject() {
+        noAccess();
+
+        assertThatThrownBy(() -> service.addSample(addSample("cube")))
+                                                                      .isInstanceOf(ProjectNotFoundException.class);
+
+        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+    }
+
+    @Test
+    void sampleRejectsAnUnknownId() {
+        when(samples.find("teapot")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.sample("teapot")).isInstanceOf(SampleModelNotFoundException.class);
     }
 
     @Test

@@ -39,6 +39,8 @@ out/
 ### Project ###
 thesis.txt
 .env
+.env.*
+!.env.example
 *.log
 
 app/src/main/resources/application-local.properties

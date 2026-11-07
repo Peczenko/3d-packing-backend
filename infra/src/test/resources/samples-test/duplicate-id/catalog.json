@@ -1,0 +1,4 @@
+[
+  { "id": "cube", "file": "cube.obj", "name": "Cube", "description": "First." },
+  { "id": "cube", "file": "cube.obj", "name": "Cube again", "description": "Second." }
+]

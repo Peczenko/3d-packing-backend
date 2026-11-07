@@ -1,0 +1,20 @@
+[
+  {
+    "id": "spot",
+    "file": "spot.obj",
+    "name": "Spot",
+    "description": "A low-poly cow, about 6k triangles. By Keenan Crane, released CC0."
+  },
+  {
+    "id": "stanford-bunny",
+    "file": "stanford-bunny.obj",
+    "name": "Stanford Bunny",
+    "description": "A scanned ceramic rabbit, about 69k triangles. Stanford Computer Graphics Laboratory."
+  },
+  {
+    "id": "horse",
+    "file": "horse.obj",
+    "name": "Horse",
+    "description": "A scanned horse figurine, about 97k triangles. Cyberware."
+  }
+]
