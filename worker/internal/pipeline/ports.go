@@ -31,6 +31,13 @@ type EngineResult struct {
 	ContentType string
 	SizeBytes   int64
 	Checksum    string
+	Bins        []ResultBin
+}
+
+type ResultBin struct {
+	Path      string
+	SizeBytes int64
+	Checksum  string
 }
 
 type Engine interface {

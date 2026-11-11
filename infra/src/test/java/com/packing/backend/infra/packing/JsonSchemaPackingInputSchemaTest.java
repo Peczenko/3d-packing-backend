@@ -31,6 +31,9 @@ class JsonSchemaPackingInputSchemaTest {
     private static final String FILE_ID = "0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00";
     private static final FileId FILE    = new FileId(UUID.fromString(FILE_ID));
 
+    private static final PackingParameters DEFAULT_PARAMETERS = new PackingParameters(
+                                                                                      "{\"container\":{\"width\":200,\"length\":200,\"height\":200},\"gap\":0,\"algorithm\":\"anneal\",\"seed\":42}");
+
     private final JsonSchemaPackingInputSchema schema = new JsonSchemaPackingInputSchema(new ObjectMapper());
     private final JsonSchemaPackingInputSchema richer = new JsonSchemaPackingInputSchema(new ObjectMapper(),
                                                                                          "packing-input-test/job-input.schema.json");
@@ -39,16 +42,16 @@ class JsonSchemaPackingInputSchemaTest {
     void appliesTheSchemaDefaultsToAMinimalBody() {
         ValidatedInput input = schema.validate("{\"items\":[{\"fileId\":\"" + FILE_ID + "\"}]}");
 
-        assertThat(input).isEqualTo(new ValidatedInput(1,
+        assertThat(input).isEqualTo(new ValidatedInput(2,
                                                        List.of(new RequestedItem(FILE, 1)),
                                                        60,
-                                                       new PackingParameters("{}")));
+                                                       DEFAULT_PARAMETERS));
     }
 
     @Test
     void keepsSubmittedValuesAndIgnoresTheReadOnlyFileName() {
         ValidatedInput input = schema.validate("""
-            {"schemaVersion":1,"maxRuntimeSeconds":120.0,"parameters":{},
+            {"schemaVersion":2,"maxRuntimeSeconds":120.0,"parameters":{},
              "items":[{"fileId":"%s","fileName":"renamed.obj","copies":3}]}""".formatted(FILE_ID));
 
         assertThat(input.items()).containsExactly(new RequestedItem(FILE, 3));
@@ -58,7 +61,7 @@ class JsonSchemaPackingInputSchemaTest {
     @Test
     void reportsEveryViolationByJsonPointer() {
         assertThatThrownBy(() -> schema.validate("""
-            {"bogus":true,"maxRuntimeSeconds":0,"parameters":{"seed":1},
+            {"bogus":true,"maxRuntimeSeconds":0,"parameters":{"iterations":1},
              "items":[{"fileId":"not-a-uuid","copies":101},{}]}"""))
                                                                     .isInstanceOfSatisfying(PackingInputInvalidException.class,
                                                                                             e -> {
@@ -68,7 +71,7 @@ class JsonSchemaPackingInputSchemaTest {
                                                                                                                                         "/items/0/fileId",
                                                                                                                                         "/items/1/fileId",
                                                                                                                                         "/maxRuntimeSeconds",
-                                                                                                                                        "/parameters/seed");
+                                                                                                                                        "/parameters/iterations");
                                                                                                 assertThat(e.errors()).contains(
                                                                                                                                 entry("/bogus", "is not allowed"),
                                                                                                                                 entry("/items/0/copies",
@@ -76,7 +79,7 @@ class JsonSchemaPackingInputSchemaTest {
                                                                                                                                 entry("/items/1/fileId", "is required"),
                                                                                                                                 entry("/maxRuntimeSeconds",
                                                                                                                                       "must have a minimum value of 1"),
-                                                                                                                                entry("/parameters/seed", "is not allowed"));
+                                                                                                                                entry("/parameters/iterations", "is not allowed"));
                                                                                             });
     }
 
@@ -106,14 +109,14 @@ class JsonSchemaPackingInputSchemaTest {
 
     @Test
     void reportsAStaleSchemaVersionBeforeAnyOtherProblem() {
-        assertThatThrownBy(() -> schema.validate("{\"schemaVersion\":2}"))
+        assertThatThrownBy(() -> schema.validate("{\"schemaVersion\":1}"))
                                                                           .isInstanceOf(PackingInputSchemaChangedException.class)
                                                                           .hasMessage("Input schema changed; reload the form");
     }
 
     @Test
     void treatsANonIntegerSchemaVersionAsAValidationError() {
-        assertThatThrownBy(() -> schema.validate("{\"schemaVersion\":\"1\",\"items\":[{\"fileId\":\"" + FILE_ID + "\"}]}"))
+        assertThatThrownBy(() -> schema.validate("{\"schemaVersion\":\"2\",\"items\":[{\"fileId\":\"" + FILE_ID + "\"}]}"))
                                                                                                                            .isInstanceOfSatisfying(PackingInputInvalidException.class,
                                                                                                                                                    e -> assertThat(e.errors()).containsOnlyKeys("/schemaVersion"));
     }
@@ -127,8 +130,8 @@ class JsonSchemaPackingInputSchemaTest {
     void servesTheSchemaFileVerbatimWithAStableEtag() throws IOException {
         SchemaDocument document = schema.document();
 
-        assertThat(document.version()).isEqualTo(1);
-        assertThat(document.json()).isEqualTo(Files.readString(Path.of("..", "contracts", "packing-input", "v1", "job-input.schema.json")));
+        assertThat(document.version()).isEqualTo(2);
+        assertThat(document.json()).isEqualTo(Files.readString(Path.of("..", "contracts", "packing-input", "v2", "job-input.schema.json")));
         assertThat(document.etag()).matches("[0-9a-f]{64}")
                                    .isEqualTo(new JsonSchemaPackingInputSchema(new ObjectMapper()).document()
                                                                                                   .etag());
@@ -136,7 +139,7 @@ class JsonSchemaPackingInputSchemaTest {
 
     @Test
     void defaultsComeFromTheCurrentSchema() {
-        assertThat(schema.defaults()).isEqualTo(new Settings(60, new PackingParameters("{}")));
+        assertThat(schema.defaults()).isEqualTo(new Settings(60, DEFAULT_PARAMETERS));
     }
 
     @Test
@@ -176,16 +179,16 @@ class JsonSchemaPackingInputSchemaTest {
 
     @Test
     void reconcileResetsAnOutOfRangeRuntime() {
-        assertThat(schema.reconcile(new Settings(9_000, new PackingParameters("{}"))))
-                                                                                      .isEqualTo(new Reconciled(new Settings(60, new PackingParameters("{}")),
-                                                                                                                List.of("/maxRuntimeSeconds")));
+        assertThat(schema.reconcile(new Settings(9_000, DEFAULT_PARAMETERS)))
+                                                                             .isEqualTo(new Reconciled(new Settings(60, DEFAULT_PARAMETERS),
+                                                                                                       List.of("/maxRuntimeSeconds")));
     }
 
     @Test
     void reconcileDropsParametersTheSchemaNoLongerHas() {
-        assertThat(schema.reconcile(new Settings(60, new PackingParameters("{\"seed\":7}"))))
-                                                                                             .isEqualTo(new Reconciled(new Settings(60, new PackingParameters("{}")),
-                                                                                                                       List.of("/parameters/seed")));
+        assertThat(schema.reconcile(new Settings(60, new PackingParameters("{\"iterations\":7}"))))
+                                                                                                   .isEqualTo(new Reconciled(new Settings(60, DEFAULT_PARAMETERS),
+                                                                                                                             List.of("/parameters/iterations")));
     }
 
     @Test
@@ -199,5 +202,34 @@ class JsonSchemaPackingInputSchemaTest {
                                           .parameters()
                                           .json(),
                                 JSONCompareMode.STRICT);
+    }
+
+    @Test
+    void completesAPartlyGivenContainerFromItsDefaults() throws Exception {
+        ValidatedInput input = schema.validate("{\"items\":[{\"fileId\":\"" + FILE_ID + "\"}],\"parameters\":{\"container\":{\"width\":0.4}}}");
+
+        JSONAssert.assertEquals("{\"container\":{\"width\":0.4,\"length\":200,\"height\":200},\"gap\":0,\"algorithm\":\"anneal\",\"seed\":42}",
+                                input.parameters()
+                                     .json(),
+                                JSONCompareMode.STRICT);
+    }
+
+    @Test
+    void rejectsEngineOptionsThePackerWouldRefuse() {
+        assertThatThrownBy(() -> schema.validate("""
+            {"items":[{"fileId":"%s"}],
+             "parameters":{"container":{"width":0,"length":-1},"gap":-0.5,"algorithm":"greedy","seed":4294967296}}""".formatted(FILE_ID)))
+                                                                                                                                          .isInstanceOfSatisfying(PackingInputInvalidException.class,
+                                                                                                                                                                  e -> assertThat(e.errors()).containsOnlyKeys("/parameters/container/width",
+                                                                                                                                                                                                               "/parameters/container/length",
+                                                                                                                                                                                                               "/parameters/gap",
+                                                                                                                                                                                                               "/parameters/algorithm",
+                                                                                                                                                                                                               "/parameters/seed"));
+    }
+
+    @Test
+    void reconcilingAJobFromBeforeContainersFillsInTheDefaults() {
+        assertThat(schema.reconcile(new Settings(120, new PackingParameters("{}"))))
+                                                                                    .isEqualTo(new Reconciled(new Settings(120, DEFAULT_PARAMETERS), List.of()));
     }
 }

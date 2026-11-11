@@ -29,6 +29,7 @@ const (
 	metaEngineVersion   = "engineVersion"
 	metaEngineChecksum  = "engineChecksumSha256"
 	metaContractVersion = "contractVersion"
+	metaBinCount        = "binCount"
 )
 
 var ErrResultVanished = errors.New("azureio: result conflicted on create but is not stored")
@@ -36,6 +37,10 @@ var ErrResultVanished = errors.New("azureio: result conflicted on create but is 
 func requestKey(jobID string) string { return "packing-jobs/" + jobID + "/request.json" }
 
 func resultKey(jobID string) string { return "packing-jobs/" + jobID + "/result/output" }
+
+func binKey(jobID, resultChecksum string, number int) string {
+	return "packing-jobs/" + jobID + "/result/bins/" + resultChecksum + "/" + strconv.Itoa(number)
+}
 
 type BlobArtifacts struct {
 	container *container.Client
@@ -117,7 +122,7 @@ func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline
 		size = *properties.ContentLength
 	}
 
-	return &pipeline.StoredResult{
+	stored := &pipeline.StoredResult{
 		Engine: pipeline.EngineProvenance{
 			Version:  resultMetadataValue(properties.Metadata, metaEngineVersion),
 			Checksum: resultMetadataValue(properties.Metadata, metaEngineChecksum),
@@ -128,10 +133,47 @@ func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline
 			SizeBytes:   size,
 			Checksum:    resultMetadataValue(properties.Metadata, metaChecksum),
 		},
-	}, nil
+	}
+	bins, err := a.findBins(ctx, jobID, stored.Result, resultMetadataValue(properties.Metadata, metaBinCount))
+	if err != nil {
+		return nil, err
+	}
+	stored.Result.Bins = bins
+	return stored, nil
+}
+
+func (a *BlobArtifacts) findBins(ctx context.Context, jobID string, result pipeline.EngineResult, recorded string) ([]pipeline.ResultBin, error) {
+	count, err := strconv.Atoi(recorded)
+	if err != nil || count < 1 || count > contracts.MaxTotalCopies {
+		return nil, nil
+	}
+	if count == 1 {
+		return []pipeline.ResultBin{{SizeBytes: result.SizeBytes, Checksum: result.Checksum}}, nil
+	}
+	bins := make([]pipeline.ResultBin, 0, count)
+	for number := 1; number <= count; number++ {
+		properties, err := a.container.NewBlobClient(binKey(jobID, result.Checksum, number)).GetProperties(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("azureio: read bin %d of the result for job %s: %w", number, jobID, err)
+		}
+		bin := pipeline.ResultBin{Checksum: resultMetadataValue(properties.Metadata, metaChecksum)}
+		if properties.ContentLength != nil {
+			bin.SizeBytes = *properties.ContentLength
+		}
+		bins = append(bins, bin)
+	}
+	return bins, nil
 }
 
 func (a *BlobArtifacts) CreateResult(ctx context.Context, jobID, path string, result pipeline.StoredResult) (*pipeline.StoredResult, error) {
+	if len(result.Result.Bins) > 1 {
+		for i, bin := range result.Result.Bins {
+			if err := a.uploadBin(ctx, jobID, result.Result, i+1, bin); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("azureio: open result file for job %s: %w", jobID, err)
@@ -146,7 +188,7 @@ func (a *BlobArtifacts) CreateResult(ctx context.Context, jobID, path string, re
 		},
 	})
 	if err == nil {
-		return &result, nil
+		return storedForm(result), nil
 	}
 	if !bloberror.HasCode(err, bloberror.BlobAlreadyExists, bloberror.ConditionNotMet) {
 		return nil, fmt.Errorf("azureio: upload result for job %s: %w", jobID, err)
@@ -162,6 +204,32 @@ func (a *BlobArtifacts) CreateResult(ctx context.Context, jobID, path string, re
 	return existing, nil
 }
 
+func storedForm(result pipeline.StoredResult) *pipeline.StoredResult {
+	bins := make([]pipeline.ResultBin, len(result.Result.Bins))
+	for i, bin := range result.Result.Bins {
+		bins[i] = pipeline.ResultBin{SizeBytes: bin.SizeBytes, Checksum: bin.Checksum}
+	}
+	result.Result.Bins = bins
+	return &result
+}
+
+func (a *BlobArtifacts) uploadBin(ctx context.Context, jobID string, result pipeline.EngineResult, number int, bin pipeline.ResultBin) error {
+	file, err := os.Open(bin.Path)
+	if err != nil {
+		return fmt.Errorf("azureio: open bin %d for job %s: %w", number, jobID, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	_, err = a.container.NewBlockBlobClient(binKey(jobID, result.Checksum, number)).Upload(ctx, file, &blockblob.UploadOptions{
+		Metadata:    map[string]*string{metaChecksum: to.Ptr(bin.Checksum)},
+		HTTPHeaders: &blob.HTTPHeaders{BlobContentType: to.Ptr(result.ContentType)},
+	})
+	if err != nil {
+		return fmt.Errorf("azureio: upload bin %d for job %s: %w", number, jobID, err)
+	}
+	return nil
+}
+
 func resultMetadata(result pipeline.StoredResult) map[string]*string {
 	return map[string]*string{
 		metaFileName:        to.Ptr(result.Result.FileName),
@@ -170,6 +238,7 @@ func resultMetadata(result pipeline.StoredResult) map[string]*string {
 		metaEngineVersion:   to.Ptr(result.Engine.Version),
 		metaEngineChecksum:  to.Ptr(result.Engine.Checksum),
 		metaContractVersion: to.Ptr(strconv.Itoa(contracts.ActivityVersion)),
+		metaBinCount:        to.Ptr(strconv.Itoa(len(result.Result.Bins))),
 	}
 }
 

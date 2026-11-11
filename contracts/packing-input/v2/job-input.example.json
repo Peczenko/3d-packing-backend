@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "maxRuntimeSeconds": 120,
+  "parameters": {
+    "container": { "width": 0.4, "length": 0.4, "height": 0.3 },
+    "gap": 0.002,
+    "algorithm": "anneal",
+    "seed": 42
+  },
+  "items": [
+    { "fileId": "0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00", "fileName": "bunny.obj", "copies": 3 }
+  ]
+}

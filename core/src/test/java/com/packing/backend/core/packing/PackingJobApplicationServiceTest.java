@@ -9,6 +9,7 @@ import com.packing.backend.core.packing.PackingJobApplicationService.OmittedItem
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobDraft;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
 import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.packing.port.out.PackingInputSchema;
@@ -43,6 +44,7 @@ import com.packing.backend.domain.packing.PackingParameters;
 import com.packing.backend.domain.packing.PackingPreview;
 import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
+import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.domain.packing.event.PackingJobCancelled;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
@@ -77,6 +79,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -302,6 +305,59 @@ class PackingJobApplicationServiceTest {
 
         assertThat(result).isEqualTo(expected);
         verify(artifacts).createResultDownloadUrl(job.id(), Duration.ofMinutes(10));
+    }
+
+    @Test
+    void prepareResultBinDownloadNamesTheContainerAndSaysHowManyThereAre() {
+        UUID jobId = UUID.randomUUID();
+        PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, PackingPreview.NONE, TWO_BINS);
+        PackingJobArtifactStore.TemporaryUrl expected = new PackingJobArtifactStore.TemporaryUrl(
+                                                                                                 URI.create("https://storage.example/bin?sig=secret"),
+                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+        givenReadAccess();
+        when(repository.findById(job.id())).thenReturn(Optional.of(job));
+        when(artifacts.createResultBinUrl(job.id(),
+                                          "b".repeat(64),
+                                          2,
+                                          2,
+                                          Duration.ofMinutes(10),
+                                          "packing-job-" + jobId + "-bin-002.obj")).thenReturn(expected);
+
+        PackingJobArtifactStore.TemporaryUrl result = service.prepareResultBinDownload(
+                                                                                       new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, 2));
+
+        assertThat(result).isEqualTo(expected);
+    }
+
+    @Test
+    void prepareResultBinDownloadRejectsAnUnfinishedJobAndAContainerThatWasNeverFilled() {
+        UUID queuedId = UUID.randomUUID();
+        UUID succeededId = UUID.randomUUID();
+        givenReadAccess();
+        when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(queuedId)))
+                                                                                                .thenReturn(Optional.of(job(queuedId, PROJECT_ID, PackingJobStatus.QUEUED)));
+        when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(succeededId)))
+                                                                                                   .thenReturn(Optional.of(job(succeededId,
+                                                                                                                               PROJECT_ID,
+                                                                                                                               PackingJobStatus.SUCCEEDED,
+                                                                                                                               PackingPreview.NONE,
+                                                                                                                               TWO_BINS)));
+
+        assertThatThrownBy(() -> service.prepareResultBinDownload(new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), queuedId, 1)))
+                                                                                                                                               .isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> service.prepareResultBinDownload(new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), succeededId, 3)))
+                                                                                                                                                  .isInstanceOf(ResourceNotFoundException.class);
+        verify(artifacts, never()).createResultBinUrl(any(), any(), anyInt(), anyInt(), any(), any());
+    }
+
+    @Test
+    void prepareResultBinDownloadRejectsANonMemberBeforeLoadingTheJob() {
+        when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.prepareResultBinDownload(new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), UUID.randomUUID(), 1)))
+                                                                                                                                                        .isInstanceOf(ProjectNotFoundException.class);
+
+        verify(repository, never()).findById(any());
     }
 
     @Test
@@ -709,6 +765,7 @@ class PackingJobApplicationServiceTest {
                                   "model/obj",
                                   12L,
                                   "b".repeat(64),
+                                  List.of(),
                                   new PackingJobInputView(1, 120, PARAMETERS.json(), List.of(items)),
                                   PackingPreview.PENDING);
     }
@@ -761,6 +818,7 @@ class PackingJobApplicationServiceTest {
                                   null,
                                   null,
                                   null,
+                                  List.of(),
                                   null,
                                   PackingPreview.NONE);
     }
@@ -770,6 +828,10 @@ class PackingJobApplicationServiceTest {
     }
 
     private static PackingJob job(UUID id, ProjectId projectId, PackingJobStatus status, PackingPreview preview) {
+        return job(id, projectId, status, preview, List.of());
+    }
+
+    private static PackingJob job(UUID id, ProjectId projectId, PackingJobStatus status, PackingPreview preview, List<ResultBin> bins) {
         return PackingJob.rehydrate(new com.packing.backend.domain.packing.PackingJobId(id),
                                     projectId,
                                     USER_ID,
@@ -785,6 +847,7 @@ class PackingJobApplicationServiceTest {
                                     "application/octet-stream",
                                     "b".repeat(64),
                                     12L,
+                                    bins,
                                     status == PackingJobStatus.FAILED ? "packing failed" : null,
                                     preview,
                                     0,
@@ -794,6 +857,8 @@ class PackingJobApplicationServiceTest {
     private static PackingJobPreviewQuery previewQuery(UUID jobId, PreviewQuality quality, boolean download) {
         return new PackingJobPreviewQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, quality, download);
     }
+
+    private static final List<ResultBin> TWO_BINS = List.of(new ResultBin(7, "1".repeat(64)), new ResultBin(5, "2".repeat(64)));
 
     private static PackingPreview readyPreview() {
         return PackingPreview.ready(List.of(new PreviewModel(PreviewQuality.MEDIUM, 3, 320),

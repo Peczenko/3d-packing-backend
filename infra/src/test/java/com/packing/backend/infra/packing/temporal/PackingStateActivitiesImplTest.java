@@ -8,6 +8,7 @@ import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFailureDetails;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultBin;
 import io.temporal.spring.boot.ActivityImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +16,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.UUID;
 
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.VERSION;
@@ -56,7 +58,8 @@ class PackingStateActivitiesImplTest {
                                                     "output",
                                                     "application/json",
                                                     12,
-                                                    "b".repeat(64)));
+                                                    "b".repeat(64),
+                                                    List.of(new ResultBin(7, "1".repeat(64)), new ResultBin(5, "2".repeat(64)))));
 
         verify(workerEvents).apply(new PackingWorkerEvent.Succeeded(VERSION,
                                                                     JOB_ID,
@@ -65,7 +68,24 @@ class PackingStateActivitiesImplTest {
                                                                     "output",
                                                                     "application/json",
                                                                     12,
-                                                                    "b".repeat(64)));
+                                                                    "b".repeat(64),
+                                                                    List.of(new com.packing.backend.domain.packing.ResultBin(7, "1".repeat(64)),
+                                                                            new com.packing.backend.domain.packing.ResultBin(5, "2".repeat(64)))));
+    }
+
+    @Test
+    void recordsAResultFromBeforeBinsWithNone() {
+        activities.recordSucceeded(JOB, new EngineResult(3, "packer 0.3.0", CHECKSUM, "output", "application/json", 12, "b".repeat(64), null));
+
+        verify(workerEvents).apply(new PackingWorkerEvent.Succeeded(VERSION,
+                                                                    JOB_ID,
+                                                                    "packer 0.3.0",
+                                                                    CHECKSUM,
+                                                                    "output",
+                                                                    "application/json",
+                                                                    12,
+                                                                    "b".repeat(64),
+                                                                    List.of()));
     }
 
     @Test

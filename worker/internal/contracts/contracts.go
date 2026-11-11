@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	ActivityVersion = 3
+	ActivityVersion = 4
 	RequestVersion  = 3
 
 	RunEngineActivity   = "RunEngine"
@@ -55,13 +55,19 @@ type EngineStarted struct {
 }
 
 type EngineResult struct {
-	ContractVersion   int    `json:"contractVersion"`
-	EngineVersion     string `json:"engineVersion"`
-	EngineChecksum    string `json:"engineChecksum"`
-	ResultFileName    string `json:"resultFileName"`
-	ResultContentType string `json:"resultContentType"`
-	ResultSizeBytes   int64  `json:"resultSizeBytes"`
-	ResultChecksum    string `json:"resultChecksum"`
+	ContractVersion   int         `json:"contractVersion"`
+	EngineVersion     string      `json:"engineVersion"`
+	EngineChecksum    string      `json:"engineChecksum"`
+	ResultFileName    string      `json:"resultFileName"`
+	ResultContentType string      `json:"resultContentType"`
+	ResultSizeBytes   int64       `json:"resultSizeBytes"`
+	ResultChecksum    string      `json:"resultChecksum"`
+	ResultBins        []ResultBin `json:"resultBins"`
+}
+
+type ResultBin struct {
+	SizeBytes int64  `json:"sizeBytes"`
+	Checksum  string `json:"checksum"`
 }
 
 type EngineFailureDetails struct {

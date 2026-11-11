@@ -23,7 +23,7 @@ final class PackingJobQueries {
             PACKING_JOBS.STARTED_AT, PACKING_JOBS.FINISHED_AT,
             PACKING_JOBS.FAILURE_REASON, PACKING_JOBS.RESULT_FILE_NAME,
             PACKING_JOBS.RESULT_CONTENT_TYPE, PACKING_JOBS.RESULT_SIZE_BYTES,
-            PACKING_JOBS.RESULT_CHECKSUM_SHA256, PACKING_JOBS.INPUT_SCHEMA_VERSION,
+            PACKING_JOBS.RESULT_CHECKSUM_SHA256, PACKING_JOBS.RESULT_BINS, PACKING_JOBS.INPUT_SCHEMA_VERSION,
             PACKING_JOBS.ITEMS, PACKING_JOBS.PARAMETERS, PACKING_JOBS.PREVIEW_STATUS,
             PACKING_JOBS.PREVIEW_MODELS };
 
@@ -70,6 +70,7 @@ final class PackingJobQueries {
                                   record.get(PACKING_JOBS.RESULT_CONTENT_TYPE),
                                   record.get(PACKING_JOBS.RESULT_SIZE_BYTES),
                                   record.get(PACKING_JOBS.RESULT_CHECKSUM_SHA256),
+                                  PackingJobRecordMapper.resultBinsOf(record),
                                   input == null ? null : PackingJobInputView.of(input, record.get(PACKING_JOBS.MAX_RUNTIME_SECONDS)),
                                   PackingJobRecordMapper.previewOf(record));
     }

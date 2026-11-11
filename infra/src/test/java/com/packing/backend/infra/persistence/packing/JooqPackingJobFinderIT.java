@@ -578,6 +578,7 @@ class JooqPackingJobFinderIT {
                                               resultFileName == null ? null : "application/octet-stream",
                                               resultFileName == null ? null : "b".repeat(64),
                                               resultSizeBytes,
+                                              List.of(),
                                               failureReason,
                                               status == PackingJobStatus.SUCCEEDED ? PackingPreview.PENDING : PackingPreview.NONE,
                                               0,

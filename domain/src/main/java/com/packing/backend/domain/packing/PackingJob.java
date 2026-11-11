@@ -47,6 +47,7 @@ public final class PackingJob extends AggregateRoot {
     private String           resultContentType;
     private String           resultChecksum;
     private Long             resultSizeBytes;
+    private List<ResultBin>  resultBins;
     private String           failureReason;
     private PackingPreview   preview;
     private long             version;
@@ -66,6 +67,7 @@ public final class PackingJob extends AggregateRoot {
                        String resultContentType,
                        String resultChecksum,
                        Long resultSizeBytes,
+                       List<ResultBin> resultBins,
                        String failureReason,
                        PackingPreview preview,
                        long version,
@@ -86,6 +88,7 @@ public final class PackingJob extends AggregateRoot {
         this.resultContentType = resultContentType;
         this.resultChecksum = resultChecksum;
         this.resultSizeBytes = resultSizeBytes;
+        this.resultBins = List.copyOf(Objects.requireNonNull(resultBins, "resultBins"));
         this.failureReason = failureReason;
         this.preview = Objects.requireNonNull(preview, "preview");
         this.version = version;
@@ -113,6 +116,7 @@ public final class PackingJob extends AggregateRoot {
                                         null,
                                         null,
                                         null,
+                                        List.of(),
                                         null,
                                         PackingPreview.NONE,
                                         INITIAL_VERSION,
@@ -136,6 +140,7 @@ public final class PackingJob extends AggregateRoot {
                                        String resultContentType,
                                        String resultChecksum,
                                        Long resultSizeBytes,
+                                       List<ResultBin> resultBins,
                                        String failureReason,
                                        PackingPreview preview,
                                        long version,
@@ -155,6 +160,7 @@ public final class PackingJob extends AggregateRoot {
                               resultContentType,
                               resultChecksum,
                               resultSizeBytes,
+                              resultBins,
                               failureReason,
                               preview,
                               version,
@@ -186,6 +192,7 @@ public final class PackingJob extends AggregateRoot {
                            String contentType,
                            long sizeBytes,
                            String checksum,
+                           List<ResultBin> bins,
                            String version,
                            String engineChecksum,
                            Instant now) {
@@ -197,6 +204,7 @@ public final class PackingJob extends AggregateRoot {
         String requiredContentType = requireText(contentType, "resultContentType");
         requirePositiveSize(sizeBytes);
         String requiredChecksum = requireSha256(checksum, "resultChecksum");
+        List<ResultBin> requiredBins = requireBins(bins, sizeBytes, requiredChecksum);
         String requiredVersion = requireText(version, "engineVersion");
         String requiredEngineChecksum = requireSha256(engineChecksum, "engineChecksum");
         Instant finished = Objects.requireNonNull(now, "now");
@@ -205,6 +213,7 @@ public final class PackingJob extends AggregateRoot {
         resultContentType = requiredContentType;
         resultSizeBytes = sizeBytes;
         resultChecksum = requiredChecksum;
+        resultBins = requiredBins;
         this.engineVersion = requiredVersion;
         this.engineChecksum = requiredEngineChecksum;
         status = PackingJobStatus.SUCCEEDED;
@@ -283,6 +292,16 @@ public final class PackingJob extends AggregateRoot {
                       .orElseThrow(() -> new ResourceNotFoundException("Packing job " + id + " has no " + quality + " preview"));
     }
 
+    public ResultBin requireResultBin(int number) {
+        if (status != PackingJobStatus.SUCCEEDED) {
+            throw new ResourceConflictException("Packing job result is not available until the job succeeds");
+        }
+        if (number < 1 || number > resultBins.size()) {
+            throw new ResourceNotFoundException("Packing job " + id + " has no result bin " + number);
+        }
+        return resultBins.get(number - 1);
+    }
+
     public void markPersisted() {
         version++;
     }
@@ -328,6 +347,15 @@ public final class PackingJob extends AggregateRoot {
         if (sizeBytes <= 0) {
             throw new DomainRuleViolationException("resultSizeBytes must be positive");
         }
+    }
+
+    private static List<ResultBin> requireBins(List<ResultBin> bins, long sizeBytes, String checksum) {
+        List<ResultBin> copied = List.copyOf(Objects.requireNonNull(bins, "bins"));
+        if (copied.size() == 1 && !copied.getFirst()
+                                         .equals(new ResultBin(sizeBytes, checksum))) {
+            throw new DomainRuleViolationException("A single result bin must be the whole result");
+        }
+        return copied;
     }
 
     private static String requireText(String value, String field) {

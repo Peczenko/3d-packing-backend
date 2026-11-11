@@ -1,6 +1,7 @@
 package com.packing.backend.api.packing;
 
 import com.packing.backend.core.notification.port.out.ErrorAlerter;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
@@ -106,6 +107,32 @@ class PackingJobResultControllerTest {
                             PROJECT_ID,
                             UUID.randomUUID()))
                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void binRedirectsToTheTemporaryUrlOfTheRequestedContainer() throws Exception {
+        authenticate();
+        UUID jobId = UUID.randomUUID();
+        when(jobs.prepareResultBinDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+                                                                                                       URI.create("https://storage.example/packing-jobs/result/bins/2?sig=secret"),
+                                                                                                       Instant.parse("2026-11-11T10:25:30Z")));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result/bins/2", PROJECT_ID, jobId))
+               .andExpect(status().isFound())
+               .andExpect(header().string("Location", "https://storage.example/packing-jobs/result/bins/2?sig=secret"))
+               .andExpect(header().string("Cache-Control", "no-store"));
+
+        verify(jobs).prepareResultBinDownload(new PackingJobResultBinQuery(UID, PROJECT_ID, jobId, 2));
+    }
+
+    @Test
+    void aContainerNumberThatIsNotANumberIsABadRequest() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result/bins/first", PROJECT_ID, UUID.randomUUID()))
+               .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(jobs);
     }
 
     @Test
