@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ import (
 
 const (
 	resultContentType = "model/obj"
+	manifestSuffix    = ".json"
 	terminateGrace    = 5 * time.Second
 	maxStderrBytes    = 8 << 10
 	killedReason      = "packer was killed, most likely for exceeding the worker's memory limit"
@@ -112,28 +114,85 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 		}
 	}
 
-	info, err := os.Stat(request.OutputPath)
+	combined, err := describeOutput(request.OutputPath)
 	if err != nil {
-		return pipeline.EngineResult{}, fmt.Errorf("engine: stat packer output %q: %w", request.OutputPath, err)
+		return pipeline.EngineResult{}, err
 	}
-	if !info.Mode().IsRegular() {
-		return pipeline.EngineResult{}, fmt.Errorf("engine: packer output %q is not a regular file", request.OutputPath)
-	}
-	if info.Size() == 0 {
-		return pipeline.EngineResult{}, fmt.Errorf("engine: packer output %q is empty", request.OutputPath)
-	}
-
-	checksum, err := digest.File(request.OutputPath)
+	bins, err := readBins(request.OutputPath, combined)
 	if err != nil {
-		return pipeline.EngineResult{}, fmt.Errorf("engine: checksum packer output %q: %w", request.OutputPath, err)
+		return pipeline.EngineResult{}, err
 	}
 
 	return pipeline.EngineResult{
 		FileName:    filepath.Base(request.OutputPath),
 		ContentType: resultContentType,
-		SizeBytes:   info.Size(),
-		Checksum:    checksum,
+		SizeBytes:   combined.SizeBytes,
+		Checksum:    combined.Checksum,
+		Bins:        bins,
 	}, nil
+}
+
+func describeOutput(path string) (pipeline.ResultBin, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return pipeline.ResultBin{}, fmt.Errorf("engine: stat packer output %q: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return pipeline.ResultBin{}, fmt.Errorf("engine: packer output %q is not a regular file", path)
+	}
+	if info.Size() == 0 {
+		return pipeline.ResultBin{}, fmt.Errorf("engine: packer output %q is empty", path)
+	}
+	checksum, err := digest.File(path)
+	if err != nil {
+		return pipeline.ResultBin{}, fmt.Errorf("engine: checksum packer output %q: %w", path, err)
+	}
+	return pipeline.ResultBin{Path: path, SizeBytes: info.Size(), Checksum: checksum}, nil
+}
+
+func readBins(outputPath string, combined pipeline.ResultBin) ([]pipeline.ResultBin, error) {
+	manifestPath := outputPath + manifestSuffix
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("engine: read packer manifest: %w", err)
+	}
+	var manifest struct {
+		BinCount int `json:"bin_count"`
+		Bins     []struct {
+			ID  int     `json:"id"`
+			Obj *string `json:"obj"`
+		} `json:"bins"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("engine: parse packer manifest %q: %w", manifestPath, err)
+	}
+	if manifest.BinCount < 1 || len(manifest.Bins) != manifest.BinCount {
+		return nil, fmt.Errorf("engine: packer manifest lists %d bins for a bin count of %d", len(manifest.Bins), manifest.BinCount)
+	}
+	if manifest.BinCount == 1 {
+		return []pipeline.ResultBin{combined}, nil
+	}
+
+	workspace, err := filepath.Abs(filepath.Dir(outputPath))
+	if err != nil {
+		return nil, fmt.Errorf("engine: resolve packer workspace: %w", err)
+	}
+	bins := make([]pipeline.ResultBin, 0, manifest.BinCount)
+	for i, entry := range manifest.Bins {
+		if entry.ID != i || entry.Obj == nil {
+			return nil, fmt.Errorf("engine: packer manifest entry %d does not name bin %d's OBJ", i, i)
+		}
+		path := filepath.Clean(*entry.Obj)
+		if filepath.Dir(path) != workspace {
+			return nil, fmt.Errorf("engine: packer wrote bin %d outside its workspace: %q", i, path)
+		}
+		bin, err := describeOutput(path)
+		if err != nil {
+			return nil, err
+		}
+		bins = append(bins, bin)
+	}
+	return bins, nil
 }
 
 func arguments(seconds int64, request pipeline.RunRequest) []string {

@@ -3,6 +3,7 @@ package com.packing.backend.infra.packing.temporal;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFailureDetails;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultBin;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.RunEngineInput;
 import com.packing.backend.infra.packing.temporal.PackingJobWorkflow.PackingJobInput;
 import io.temporal.activity.Activity;
@@ -59,7 +60,8 @@ class PackingJobWorkflowImplTest {
                                                                      "output",
                                                                      "application/json",
                                                                      12,
-                                                                     "b".repeat(64));
+                                                                     "b".repeat(64),
+                                                                     List.of(new ResultBin(12, "b".repeat(64))));
 
     private final List<RunEngineInput> engineInputs  = new CopyOnWriteArrayList<>();
     private final List<String>         previewInputs = new CopyOnWriteArrayList<>();

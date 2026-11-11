@@ -251,6 +251,10 @@ func engineFailure(engine EngineProvenance, reason string) error {
 }
 
 func toEngineResult(stored StoredResult) contracts.EngineResult {
+	bins := make([]contracts.ResultBin, 0, len(stored.Result.Bins))
+	for _, bin := range stored.Result.Bins {
+		bins = append(bins, contracts.ResultBin{SizeBytes: bin.SizeBytes, Checksum: bin.Checksum})
+	}
 	return contracts.EngineResult{
 		ContractVersion:   contracts.ActivityVersion,
 		EngineVersion:     stored.Engine.Version,
@@ -259,6 +263,7 @@ func toEngineResult(stored StoredResult) contracts.EngineResult {
 		ResultContentType: stored.Result.ContentType,
 		ResultSizeBytes:   stored.Result.SizeBytes,
 		ResultChecksum:    stored.Result.Checksum,
+		ResultBins:        bins,
 	}
 }
 
@@ -277,6 +282,24 @@ func validateStoredResult(stored StoredResult) error {
 	}
 	if !sha256Hex.MatchString(stored.Result.Checksum) {
 		return fmt.Errorf("result checksum %q is not a SHA-256 hex string", stored.Result.Checksum)
+	}
+	return validateBins(stored.Result)
+}
+
+func validateBins(result EngineResult) error {
+	if len(result.Bins) == 0 {
+		return errors.New("result lists no bins")
+	}
+	for i, bin := range result.Bins {
+		if bin.SizeBytes <= 0 {
+			return fmt.Errorf("bin %d size %d is not positive", i+1, bin.SizeBytes)
+		}
+		if !sha256Hex.MatchString(bin.Checksum) {
+			return fmt.Errorf("bin %d checksum %q is not a SHA-256 hex string", i+1, bin.Checksum)
+		}
+	}
+	if only := result.Bins[0]; len(result.Bins) == 1 && (only.SizeBytes != result.SizeBytes || only.Checksum != result.Checksum) {
+		return errors.New("a single bin is not the combined result")
 	}
 	return nil
 }

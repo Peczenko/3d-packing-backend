@@ -198,7 +198,7 @@ func TestDecodeRequestRejectsEnvelopesOutsideTheContract(t *testing.T) {
 		{"format the engine cannot read", func(r *wireRequest) { r.Items[0].Format = "STL" }, ErrUnsupportedFormat},
 		{"parameters not an object", func(r *wireRequest) { r.Parameters = json.RawMessage(`[]`) }, ErrInvalidParameters},
 		{"missing parameters", func(r *wireRequest) { r.Parameters = nil }, ErrInvalidParameters},
-		{"unknown parameter", func(r *wireRequest) { r.Parameters = json.RawMessage(`{"seed":7}`) }, ErrInvalidParameters},
+		{"unknown parameter", func(r *wireRequest) { r.Parameters = json.RawMessage(`{"iterations":7}`) }, ErrInvalidParameters},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := DecodeRequest(encodeRequest(t, tc.mutate))

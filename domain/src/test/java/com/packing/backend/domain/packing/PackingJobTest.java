@@ -48,6 +48,7 @@ class PackingJobTest {
                     "application/octet-stream",
                     12,
                     SHA_B,
+                    List.of(),
                     "packer 0.3.0",
                     SHA_A,
                     NOW.plusSeconds(3));
@@ -70,6 +71,7 @@ class PackingJobTest {
                                "application/octet-stream",
                                12,
                                SHA_B,
+                               List.of(),
                                "packer 0.3.0",
                                SHA_A,
                                NOW.plusSeconds(1))).isTrue();
@@ -173,6 +175,7 @@ class PackingJobTest {
                                "application/octet-stream",
                                12,
                                SHA_B,
+                               List.of(),
                                "packer 0.3.0",
                                SHA_A,
                                NOW.plusSeconds(3))).isFalse();
@@ -191,6 +194,7 @@ class PackingJobTest {
                                "application/octet-stream",
                                99,
                                SHA_A,
+                               List.of(),
                                "different",
                                SHA_B,
                                NOW.plusSeconds(3))).isFalse();
@@ -213,6 +217,7 @@ class PackingJobTest {
                                "application/octet-stream",
                                12,
                                SHA_B,
+                               List.of(),
                                "packer 0.3.0",
                                SHA_A,
                                NOW.plusSeconds(3))).isFalse();
@@ -249,6 +254,7 @@ class PackingJobTest {
                     "application/octet-stream",
                     12,
                     SHA_B.toUpperCase(),
+                    List.of(),
                     "packer 0.3.0",
                     SHA_A.toUpperCase(),
                     NOW.plusSeconds(2));
@@ -311,7 +317,7 @@ class PackingJobTest {
         PackingJob job = succeededJob();
         job.pullDomainEvents();
 
-        job.succeed("output.bin", "application/octet-stream", 12, SHA_B, "packer 0.3.0", SHA_A, NOW.plusSeconds(3));
+        job.succeed("output.bin", "application/octet-stream", 12, SHA_B, List.of(), "packer 0.3.0", SHA_A, NOW.plusSeconds(3));
         job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(4));
         job.failStalled("dead-lettered", NOW.plusSeconds(5));
 
@@ -365,7 +371,7 @@ class PackingJobTest {
         job.pullDomainEvents();
 
         assertThat(job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(2))).isFalse();
-        assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B, "packer 0.3.0", SHA_A, NOW.plusSeconds(3))).isFalse();
+        assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B, List.of(), "packer 0.3.0", SHA_A, NOW.plusSeconds(3))).isFalse();
         assertThat(job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(4))).isFalse();
         assertThat(job.failStalled("dead-lettered", NOW.plusSeconds(5))).isFalse();
 
@@ -402,6 +408,7 @@ class PackingJobTest {
                                               null,
                                               null,
                                               null,
+                                              List.of(),
                                               "engine exited",
                                               PackingPreview.NONE,
                                               7,
@@ -430,6 +437,7 @@ class PackingJobTest {
                                               "application/octet-stream",
                                               SHA_B,
                                               12L,
+                                              List.of(),
                                               null,
                                               PackingPreview.NONE,
                                               3,
@@ -514,6 +522,49 @@ class PackingJobTest {
     }
 
     @Test
+    void succeedingRecordsEachFilledContainerInOrder() {
+        PackingJob job = queuedJob();
+        List<ResultBin> bins = List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_B.toUpperCase()));
+
+        job.succeed("packed.obj", "model/obj", 12, SHA_B, bins, "v0.0.5", SHA_A, NOW.plusSeconds(2));
+
+        assertThat(job.resultBins()).containsExactly(new ResultBin(7, SHA_A), new ResultBin(5, SHA_B));
+        assertThat(job.requireResultBin(2)).isEqualTo(new ResultBin(5, SHA_B));
+    }
+
+    @Test
+    void aSingleContainerMustBeTheWholeResult() {
+        PackingJob job = queuedJob();
+
+        assertThatThrownBy(() -> job.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(11, SHA_B)), "v0.0.5", SHA_A, NOW))
+                                                                                                                                            .isInstanceOf(DomainRuleViolationException.class);
+        assertThat(job.status()).isEqualTo(PackingJobStatus.QUEUED);
+        assertThat(job.resultBins()).isEmpty();
+
+        job.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)), "v0.0.5", SHA_A, NOW);
+        assertThat(job.requireResultBin(1)).isEqualTo(new ResultBin(12, SHA_B));
+    }
+
+    @Test
+    void requireResultBinDistinguishesAnUnfinishedJobFromAContainerNeverFilled() {
+        PackingJob queued = queuedJob();
+        PackingJob twoBins = queuedJob();
+        twoBins.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_A)), "v0.0.5", SHA_A, NOW);
+        PackingJob beforeBins = succeededJob();
+
+        assertThatThrownBy(() -> queued.requireResultBin(1)).isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> twoBins.requireResultBin(0)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> twoBins.requireResultBin(3)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> beforeBins.requireResultBin(1)).isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void resultBinsRejectEmptyFilesAndMalformedChecksums() {
+        assertThatThrownBy(() -> new ResultBin(0, SHA_A)).isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> new ResultBin(1, "nope")).isInstanceOf(DomainRuleViolationException.class);
+    }
+
+    @Test
     void previewModelsRejectEmptyGeometryAndEmptyFiles() {
         assertThatThrownBy(() -> new PreviewModel(PreviewQuality.LOW, 0, 10)).isInstanceOf(DomainRuleViolationException.class);
         assertThatThrownBy(() -> new PreviewModel(PreviewQuality.LOW, 10, 0)).isInstanceOf(DomainRuleViolationException.class);
@@ -534,6 +585,7 @@ class PackingJobTest {
                     "application/octet-stream",
                     12,
                     SHA_B,
+                    List.of(),
                     "packer 0.3.0",
                     SHA_A,
                     NOW.plusSeconds(2));

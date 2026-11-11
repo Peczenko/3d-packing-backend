@@ -46,7 +46,7 @@ import java.util.UUID;
 @Component
 public class JsonSchemaPackingInputSchema implements PackingInputSchema {
 
-    public static final int CURRENT_VERSION = 1;
+    public static final int CURRENT_VERSION = 2;
 
     static final String RESOURCE = "packing-input/v" + CURRENT_VERSION + "/job-input.schema.json";
 

@@ -94,19 +94,33 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
 
     @Override
     public TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity) {
+        return resultUrl(resultKey(jobId), validity, null, "issue result download URL", jobId);
+    }
+
+    @Override
+    public TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity,
+                                           String attachmentFileName) {
+        String key = binCount == 1 ? resultKey(jobId) : resultBinKey(jobId, resultChecksum, number);
+        return resultUrl(key, validity, attachmentFileName, "issue result bin " + number + " URL", jobId);
+    }
+
+    private TemporaryUrl resultUrl(String key, Duration validity, String attachmentFileName, String operation, PackingJobId jobId) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         OffsetDateTime expiry = now.plus(validity);
         BlobServiceSasSignatureValues values = new BlobServiceSasSignatureValues(
                                                                                  expiry,
                                                                                  new BlobSasPermission().setReadPermission(true))
                                                                                                                                  .setStartTime(now.minusMinutes(CLOCK_SKEW_ALLOWANCE_MINUTES));
-        BlobClient blob = container.getBlobClient(resultKey(jobId));
+        if (attachmentFileName != null) {
+            values.setContentDisposition(AttachmentDisposition.of(attachmentFileName));
+        }
+        BlobClient blob = container.getBlobClient(key);
         try {
             return new TemporaryUrl(
                                     URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)),
                                     expiry.toInstant());
         } catch (BlobStorageException e) {
-            throw external("issue result download URL", jobId, e);
+            throw external(operation, jobId, e);
         }
     }
 
@@ -228,6 +242,10 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
 
     private static String resultKey(PackingJobId id) {
         return "packing-jobs/" + id + "/result/output";
+    }
+
+    private static String resultBinKey(PackingJobId id, String resultChecksum, int number) {
+        return "packing-jobs/" + id + "/result/bins/" + resultChecksum + "/" + number;
     }
 
     private static String previewKey(PackingJobId id, PreviewQuality quality) {

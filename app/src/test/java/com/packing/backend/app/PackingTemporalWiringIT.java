@@ -20,6 +20,7 @@ import com.packing.backend.domain.user.User;
 import com.packing.backend.domain.user.Username;
 import com.packing.backend.infra.TestcontainersConfiguration;
 import com.packing.backend.infra.packing.temporal.PackingEngineActivity;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultBin;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
@@ -192,7 +193,8 @@ class PackingTemporalWiringIT {
                                     "output",
                                     "application/json",
                                     12,
-                                    "b".repeat(64));
+                                    "b".repeat(64),
+                                    List.of(new ResultBin(12, "b".repeat(64))));
         }
     }
 
@@ -213,6 +215,12 @@ class PackingTemporalWiringIT {
 
         @Override
         public TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity,
+                                               String attachmentFileName) {
             throw new UnsupportedOperationException();
         }
 

@@ -4,6 +4,7 @@ import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.domain.packing.PreviewQuality;
@@ -46,6 +47,22 @@ public class PackingJobResultController {
                                          @PathVariable UUID projectId,
                                          @PathVariable UUID jobId) {
         return redirect(jobs.prepareResultDownload(new PackingJobResultQuery(caller.firebaseUid(), projectId, jobId)));
+    }
+
+    @GetMapping("/{jobId}/result/bins/{number}")
+    @Operation(operationId = "downloadPackingJobResultBin",
+               summary = "Redirect to a short-lived download URL for one filled container of a job result")
+    @ApiResponse(responseCode = "302",
+                 description = "Redirect to the container's OBJ, in its own coordinates",
+                 headers = @Header(name = HttpHeaders.LOCATION,
+                                   description = "Short-lived storage URL",
+                                   schema = @Schema(type = "string", format = "uri")))
+    public ResponseEntity<Void> downloadBin(@CurrentUser AuthenticatedUser caller,
+                                            @PathVariable UUID projectId,
+                                            @PathVariable UUID jobId,
+                                            @Parameter(description = "One-based container number, as listed in resultBins")
+                                            @PathVariable int number) {
+        return redirect(jobs.prepareResultBinDownload(new PackingJobResultBinQuery(caller.firebaseUid(), projectId, jobId, number)));
     }
 
     @GetMapping("/{jobId}/preview/{quality}")

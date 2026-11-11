@@ -5,12 +5,14 @@ import com.packing.backend.core.packing.PackingPreviewService;
 import com.packing.backend.core.packing.PackingWorkerEventService;
 import com.packing.backend.core.packing.message.PackingWorkerEvent;
 import com.packing.backend.domain.packing.PackingJobId;
+import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFailureDetails;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
 import io.temporal.spring.boot.ActivityImpl;
 import lombok.RequiredArgsConstructor;
 
+import java.util.List;
 import java.util.UUID;
 
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.VERSION;
@@ -40,7 +42,8 @@ public class PackingStateActivitiesImpl implements PackingStateActivities {
                                                             result.resultFileName(),
                                                             result.resultContentType(),
                                                             result.resultSizeBytes(),
-                                                            result.resultChecksum()));
+                                                            result.resultChecksum(),
+                                                            resultBins(result)));
     }
 
     @Override
@@ -65,6 +68,16 @@ public class PackingStateActivitiesImpl implements PackingStateActivities {
     @Override
     public void recordPreviewFailed(String jobId) {
         previews.fail(id(jobId));
+    }
+
+    private static List<ResultBin> resultBins(EngineResult result) {
+        if (result.resultBins() == null) {
+            return List.of();
+        }
+        return result.resultBins()
+                     .stream()
+                     .map(bin -> new ResultBin(bin.sizeBytes(), bin.checksum()))
+                     .toList();
     }
 
     private static PackingJobId id(String jobId) {

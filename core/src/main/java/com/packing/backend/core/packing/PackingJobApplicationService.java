@@ -136,6 +136,22 @@ public class PackingJobApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public PackingJobArtifactStore.TemporaryUrl prepareResultBinDownload(PackingJobResultBinQuery query) {
+        ProjectAccess project = requireAccess(query.firebaseUid(),
+                                              query.projectId(),
+                                              ProjectPermission.READ);
+        PackingJob job = requireJob(project.projectId(), new PackingJobId(query.jobId()));
+        job.requireResultBin(query.number());
+        return artifacts.createResultBinUrl(job.id(),
+                                            job.resultChecksum(),
+                                            query.number(),
+                                            job.resultBins()
+                                               .size(),
+                                            DOWNLOAD_URL_VALIDITY,
+                                            resultBinFileName(job.id(), query.number()));
+    }
+
+    @Transactional(readOnly = true)
     public PackingJobArtifactStore.TemporaryUrl preparePreviewDownload(PackingJobPreviewQuery query) {
         ProjectAccess project = requireAccess(query.firebaseUid(),
                                               query.projectId(),
@@ -240,6 +256,10 @@ public class PackingJobApplicationService {
                                                             .collect(Collectors.joining(", "));
     }
 
+    private static String resultBinFileName(PackingJobId jobId, int number) {
+        return "packing-job-" + jobId + "-bin-" + String.format(Locale.ROOT, "%03d", number) + ".obj";
+    }
+
     private static String previewFileName(PackingJobId jobId, PreviewQuality quality) {
         return "packing-job-" + jobId + "-" + quality.name()
                                                      .toLowerCase(Locale.ROOT)
@@ -305,6 +325,9 @@ public class PackingJobApplicationService {
     }
 
     public record PackingJobResultQuery(String firebaseUid, UUID projectId, UUID jobId) {
+    }
+
+    public record PackingJobResultBinQuery(String firebaseUid, UUID projectId, UUID jobId, int number) {
     }
 
     public record PackingJobPreviewQuery(String firebaseUid, UUID projectId, UUID jobId, PreviewQuality quality, boolean download) {

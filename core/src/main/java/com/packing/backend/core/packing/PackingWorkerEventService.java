@@ -33,6 +33,7 @@ public class PackingWorkerEventService {
                                                                        succeeded.resultContentType(),
                                                                        succeeded.resultSizeBytes(),
                                                                        succeeded.resultChecksum(),
+                                                                       succeeded.resultBins(),
                                                                        succeeded.engineVersion(),
                                                                        succeeded.engineChecksum(),
                                                                        clock.instant());
