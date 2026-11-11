@@ -134,6 +134,7 @@ class PackingPreviewServiceTest {
                                     "model/obj",
                                     "b".repeat(64),
                                     12L,
+                                    List.of(),
                                     null,
                                     preview,
                                     1,

@@ -19,6 +19,8 @@ public interface PackingJobArtifactStore {
 
     TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity);
 
+    TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity, String attachmentFileName);
+
     InputStream openResult(PackingJobId jobId);
 
     void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb);

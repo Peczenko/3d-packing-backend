@@ -20,6 +20,7 @@ import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingPreview;
+import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -175,6 +176,7 @@ class PackingJobControllerTest {
                                                                null,
                                                                null,
                                                                null,
+                                                               List.of(),
                                                                INPUT,
                                                                PackingPreview.NONE));
 
@@ -212,6 +214,7 @@ class PackingJobControllerTest {
                                                    null,
                                                    null,
                                                    null,
+                                                   List.of(),
                                                    null,
                                                    PackingPreview.NONE);
         when(jobs.get(any())).thenReturn(legacy);
@@ -385,6 +388,36 @@ class PackingJobControllerTest {
     }
 
     @Test
+    void detailNumbersTheFilledContainersFromOne() throws Exception {
+        authenticate();
+        UUID jobId = UUID.randomUUID();
+        when(jobs.get(any())).thenReturn(new PackingJobView(jobId,
+                                                            PROJECT_ID,
+                                                            PackingJobStatus.SUCCEEDED,
+                                                            "v0.0.5",
+                                                            "a".repeat(64),
+                                                            Instant.parse("2026-11-11T10:15:30Z"),
+                                                            Instant.parse("2026-11-11T10:15:31Z"),
+                                                            Instant.parse("2026-11-11T10:16:31Z"),
+                                                            null,
+                                                            "packed.obj",
+                                                            "model/obj",
+                                                            12L,
+                                                            "b".repeat(64),
+                                                            List.of(new ResultBin(7, "1".repeat(64)), new ResultBin(5, "2".repeat(64))),
+                                                            INPUT,
+                                                            PackingPreview.PENDING));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}", PROJECT_ID, jobId))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.resultBins.length()").value(2))
+               .andExpect(jsonPath("$.resultBins[0].number").value(1))
+               .andExpect(jsonPath("$.resultBins[0].sizeBytes").value(7))
+               .andExpect(jsonPath("$.resultBins[1].number").value(2))
+               .andExpect(jsonPath("$.resultBins[1].checksum").value("2".repeat(64)));
+    }
+
+    @Test
     void draftPassesTheOptionalSourceJobAndReturnsTheSubmittableInput() throws Exception {
         authenticate();
         UUID from = UUID.randomUUID();
@@ -460,6 +493,7 @@ class PackingJobControllerTest {
                                   null,
                                   null,
                                   null,
+                                  List.of(),
                                   INPUT,
                                   PackingPreview.NONE);
     }

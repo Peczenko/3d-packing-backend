@@ -5,6 +5,7 @@ import com.google.protobuf.ByteString;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFailureDetails;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultBin;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.RunEngineInput;
 import io.temporal.api.common.v1.Payload;
 import io.temporal.common.converter.JacksonJsonPayloadConverter;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,7 +37,7 @@ class PackingEngineContractTest {
     void engineStartedSignalMatchesItsExample() throws IOException {
         assertRoundTrip("engine-started-signal.example.json",
                         EngineStarted.class,
-                        new EngineStarted(PackingEngineContract.VERSION, "packer 0.3.0", CHECKSUM));
+                        new EngineStarted(PackingEngineContract.VERSION, "v0.0.5", CHECKSUM));
     }
 
     @Test
@@ -43,19 +45,20 @@ class PackingEngineContractTest {
         assertRoundTrip("run-engine-result.example.json",
                         EngineResult.class,
                         new EngineResult(PackingEngineContract.VERSION,
-                                         "packer 0.3.0",
+                                         "v0.0.5",
                                          CHECKSUM,
-                                         "output.bin",
-                                         "application/octet-stream",
-                                         12,
-                                         "b".repeat(64)));
+                                         "packed.obj",
+                                         "model/obj",
+                                         30,
+                                         "b".repeat(64),
+                                         List.of(new ResultBin(18, "c".repeat(64)), new ResultBin(12, "d".repeat(64)))));
     }
 
     @Test
     void engineFailureDetailsMatchItsExample() throws IOException {
         assertRoundTrip("engine-failure-details.example.json",
                         EngineFailureDetails.class,
-                        new EngineFailureDetails(PackingEngineContract.VERSION, "packer 0.3.0", CHECKSUM, "packer exited with code 2"));
+                        new EngineFailureDetails(PackingEngineContract.VERSION, "v0.0.5", CHECKSUM, "packer exited with code 2"));
     }
 
     private <T> void assertRoundTrip(String example, Class<T> type, T expected) throws IOException {

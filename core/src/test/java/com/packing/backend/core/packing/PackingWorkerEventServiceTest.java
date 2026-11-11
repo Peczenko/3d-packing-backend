@@ -8,6 +8,7 @@ import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.DomainEvent;
@@ -26,6 +27,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -150,6 +152,7 @@ class PackingWorkerEventServiceTest {
                     "application/octet-stream",
                     1,
                     "d".repeat(64),
+                    List.of(),
                     STARTED_VERSION,
                     STARTED_CHECKSUM,
                     NOW.minusSeconds(1));
@@ -246,6 +249,7 @@ class PackingWorkerEventServiceTest {
                     "application/octet-stream",
                     1234,
                     RESULT_CHECKSUM,
+                    List.of(),
                     FINAL_VERSION,
                     FINAL_CHECKSUM,
                     NOW.minusSeconds(1));
@@ -303,7 +307,8 @@ class PackingWorkerEventServiceTest {
                                                 "result.bin",
                                                 "application/octet-stream",
                                                 1234,
-                                                RESULT_CHECKSUM);
+                                                RESULT_CHECKSUM,
+                                                List.of(new ResultBin(1234, RESULT_CHECKSUM)));
     }
 
     private static PackingWorkerEvent.Failed failed(PackingJobId jobId) {

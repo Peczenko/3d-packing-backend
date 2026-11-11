@@ -10,6 +10,7 @@ import com.packing.backend.domain.packing.PackingParameters;
 import com.packing.backend.domain.packing.PackingPreview;
 import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
+import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectName;
@@ -129,6 +130,7 @@ class JooqPackingJobRepositoryIT {
                     "application/octet-stream",
                     12,
                     RESULT_CHECKSUM.toUpperCase(),
+                    List.of(),
                     "packer 0.3.0",
                     ENGINE_CHECKSUM.toUpperCase(),
                     now());
@@ -144,7 +146,7 @@ class JooqPackingJobRepositoryIT {
     @Test
     void persistsAPendingPreviewAndThenItsModels() {
         PackingJob job = queuedJob(now());
-        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, "packer 0.3.0", ENGINE_CHECKSUM, now());
+        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, List.of(), "packer 0.3.0", ENGINE_CHECKSUM, now());
         repository().save(job);
         PackingJob pending = repository().findById(job.id())
                                          .orElseThrow();
@@ -161,7 +163,7 @@ class JooqPackingJobRepositoryIT {
     @Test
     void persistsAFailedPreview() {
         PackingJob job = queuedJob(now());
-        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, "packer 0.3.0", ENGINE_CHECKSUM, now());
+        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, List.of(), "packer 0.3.0", ENGINE_CHECKSUM, now());
         job.failPreview();
 
         repository().save(job);
@@ -178,6 +180,28 @@ class JooqPackingJobRepositoryIT {
                                     .set(PACKING_JOBS.PREVIEW_MODELS, JSONB.valueOf("[]"))
                                     .where(PACKING_JOBS.ID.eq(job.id()))
                                     .execute()).hasStackTraceContaining("ck_packing_jobs_preview_models");
+    }
+
+    @Test
+    void persistsTheResultBinsInOrder() {
+        PackingJob job = queuedJob(now());
+        List<ResultBin> bins = List.of(new ResultBin(7, "1".repeat(64)), new ResultBin(5, "2".repeat(64)));
+        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, bins, "v0.0.5", ENGINE_CHECKSUM, now());
+
+        repository().save(job);
+
+        assertThat(repository().findById(job.id())).hasValueSatisfying(found -> assertThat(found.resultBins()).isEqualTo(bins));
+    }
+
+    @Test
+    void theDatabaseRejectsResultBinsOnAJobThatHasNotSucceeded() {
+        PackingJob job = queuedJob(now());
+        repository().save(job);
+
+        assertThatThrownBy(() -> dsl.update(PACKING_JOBS)
+                                    .set(PACKING_JOBS.RESULT_BINS, JSONB.valueOf("[{\"sizeBytes\":1,\"checksum\":\"" + "a".repeat(64) + "\"}]"))
+                                    .where(PACKING_JOBS.ID.eq(job.id()))
+                                    .execute()).hasStackTraceContaining("ck_packing_jobs_result_bins");
     }
 
     @Test

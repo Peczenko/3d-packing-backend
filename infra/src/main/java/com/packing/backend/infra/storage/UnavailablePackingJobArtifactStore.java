@@ -33,6 +33,12 @@ class UnavailablePackingJobArtifactStore implements PackingJobArtifactStore {
     }
 
     @Override
+    public TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity,
+                                           String attachmentFileName) {
+        throw unavailable();
+    }
+
+    @Override
     public InputStream openResult(PackingJobId jobId) {
         throw unavailable();
     }

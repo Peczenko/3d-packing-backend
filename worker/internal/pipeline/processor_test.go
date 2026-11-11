@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -213,14 +214,19 @@ var (
 		ContentType: "model/obj",
 		SizeBytes:   13,
 		Checksum:    strings.Repeat("c", 64),
+		Bins:        []ResultBin{{Path: "packed.obj", SizeBytes: 13, Checksum: strings.Repeat("c", 64)}},
 	}
 	createdResult = StoredResult{
-		Engine: EngineProvenance{Version: "v0.0.3", Checksum: strings.Repeat("b", 64)},
+		Engine: EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("b", 64)},
 		Result: EngineResult{
 			FileName:    "packed.obj",
 			ContentType: "model/obj",
 			SizeBytes:   99,
 			Checksum:    strings.Repeat("d", 64),
+			Bins: []ResultBin{
+				{SizeBytes: 60, Checksum: strings.Repeat("1", 64)},
+				{SizeBytes: 39, Checksum: strings.Repeat("2", 64)},
+			},
 		},
 	}
 	storedResult = StoredResult{
@@ -230,6 +236,7 @@ var (
 			ContentType: "model/obj",
 			SizeBytes:   42,
 			Checksum:    strings.Repeat("f", 64),
+			Bins:        []ResultBin{{SizeBytes: 42, Checksum: strings.Repeat("f", 64)}},
 		},
 	}
 )
@@ -384,8 +391,12 @@ func TestRunEngineSuccessCallsPortsInOrderAndReturnsTheStoredWinner(t *testing.T
 		ResultContentType: createdResult.Result.ContentType,
 		ResultSizeBytes:   createdResult.Result.SizeBytes,
 		ResultChecksum:    createdResult.Result.Checksum,
+		ResultBins: []contracts.ResultBin{
+			{SizeBytes: 60, Checksum: strings.Repeat("1", 64)},
+			{SizeBytes: 39, Checksum: strings.Repeat("2", 64)},
+		},
 	}
-	if result != want {
+	if !reflect.DeepEqual(result, want) {
 		t.Fatalf("result = %+v, want the stored winner %+v", result, want)
 	}
 }
@@ -490,7 +501,7 @@ func TestRunEngineBuildsRunRequestFromEnvelope(t *testing.T) {
 	}
 	h.artifacts.mu.Lock()
 	defer h.artifacts.mu.Unlock()
-	if h.artifacts.createPath != request.OutputPath || h.artifacts.createOffered.Result != engineResult {
+	if h.artifacts.createPath != request.OutputPath || !reflect.DeepEqual(h.artifacts.createOffered.Result, engineResult) {
 		t.Fatalf("uploaded %s with %+v, want the packer output %s with %+v", h.artifacts.createPath, h.artifacts.createOffered.Result, request.OutputPath, engineResult)
 	}
 }
@@ -515,15 +526,35 @@ func TestRunEngineReturnsAStoredResultWithoutRunningThePacker(t *testing.T) {
 }
 
 func TestRunEngineRejectsAnUnusableStoredResultForRetry(t *testing.T) {
-	h := newHarness(t)
-	broken := cloneResult(storedResult)
-	broken.Result.Checksum = "not-a-checksum"
-	h.artifacts.find = broken
+	for _, tc := range []struct {
+		name    string
+		corrupt func(*StoredResult)
+	}{
+		{"result checksum", func(r *StoredResult) { r.Result.Checksum = "not-a-checksum" }},
+		{"no bins", func(r *StoredResult) { r.Result.Bins = nil }},
+		{"a bin without a size", func(r *StoredResult) {
+			r.Result.Bins = []ResultBin{{SizeBytes: 1, Checksum: strings.Repeat("1", 64)}, {Checksum: strings.Repeat("2", 64)}}
+		}},
+		{"a bin checksum", func(r *StoredResult) {
+			r.Result.Bins = []ResultBin{{SizeBytes: 1, Checksum: strings.Repeat("1", 64)}, {SizeBytes: 1, Checksum: "x"}}
+		}},
+		{"a single bin that is not the combined result", func(r *StoredResult) {
+			r.Result.Bins = []ResultBin{{SizeBytes: 41, Checksum: r.Result.Checksum}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			broken := cloneResult(storedResult)
+			broken.Result.Bins = slices.Clone(broken.Result.Bins)
+			tc.corrupt(broken)
+			h.artifacts.find = broken
 
-	_, err := h.run(input())
+			_, err := h.run(input())
 
-	assertRetryable(t, err)
-	assertNoCalls(t, h.rec.snapshot(), "signal:engineStarted", "run")
+			assertRetryable(t, err)
+			assertNoCalls(t, h.rec.snapshot(), "signal:engineStarted", "run")
+		})
+	}
 }
 
 func TestRunEngineReportsAnEngineFailureAsNonRetryableWithItsDetails(t *testing.T) {
@@ -620,7 +651,7 @@ func TestRunEngineRejectsAnInvalidRequestWithoutRunningThePacker(t *testing.T) {
 	}{
 		{name: "another request version", request: []byte(`{"requestVersion":1,"maxRuntimeSeconds":60,"spec":{}}`)},
 		{name: "a format the engine cannot read", request: requestBodyWith("STL", "{}")},
-		{name: "an unknown parameter", request: requestBodyWith("OBJ", `{"seed":7}`)},
+		{name: "an unknown parameter", request: requestBodyWith("OBJ", `{"iterations":7}`)},
 		{name: "not JSON", request: []byte(`{not json`)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

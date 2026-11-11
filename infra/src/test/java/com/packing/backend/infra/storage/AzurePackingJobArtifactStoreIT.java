@@ -301,6 +301,41 @@ class AzurePackingJobArtifactStoreIT {
         Files.delete(file);
     }
 
+    @Test
+    void signsEachBinWhereTheWorkerStoredItAndASingleBinAsTheWholeResult() throws Exception {
+        PackingJobId jobId = jobId();
+        String checksum = "d".repeat(64);
+        byte[] combined = "both bins".getBytes(StandardCharsets.UTF_8);
+        byte[] second = "bin two".getBytes(StandardCharsets.UTF_8);
+        uploadResult(jobId, Map.of(), combined);
+        container.getBlobClient("packing-jobs/" + jobId + "/result/bins/" + checksum + "/2")
+                 .upload(new ByteArrayInputStream(second), second.length);
+
+        PackingJobArtifactStore.TemporaryUrl bin = artifacts.createResultBinUrl(jobId,
+                                                                                checksum,
+                                                                                2,
+                                                                                2,
+                                                                                Duration.ofMinutes(10),
+                                                                                "packing-job-" + jobId + "-bin-002.obj");
+        PackingJobArtifactStore.TemporaryUrl only = artifacts.createResultBinUrl(jobId,
+                                                                                 checksum,
+                                                                                 1,
+                                                                                 1,
+                                                                                 Duration.ofMinutes(10),
+                                                                                 "packing-job-" + jobId + "-bin-001.obj");
+
+        HttpResponse<byte[]> binResponse = fetch(bin.url());
+        assertThat(binResponse.body()).isEqualTo(second);
+        assertThat(binResponse.headers()
+                              .firstValue("Content-Disposition")).hasValueSatisfying(disposition -> assertThat(disposition).contains("packing-job-"
+                                      + jobId + "-bin-002.obj"));
+        assertThat(fetch(only.url()).body()).isEqualTo(combined);
+        assertThat(bin.expiresAt()).isBetween(java.time.Instant.now()
+                                                               .plusSeconds(540),
+                                              java.time.Instant.now()
+                                                               .plusSeconds(660));
+    }
+
     private static PackingRequestEnvelope envelope(long runtime, String parameters) {
         FileId fileId = new FileId(UUID.fromString("0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00"));
         return new PackingRequestEnvelope(PackingRequestEnvelope.VERSION,

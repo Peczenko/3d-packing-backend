@@ -16,6 +16,7 @@ import com.packing.backend.domain.packing.PackingPreview;
 import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.packing.PreviewStatus;
+import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.infra.persistence.jooq.tables.records.PackingJobsRecord;
 import com.packing.backend.infra.persistence.shared.AggregateTable;
 import org.jooq.Field;
@@ -48,6 +49,8 @@ final class PackingJobRecordMapper {
                                                                                   };
     private static final TypeReference<List<PreviewModelJson>> PREVIEW_MODEL_LIST = new TypeReference<>() {
                                                                                   };
+    private static final TypeReference<List<ResultBinJson>>    RESULT_BIN_LIST    = new TypeReference<>() {
+                                                                                  };
 
     private PackingJobRecordMapper() {
     }
@@ -69,6 +72,7 @@ final class PackingJobRecordMapper {
                                     record.getResultContentType(),
                                     record.getResultChecksumSha256(),
                                     record.getResultSizeBytes(),
+                                    resultBinsOf(record),
                                     record.getFailureReason(),
                                     previewOf(record),
                                     record.getVersion(),
@@ -97,6 +101,7 @@ final class PackingJobRecordMapper {
         record.setResultContentType(job.resultContentType());
         record.setResultSizeBytes(job.resultSizeBytes());
         record.setResultChecksumSha256(job.resultChecksum());
+        record.setResultBins(resultBinsToJson(job.resultBins()));
         record.setPreviewStatus(job.preview()
                                    .status());
         record.setPreviewModels(previewModelsToJson(job.preview()));
@@ -119,6 +124,35 @@ final class PackingJobRecordMapper {
         JSONB models = record.get(PACKING_JOBS.PREVIEW_MODELS);
         return new PackingPreview(record.get(PACKING_JOBS.PREVIEW_STATUS),
                                   models == null ? List.of() : previewModelsFromJson(models));
+    }
+
+    static List<ResultBin> resultBinsOf(Record record) {
+        JSONB bins = record.get(PACKING_JOBS.RESULT_BINS);
+        if (bins == null) {
+            return List.of();
+        }
+        try {
+            return JSON.readValue(bins.data(), RESULT_BIN_LIST)
+                       .stream()
+                       .map(bin -> new ResultBin(bin.sizeBytes(), bin.checksum()))
+                       .toList();
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Stored result bins are unreadable", e);
+        }
+    }
+
+    private static JSONB resultBinsToJson(List<ResultBin> bins) {
+        if (bins.isEmpty()) {
+            return null;
+        }
+        List<ResultBinJson> json = bins.stream()
+                                       .map(bin -> new ResultBinJson(bin.sizeBytes(), bin.checksum()))
+                                       .toList();
+        try {
+            return JSONB.valueOf(JSON.writeValueAsString(json));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Cannot encode result bins", e);
+        }
     }
 
     private static JSONB previewModelsToJson(PackingPreview preview) {
@@ -202,5 +236,8 @@ final class PackingJobRecordMapper {
     }
 
     record PreviewModelJson(String quality, long triangles, long sizeBytes) {
+    }
+
+    record ResultBinJson(long sizeBytes, String checksum) {
     }
 }

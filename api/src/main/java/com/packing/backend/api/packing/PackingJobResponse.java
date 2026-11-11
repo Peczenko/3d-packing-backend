@@ -4,6 +4,7 @@ import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.domain.packing.PackingJobStatus;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public record PackingJobResponse(
@@ -20,6 +21,7 @@ public record PackingJobResponse(
         String resultContentType,
         Long resultSizeBytes,
         String resultChecksum,
+        List<PackingJobResultBinResponse> resultBins,
         PackingJobInputResponse input,
         PackingJobPreviewResponse preview) {
 
@@ -38,6 +40,7 @@ public record PackingJobResponse(
                                       view.resultContentType(),
                                       view.resultSizeBytes(),
                                       view.resultChecksum(),
+                                      PackingJobResultBinResponse.listFrom(view.resultBins()),
                                       view.input() == null ? null : PackingJobInputResponse.from(view.input()),
                                       PackingJobPreviewResponse.from(view.preview()));
     }

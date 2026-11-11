@@ -45,3 +45,39 @@ func TestParameterArgsAcceptsNoParameters(t *testing.T) {
 		t.Fatalf("ParameterArgs({}) = (%q, %v), want (none, nil)", args, err)
 	}
 }
+
+func TestEngineParametersBecomePackerFlags(t *testing.T) {
+	args, err := ParameterArgs(json.RawMessage(`{"container":{"width":0.4,"length":200,"height":1e21},"gap":0.002,"algorithm":"constructive","seed":4294967295.0}`))
+	if err != nil {
+		t.Fatalf("ParameterArgs: %v", err)
+	}
+	want := []string{
+		"--algorithm", "constructive",
+		"--width", "0.4", "--length", "200", "--height", "1e+21",
+		"--gap", "0.002",
+		"--seed", "4294967295",
+	}
+	if !slices.Equal(args, want) {
+		t.Fatalf("args = %q, want %q", args, want)
+	}
+}
+
+func TestEngineParametersRejectWhatThePackerWouldRefuse(t *testing.T) {
+	for _, parameters := range []string{
+		`{"container":{"width":1,"length":1}}`,
+		`{"container":{"width":1,"length":1,"height":0}}`,
+		`{"container":{"width":1,"length":1,"height":1,"depth":1}}`,
+		`{"container":null}`,
+		`{"gap":-1}`,
+		`{"gap":null}`,
+		`{"gap":"1"}`,
+		`{"algorithm":"greedy"}`,
+		`{"seed":-1}`,
+		`{"seed":1.5}`,
+		`{"seed":4294967296}`,
+	} {
+		if _, err := ParameterArgs(json.RawMessage(parameters)); !errors.Is(err, ErrInvalidParameters) {
+			t.Fatalf("ParameterArgs(%s) error = %v, want ErrInvalidParameters", parameters, err)
+		}
+	}
+}

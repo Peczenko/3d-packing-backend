@@ -42,7 +42,7 @@ const azuriteTimeout = 30 * time.Second
 func TestBlobArtifacts(t *testing.T) {
 	connectionString := os.Getenv(storageEnv)
 	if connectionString == "" {
-		skipOrFail(t, fmt.Sprintf("%s is unset, so nothing in TestBlobArtifacts ran — both derived blob keys, the six "+
+		skipOrFail(t, fmt.Sprintf("%s is unset, so nothing in TestBlobArtifacts ran — the derived blob keys, the seven "+
 			"metadata names, the content-type header and the absence rules are asserted nowhere else. "+
 			"Start the emulator with `docker compose up -d azurite` and set %s to its connection string "+
 			"(DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=...;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;) "+
@@ -195,7 +195,8 @@ func TestBlobArtifacts(t *testing.T) {
 			"checksumSha256":       to.Ptr(strings.Repeat("a", 64)),
 			"engineVersion":        to.Ptr("packer 0.3.0"),
 			"engineChecksumSha256": to.Ptr(strings.Repeat("b", 64)),
-			"contractVersion":      to.Ptr("1"),
+			"contractVersion":      to.Ptr("4"),
+			"binCount":             to.Ptr("1"),
 		})
 
 		stored, err := artifacts.FindResult(ctx, jobID)
@@ -212,6 +213,7 @@ func TestBlobArtifacts(t *testing.T) {
 				ContentType: "application/octet-stream",
 				SizeBytes:   int64(len(body)),
 				Checksum:    strings.Repeat("a", 64),
+				Bins:        []pipeline.ResultBin{{SizeBytes: int64(len(body)), Checksum: strings.Repeat("a", 64)}},
 			},
 		}
 		if !reflect.DeepEqual(*stored, want) {
@@ -219,13 +221,64 @@ func TestBlobArtifacts(t *testing.T) {
 		}
 	})
 
-	t.Run("creates a result carrying the six metadata values", func(t *testing.T) {
+	t.Run("finds every bin of an existing multi-bin result under its checksum", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		jobID := newJobID(t)
+		checksum := strings.Repeat("a", 64)
+
+		putBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/bins/"+checksum+"/1", []byte("bin one"), map[string]*string{
+			"checksumSha256": to.Ptr(strings.Repeat("1", 64)),
+		})
+		putBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/bins/"+checksum+"/2", []byte("bin two!"), map[string]*string{
+			"checksumSha256": to.Ptr(strings.Repeat("2", 64)),
+		})
+		putBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/output", []byte("both bins"), map[string]*string{
+			"fileName":             to.Ptr("packed.obj"),
+			"contentType":          to.Ptr("model/obj"),
+			"checksumSha256":       to.Ptr(checksum),
+			"engineVersion":        to.Ptr("v0.0.5"),
+			"engineChecksumSha256": to.Ptr(strings.Repeat("b", 64)),
+			"contractVersion":      to.Ptr("4"),
+			"binCount":             to.Ptr("2"),
+		})
+
+		stored, err := artifacts.FindResult(ctx, jobID)
+		if err != nil {
+			t.Fatalf("FindResult: %v", err)
+		}
+		want := []pipeline.ResultBin{
+			{SizeBytes: 7, Checksum: strings.Repeat("1", 64)},
+			{SizeBytes: 8, Checksum: strings.Repeat("2", 64)},
+		}
+		if stored == nil || !reflect.DeepEqual(stored.Result.Bins, want) {
+			t.Fatalf("FindResult = %+v, want bins %+v", stored, want)
+		}
+	})
+
+	t.Run("a multi-bin result whose bin is missing is an error, not a result", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		jobID := newJobID(t)
+
+		putBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/output", []byte("both bins"), map[string]*string{
+			"checksumSha256": to.Ptr(strings.Repeat("a", 64)),
+			"binCount":       to.Ptr("2"),
+		})
+
+		if stored, err := artifacts.FindResult(ctx, jobID); err == nil {
+			t.Fatalf("FindResult = %+v, want an error for the missing bins", stored)
+		}
+	})
+
+	t.Run("creates a result carrying the seven metadata values", func(t *testing.T) {
 		ctx, client, cfg := newAzuriteContainer(t, connectionString)
 		artifacts := NewBlobArtifacts(client, cfg)
 		jobID := newJobID(t)
 		body := []byte(`{"placements":[{"id":"a"}]}`)
 
 		const contentType = "application/vnd.packing+json"
+		path := writeTempFile(t, body)
 		result := pipeline.StoredResult{
 			Engine: pipeline.EngineProvenance{Version: "packer 0.3.0", Checksum: strings.Repeat("c", 64)},
 			Result: pipeline.EngineResult{
@@ -233,18 +286,24 @@ func TestBlobArtifacts(t *testing.T) {
 				ContentType: contentType,
 				SizeBytes:   int64(len(body)),
 				Checksum:    strings.Repeat("d", 64),
+				Bins:        []pipeline.ResultBin{{Path: path, SizeBytes: int64(len(body)), Checksum: strings.Repeat("d", 64)}},
 			},
 		}
 
-		created, err := artifacts.CreateResult(ctx, jobID, writeTempFile(t, body), result)
+		created, err := artifacts.CreateResult(ctx, jobID, path, result)
 		if err != nil {
 			t.Fatalf("CreateResult: %v", err)
 		}
 		if created == nil {
 			t.Fatal("CreateResult = nil, want the created metadata")
 		}
-		if !reflect.DeepEqual(*created, result) {
-			t.Errorf("CreateResult = %+v, want %+v", *created, result)
+		want := result
+		want.Result.Bins = []pipeline.ResultBin{{SizeBytes: int64(len(body)), Checksum: strings.Repeat("d", 64)}}
+		if !reflect.DeepEqual(*created, want) {
+			t.Errorf("CreateResult = %+v, want %+v", *created, want)
+		}
+		if blobs := listBlobs(t, ctx, client, cfg, "packing-jobs/"+jobID+"/"); len(blobs) != 1 {
+			t.Errorf("stored %d blobs (%v), want only the combined result for a single bin", len(blobs), blobs)
 		}
 
 		properties, downloaded := readBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/output")
@@ -265,6 +324,7 @@ func TestBlobArtifacts(t *testing.T) {
 			"engineVersion":        "packer 0.3.0",
 			"engineChecksumSha256": strings.Repeat("c", 64),
 			"contractVersion":      strconv.Itoa(contracts.ActivityVersion),
+			"binCount":             "1",
 		}
 		if len(properties.Metadata) != len(wantMetadata) {
 			t.Errorf("stored %d metadata entries, want %d: %v", len(properties.Metadata), len(wantMetadata), metadataNames(properties.Metadata))
@@ -273,6 +333,51 @@ func TestBlobArtifacts(t *testing.T) {
 			if got := resultMetadataValue(properties.Metadata, name); got != want {
 				t.Errorf("stored metadata %s = %q, want %q (present: %v)", name, got, want, metadataNames(properties.Metadata))
 			}
+		}
+	})
+
+	t.Run("creates each bin of a multi-bin result under the combined checksum", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		jobID := newJobID(t)
+		checksum := strings.Repeat("d", 64)
+		bodies := [][]byte{[]byte("bin one"), []byte("bin two!")}
+		result := pipeline.StoredResult{
+			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("c", 64)},
+			Result: pipeline.EngineResult{
+				FileName:    "packed.obj",
+				ContentType: "model/obj",
+				SizeBytes:   9,
+				Checksum:    checksum,
+				Bins: []pipeline.ResultBin{
+					{Path: writeTempFile(t, bodies[0]), SizeBytes: 7, Checksum: strings.Repeat("1", 64)},
+					{Path: writeTempFile(t, bodies[1]), SizeBytes: 8, Checksum: strings.Repeat("2", 64)},
+				},
+			},
+		}
+
+		if _, err := artifacts.CreateResult(ctx, jobID, writeTempFile(t, []byte("both bins")), result); err != nil {
+			t.Fatalf("CreateResult: %v", err)
+		}
+
+		for i, body := range bodies {
+			properties, downloaded := readBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/bins/"+checksum+"/"+strconv.Itoa(i+1))
+			if !bytes.Equal(downloaded, body) {
+				t.Errorf("bin %d body = %q, want %q", i+1, downloaded, body)
+			}
+			if got := resultMetadataValue(properties.Metadata, metaChecksum); got != result.Result.Bins[i].Checksum {
+				t.Errorf("bin %d checksum metadata = %q, want %q", i+1, got, result.Result.Bins[i].Checksum)
+			}
+			if properties.ContentType == nil || *properties.ContentType != "model/obj" {
+				t.Errorf("bin %d content type = %s, want model/obj", i+1, showString(properties.ContentType))
+			}
+		}
+		found, err := artifacts.FindResult(ctx, jobID)
+		if err != nil {
+			t.Fatalf("FindResult: %v", err)
+		}
+		if found == nil || !reflect.DeepEqual(found.Result.Bins, storedForm(result).Result.Bins) {
+			t.Fatalf("FindResult = %+v, want the bins just created", found)
 		}
 	})
 
@@ -289,14 +394,16 @@ func TestBlobArtifacts(t *testing.T) {
 				body: []byte(`{"writer":"a"}`),
 				stored: pipeline.StoredResult{
 					Engine: pipeline.EngineProvenance{Version: "packer 0.3.0", Checksum: strings.Repeat("1", 64)},
-					Result: pipeline.EngineResult{FileName: "output", ContentType: "application/octet-stream", SizeBytes: 14, Checksum: strings.Repeat("2", 64)},
+					Result: pipeline.EngineResult{FileName: "output", ContentType: "application/octet-stream", SizeBytes: 14, Checksum: strings.Repeat("2", 64),
+						Bins: []pipeline.ResultBin{{SizeBytes: 14, Checksum: strings.Repeat("2", 64)}}},
 				},
 			},
 			{
 				body: []byte(`{"writer":"b","padding":"longer"}`),
 				stored: pipeline.StoredResult{
 					Engine: pipeline.EngineProvenance{Version: "packer 0.4.0", Checksum: strings.Repeat("3", 64)},
-					Result: pipeline.EngineResult{FileName: "output", ContentType: "application/octet-stream", SizeBytes: 33, Checksum: strings.Repeat("4", 64)},
+					Result: pipeline.EngineResult{FileName: "output", ContentType: "application/octet-stream", SizeBytes: 33, Checksum: strings.Repeat("4", 64),
+						Bins: []pipeline.ResultBin{{SizeBytes: 33, Checksum: strings.Repeat("4", 64)}}},
 				},
 			},
 		}
@@ -335,7 +442,7 @@ func TestBlobArtifacts(t *testing.T) {
 		}
 
 		winner := *reported[0]
-		if winner != candidates[0].stored && winner != candidates[1].stored {
+		if !reflect.DeepEqual(winner, candidates[0].stored) && !reflect.DeepEqual(winner, candidates[1].stored) {
 			t.Fatalf("agreed result %+v is neither caller's", winner)
 		}
 
@@ -345,7 +452,7 @@ func TestBlobArtifacts(t *testing.T) {
 
 		properties, downloaded := readBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/output")
 		wantBody := candidates[0].body
-		if winner == candidates[1].stored {
+		if reflect.DeepEqual(winner, candidates[1].stored) {
 			wantBody = candidates[1].body
 		}
 		if !bytes.Equal(downloaded, wantBody) {

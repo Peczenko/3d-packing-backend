@@ -170,6 +170,12 @@ class GltfpackPreviewRendererIT {
         }
 
         @Override
+        public TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity,
+                                               String attachmentFileName) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
             throw new UnsupportedOperationException();
         }
