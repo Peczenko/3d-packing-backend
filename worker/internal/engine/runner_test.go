@@ -303,7 +303,7 @@ func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
 
 	dir := t.TempDir()
 	shim := filepath.Join(dir, "packer")
-	script := "#!/bin/sh\necho packed > \"$4\"\n"
+	script := "#!/bin/sh\necho packed > \"$4\"\necho '{\"bin_count\":1,\"bins\":[{\"id\":0,\"obj\":null}]}' > \"$4.json\"\n"
 	if err := os.WriteFile(shim, []byte(script), 0o700); err != nil {
 		t.Fatalf("write shim: %v", err)
 	}
