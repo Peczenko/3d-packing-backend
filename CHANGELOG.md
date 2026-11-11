@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.6.0...v1.7.0) (2026-11-11)
+
+
+### Features
+
+* packer v0.0.5 with per-container results ([#93](https://github.com/Peczenko/3d-packing-backend/issues/93)) ([78ab798](https://github.com/Peczenko/3d-packing-backend/commit/78ab798aca7719cced4396ed0a1c54c48c32ccc1))
+
+
+### Chores & Dependencies
+
+* merge master into dev ([bd4347f](https://github.com/Peczenko/3d-packing-backend/commit/bd4347f5da7fad8eadf539205e8daf0df7ec6c7f))
+
 ## [1.6.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.5.0...v1.6.0) (2026-11-07)
 
 
