@@ -8,6 +8,7 @@ import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
+import com.packing.backend.domain.file.ConvertedObj;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StoredFile;
@@ -96,12 +97,15 @@ class JooqFileFinderIT {
 
     private StoredFile persistFile(ProjectId projectId, UserId uploader, String filename,
                                    long sizeBytes, Instant createdAt) {
-        StoredFile file = StoredFile.upload(FileId.generate(),
+        FileId id = FileId.generate();
+        FileName name = new FileName(filename);
+        StoredFile file = StoredFile.upload(id,
                                             uploader,
                                             projectId,
-                                            new FileName(filename),
+                                            name,
                                             sizeBytes,
                                             CHECKSUM,
+                                            name.format() == ModelFormat.OBJ ? null : ConvertedObj.of(id, 4_096L, CHECKSUM),
                                             createdAt);
         repository().save(file);
         return file;
@@ -229,6 +233,7 @@ class JooqFileFinderIT {
                                           assertThat(view.projectId()).isEqualTo(project.value());
                                           assertThat(view.filename()).isEqualTo("bracket.stl");
                                           assertThat(view.format()).isEqualTo(ModelFormat.STL);
+                                          assertThat(view.packingFormat()).isEqualTo(ModelFormat.OBJ);
                                           assertThat(view.sizeBytes()).isEqualTo(2_048L);
                                           assertThat(view.checksumSha256()).isEqualTo(CHECKSUM.value());
                                       });

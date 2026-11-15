@@ -1,6 +1,7 @@
 package com.packing.backend.infra.persistence.file;
 
 import com.packing.backend.domain.file.Checksum;
+import com.packing.backend.domain.file.ConvertedObj;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.StorageKey;
 import com.packing.backend.domain.file.StoredFile;
@@ -25,6 +26,9 @@ final class FileRecordMapper {
                                                                                            FILES.CONTENT_TYPE,
                                                                                            FILES.SIZE_BYTES,
                                                                                            FILES.CHECKSUM_SHA256,
+                                                                                           FILES.CONVERTED_STORAGE_KEY,
+                                                                                           FILES.CONVERTED_SIZE_BYTES,
+                                                                                           FILES.CONVERTED_CHECKSUM_SHA256,
                                                                                            FILES.CREATED_AT));
 
     private FileRecordMapper() {
@@ -40,6 +44,7 @@ final class FileRecordMapper {
                                     record.getFormat(),
                                     record.getSizeBytes(),
                                     Checksum.ofHex(record.getChecksumSha256()),
+                                    convertedObj(record),
                                     record.getStatus(),
                                     record.getVersion(),
                                     record.getCreatedAt(),
@@ -61,11 +66,28 @@ final class FileRecordMapper {
         record.setSizeBytes(file.sizeBytes());
         record.setChecksumSha256(file.checksum()
                                      .value());
+        ConvertedObj converted = file.convertedObj();
+        if (converted != null) {
+            record.setConvertedStorageKey(converted.storageKey()
+                                                   .value());
+            record.setConvertedSizeBytes(converted.sizeBytes());
+            record.setConvertedChecksumSha256(converted.checksum()
+                                                       .value());
+        }
         record.setStatus(file.status());
         record.setVersion(file.version());
         record.setCreatedAt(file.createdAt());
         record.setUpdatedAt(file.updatedAt());
         record.setDeletedAt(file.deletedAt());
         return record;
+    }
+
+    private static ConvertedObj convertedObj(FilesRecord record) {
+        if (record.getConvertedStorageKey() == null) {
+            return null;
+        }
+        return new ConvertedObj(new StorageKey(record.getConvertedStorageKey()),
+                                record.getConvertedSizeBytes(),
+                                Checksum.ofHex(record.getConvertedChecksumSha256()));
     }
 }

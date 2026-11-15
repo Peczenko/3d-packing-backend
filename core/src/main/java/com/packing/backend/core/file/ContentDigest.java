@@ -17,6 +17,10 @@ public record ContentDigest(long sizeBytes, Checksum checksum) {
     private static final int BUFFER_BYTES = 8192;
 
     public static ContentDigest of(ContentSource source) {
+        return of(source, StoredFile.MAX_SIZE_BYTES, "File");
+    }
+
+    public static ContentDigest of(ContentSource source, long maxBytes, String subject) {
         MessageDigest digest = sha256();
         long size = 0;
         try (InputStream stream = source.open()) {
@@ -25,8 +29,8 @@ public record ContentDigest(long sizeBytes, Checksum checksum) {
             while ((read = stream.read(buffer)) != -1) {
                 digest.update(buffer, 0, read);
                 size += read;
-                if (size > StoredFile.MAX_SIZE_BYTES) {
-                    throw new DomainRuleViolationException("File must be at most " + StoredFile.MAX_SIZE_BYTES + " bytes");
+                if (size > maxBytes) {
+                    throw new DomainRuleViolationException(subject + " must be at most " + maxBytes + " bytes");
                 }
             }
         } catch (IOException e) {

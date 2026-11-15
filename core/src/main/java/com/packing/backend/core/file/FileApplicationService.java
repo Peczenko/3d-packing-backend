@@ -3,6 +3,8 @@ package com.packing.backend.core.file;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.file.port.out.FileFinder;
 import com.packing.backend.core.file.port.out.FileRepository;
+import com.packing.backend.core.file.port.out.ModelConverter;
+import com.packing.backend.core.file.port.out.ModelConverter.ConvertedModel;
 import com.packing.backend.core.file.port.out.SampleModelCatalog;
 import com.packing.backend.core.project.ProjectAccessGuard;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
@@ -10,8 +12,11 @@ import com.packing.backend.core.shared.ContentSource;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
+import com.packing.backend.domain.file.ConvertedObj;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
+import com.packing.backend.domain.file.ModelFormat;
+import com.packing.backend.domain.file.StorageKey;
 import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.file.StoredFileNotFoundException;
 import com.packing.backend.domain.project.ProjectId;
@@ -34,6 +39,7 @@ public class FileApplicationService {
     private final FileRepository       files;
     private final FileFinder           fileFinder;
     private final BinaryStorage        storage;
+    private final ModelConverter       converter;
     private final SampleModelCatalog   samples;
     private final ProjectAccessGuard   projectAccess;
     private final DomainEventPublisher eventPublisher;
@@ -96,23 +102,47 @@ public class FileApplicationService {
     }
 
     private FileView store(ProjectAccess access, FileName name, ContentSource source) {
+        ModelFormat format = name.format();
+        format.requireUploadable();
         ContentDigest digest = ContentDigest.of(source);
-        StoredFile file = StoredFile.upload(FileId.generate(),
-                                            access.userId(),
-                                            access.projectId(),
-                                            name,
-                                            digest.sizeBytes(),
-                                            digest.checksum(),
-                                            clock.instant());
+        FileId id = FileId.generate();
+        if (format == ModelFormat.OBJ) {
+            StoredFile file = StoredFile.upload(id, access.userId(), access.projectId(), name, digest.sizeBytes(), digest.checksum(), clock.instant());
+            return persist(file, source, null);
+        }
+        try (ConvertedModel converted = converter.toObj(source, format)) {
+            ContentDigest obj = ContentDigest.of(converted, ConvertedObj.MAX_SIZE_BYTES, "The converted OBJ");
+            StoredFile file = StoredFile.upload(id,
+                                                access.userId(),
+                                                access.projectId(),
+                                                name,
+                                                digest.sizeBytes(),
+                                                digest.checksum(),
+                                                ConvertedObj.of(id, obj.sizeBytes(), obj.checksum()),
+                                                clock.instant());
+            return persist(file, source, converted);
+        }
+    }
 
+    private FileView persist(StoredFile file, ContentSource original, ContentSource converted) {
+        write(file.storageKey(), original, file.contentType(), file);
+        if (converted != null) {
+            write(file.convertedObj()
+                      .storageKey(),
+                  converted,
+                  ModelFormat.OBJ.contentType(),
+                  file);
+        }
+        files.save(file);
+        return FileView.from(file);
+    }
+
+    private void write(StorageKey key, ContentSource source, String contentType, StoredFile file) {
         try (InputStream stream = source.open()) {
-            storage.write(file.storageKey(), stream, file.contentType());
+            storage.write(key, stream, contentType);
         } catch (IOException e) {
             throw new UncheckedIOException("Could not read the upload for file " + file.id(), e);
         }
-
-        files.save(file);
-        return FileView.from(file);
     }
 
     private StoredFile requireAvailable(UUID fileId, ProjectId projectId) {

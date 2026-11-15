@@ -48,8 +48,13 @@ public class ProjectFileController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(operationId = "uploadProjectFile", summary = "Upload a 3D model file to a project")
+    @Operation(operationId = "uploadProjectFile",
+               summary = "Upload a 3D model file to a project",
+               description = "OBJ, STL, PLY, 3MF, glTF and GLB are accepted. Anything other than OBJ is converted to an OBJ in "
+                       + "millimetres during the upload; the original stays downloadable and the converted OBJ is what a packing job "
+                       + "receives. STEP is refused.")
     @ApiResponse(responseCode = "201", description = "File stored")
+    @ApiResponse(responseCode = "422", description = "Unsupported format, STEP, or a model that could not be converted")
     public FileResponse upload(@CurrentUser AuthenticatedUser caller,
                                @PathVariable UUID projectId,
                                @RequestPart("file") MultipartFile file) {

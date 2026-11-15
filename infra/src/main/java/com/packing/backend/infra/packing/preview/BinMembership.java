@@ -1,5 +1,6 @@
 package com.packing.backend.infra.packing.preview;
 
+import com.packing.backend.infra.shared.mesh.ObjReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -25,8 +26,8 @@ final class BinMembership {
         this.copies = new int[binCount][items.size()];
     }
 
-    PackerObjReader.Sink observing(PackerObjReader.Sink sink) {
-        return new PackerObjReader.Sink() {
+    ObjReader.Sink observing(ObjReader.Sink sink) {
+        return new ObjReader.Sink() {
 
             @Override
             public void object(String name) {

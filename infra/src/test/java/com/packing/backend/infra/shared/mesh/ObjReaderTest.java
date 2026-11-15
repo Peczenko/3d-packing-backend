@@ -1,4 +1,4 @@
-package com.packing.backend.infra.packing.preview;
+package com.packing.backend.infra.shared.mesh;
 
 import org.junit.jupiter.api.Test;
 
@@ -12,7 +12,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class PackerObjReaderTest {
+class ObjReaderTest {
 
     @Test
     void readsObjectsVerticesAndTrianglesWithZeroBasedIndices() throws IOException {
@@ -98,13 +98,13 @@ class PackerObjReaderTest {
                .append(" 3.5\n");
         }
         Recording whole = new Recording();
-        PackerObjReader.read(new ByteArrayInputStream(obj.toString()
-                                                         .getBytes(StandardCharsets.UTF_8)),
-                             whole);
+        ObjReader.read(new ByteArrayInputStream(obj.toString()
+                                                   .getBytes(StandardCharsets.UTF_8)),
+                       whole);
         Recording trickled = new Recording();
-        PackerObjReader.read(new Trickle(obj.toString()
-                                            .getBytes(StandardCharsets.UTF_8)),
-                             trickled);
+        ObjReader.read(new Trickle(obj.toString()
+                                      .getBytes(StandardCharsets.UTF_8)),
+                       trickled);
 
         assertThat(whole.vertices).hasSize(3 * vertices);
         assertThat(whole.vertices.get(3 * (vertices - 1))).isEqualTo(vertices - 1 + 0.125);
@@ -120,27 +120,27 @@ class PackerObjReaderTest {
 
     @Test
     void rejectsAFaceOnAVertexThatHasNotBeenDeclared() {
-        assertThatThrownBy(() -> read("o a\nv 0 0 0\nf 1 2 3\n")).isInstanceOf(UnrecognizedPackerOutputException.class)
-                                                                 .hasMessageContaining("Line 3");
+        assertThatThrownBy(() -> read("o a\nv 0 0 0\nf 1 2 3\n")).isInstanceOf(MalformedObjException.class)
+                                                                 .hasMessageContaining("line 3");
     }
 
     @Test
     void rejectsMalformedNumbersAndDegenerateFaces() {
-        assertThatThrownBy(() -> read("o a\nv 1 2\n")).isInstanceOf(UnrecognizedPackerOutputException.class);
-        assertThatThrownBy(() -> read("o a\nv 1 2 x\n")).isInstanceOf(UnrecognizedPackerOutputException.class);
-        assertThatThrownBy(() -> read("o a\nv nan 0 0\n")).isInstanceOf(UnrecognizedPackerOutputException.class);
-        assertThatThrownBy(() -> read("o a\nv 1e999 0 0\n")).isInstanceOf(UnrecognizedPackerOutputException.class);
-        assertThatThrownBy(() -> read("o a\nv 0 0 0\nv 1 0 0\nf 1 2\n")).isInstanceOf(UnrecognizedPackerOutputException.class);
-        assertThatThrownBy(() -> read("o a\nv 0 0 0\nf 0 1 1\n")).isInstanceOf(UnrecognizedPackerOutputException.class);
+        assertThatThrownBy(() -> read("o a\nv 1 2\n")).isInstanceOf(MalformedObjException.class);
+        assertThatThrownBy(() -> read("o a\nv 1 2 x\n")).isInstanceOf(MalformedObjException.class);
+        assertThatThrownBy(() -> read("o a\nv nan 0 0\n")).isInstanceOf(MalformedObjException.class);
+        assertThatThrownBy(() -> read("o a\nv 1e999 0 0\n")).isInstanceOf(MalformedObjException.class);
+        assertThatThrownBy(() -> read("o a\nv 0 0 0\nv 1 0 0\nf 1 2\n")).isInstanceOf(MalformedObjException.class);
+        assertThatThrownBy(() -> read("o a\nv 0 0 0\nf 0 1 1\n")).isInstanceOf(MalformedObjException.class);
     }
 
     private static Recording read(String obj) throws IOException {
         Recording recording = new Recording();
-        PackerObjReader.read(new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8)), recording);
+        ObjReader.read(new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8)), recording);
         return recording;
     }
 
-    private static final class Recording implements PackerObjReader.Sink {
+    private static final class Recording implements ObjReader.Sink {
 
         private final List<String> events   = new ArrayList<>();
         private final List<Double> vertices = new ArrayList<>();

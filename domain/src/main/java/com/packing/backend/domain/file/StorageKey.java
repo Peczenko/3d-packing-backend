@@ -27,6 +27,10 @@ public record StorageKey(String value) {
         return new StorageKey(PREFIX + id.value());
     }
 
+    public static StorageKey forConvertedObj(FileId id) {
+        return new StorageKey(PREFIX + id.value() + ".obj");
+    }
+
     @Override
     public String toString() {
         return value;

@@ -11,33 +11,39 @@ import java.util.TreeSet;
 
 public enum ModelFormat {
 
-    STL("model/stl", "stl"),
-    OBJ("model/obj", "obj"),
-    STEP("model/step", "step", "stp"),
-    THREE_MF("model/3mf", "3mf"),
-    PLY("model/ply", "ply"),
-    GLTF("model/gltf+json", "gltf"),
-    GLB("model/gltf-binary", "glb");
+    STL("model/stl", true, "stl"),
+    OBJ("model/obj", true, "obj"),
+    STEP("model/step", false, "step", "stp"),
+    THREE_MF("model/3mf", true, "3mf"),
+    PLY("model/ply", true, "ply"),
+    GLTF("model/gltf+json", true, "gltf"),
+    GLB("model/gltf-binary", true, "glb");
 
     private static final Map<String, ModelFormat> BY_EXTENSION;
-    private static final Set<String>              ALL_EXTENSIONS;
+    private static final Set<String>              UPLOADABLE_EXTENSIONS;
 
     static {
         Map<String, ModelFormat> byExtension = new LinkedHashMap<>();
+        Set<String> uploadable = new TreeSet<>();
         for (ModelFormat format : values()) {
             for (String extension : format.extensions) {
                 byExtension.put(extension, format);
+                if (format.uploadable) {
+                    uploadable.add(extension);
+                }
             }
         }
         BY_EXTENSION = Collections.unmodifiableMap(byExtension);
-        ALL_EXTENSIONS = Collections.unmodifiableSet(new TreeSet<>(byExtension.keySet()));
+        UPLOADABLE_EXTENSIONS = Collections.unmodifiableSet(uploadable);
     }
 
     private final String      contentType;
+    private final boolean     uploadable;
     private final Set<String> extensions;
 
-    ModelFormat(String contentType, String... extensions) {
+    ModelFormat(String contentType, boolean uploadable, String... extensions) {
         this.contentType = contentType;
+        this.uploadable = uploadable;
         this.extensions = Set.of(extensions);
     }
 
@@ -50,13 +56,24 @@ public enum ModelFormat {
         if (format == null) {
             throw new DomainRuleViolationException(
                                                    "Unsupported 3D model format '" + extension + "'. Supported formats: "
-                                                           + String.join(", ", ALL_EXTENSIONS));
+                                                           + String.join(", ", UPLOADABLE_EXTENSIONS));
         }
         return format;
     }
 
-    public static Set<String> allExtensions() {
-        return ALL_EXTENSIONS;
+    public static Set<String> uploadableExtensions() {
+        return UPLOADABLE_EXTENSIONS;
+    }
+
+    public void requireUploadable() {
+        if (!uploadable) {
+            throw new DomainRuleViolationException(
+                                                   name() + " models cannot be converted to OBJ for packing; export the model as STL or 3MF instead");
+        }
+    }
+
+    public boolean isUploadable() {
+        return uploadable;
     }
 
     public String contentType() {

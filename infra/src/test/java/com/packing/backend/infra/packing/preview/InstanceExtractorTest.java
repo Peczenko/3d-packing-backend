@@ -1,5 +1,6 @@
 package com.packing.backend.infra.packing.preview;
 
+import com.packing.backend.infra.shared.mesh.ObjReader;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -65,7 +66,7 @@ class InstanceExtractorTest {
         List<String> emitted = new ArrayList<>();
         List<String> seen = new ArrayList<>();
         InstanceExtractor extractor = new InstanceExtractor(layout("a.obj", 1, "b.obj", 1), part -> emitted.add(part.name() + "@" + seen.size()));
-        PackerObjReader.Sink spy = new PackerObjReader.Sink() {
+        ObjReader.Sink spy = new ObjReader.Sink() {
 
             @Override
             public void object(String name) {
@@ -87,7 +88,7 @@ class InstanceExtractorTest {
                                        .place(CUBE_VERTICES, CUBE_FACES, PLACEMENTS[1])
                                        .text();
 
-        PackerObjReader.read(new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8)), spy);
+        ObjReader.read(new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8)), spy);
         extractor.finish();
 
         assertThat(emitted).containsExactly("a.obj@2", "b.obj@2");
@@ -168,7 +169,7 @@ class InstanceExtractorTest {
     private static List<PreviewPart> extract(String obj, List<InstanceExtractor.Item> layout) throws IOException {
         List<PreviewPart> parts = new ArrayList<>();
         InstanceExtractor extractor = new InstanceExtractor(layout, parts::add);
-        PackerObjReader.read(new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8)), extractor);
+        ObjReader.read(new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8)), extractor);
         extractor.finish();
         return parts;
     }
