@@ -2,6 +2,7 @@ package com.packing.backend.api.file;
 
 import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
+import com.packing.backend.api.shared.web.TemporaryRedirect;
 import com.packing.backend.core.file.FileApplicationService;
 import com.packing.backend.core.file.FileApplicationService.AddSampleCommand;
 import com.packing.backend.core.file.FileApplicationService.DeleteFileCommand;
@@ -9,7 +10,6 @@ import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
 import com.packing.backend.core.file.FileApplicationService.PrepareDownloadCommand;
 import com.packing.backend.core.file.FileApplicationService.RenameFileCommand;
 import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
-import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.domain.shared.DomainRuleViolationException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.headers.Header;
@@ -19,7 +19,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
-import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -49,8 +48,13 @@ public class ProjectFileController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(operationId = "uploadProjectFile", summary = "Upload a 3D model file to a project")
+    @Operation(operationId = "uploadProjectFile",
+               summary = "Upload a 3D model file to a project",
+               description = "OBJ, STL, PLY, 3MF, glTF and GLB are accepted. Anything other than OBJ is converted to an OBJ in "
+                       + "millimetres during the upload; the original stays downloadable and the converted OBJ is what a packing job "
+                       + "receives. STEP is refused.")
     @ApiResponse(responseCode = "201", description = "File stored")
+    @ApiResponse(responseCode = "422", description = "Unsupported format, STEP, or a model that could not be converted")
     public FileResponse upload(@CurrentUser AuthenticatedUser caller,
                                @PathVariable UUID projectId,
                                @RequestPart("file") MultipartFile file) {
@@ -61,7 +65,6 @@ public class ProjectFileController {
                                                                     caller.firebaseUid(),
                                                                     projectId,
                                                                     file.getOriginalFilename(),
-                                                                    file.getSize(),
                                                                     file::getInputStream)));
     }
 
@@ -101,13 +104,7 @@ public class ProjectFileController {
     public ResponseEntity<Void> download(@CurrentUser AuthenticatedUser caller,
                                          @PathVariable UUID projectId,
                                          @PathVariable UUID fileId) {
-        BinaryStorage.TemporaryUrl download = files.prepareDownload(
-                                                                    new PrepareDownloadCommand(caller.firebaseUid(), projectId, fileId));
-        return ResponseEntity.status(HttpStatus.FOUND)
-                             .location(download.url())
-                             .cacheControl(CacheControl.noStore())
-                             .header(HttpHeaders.PRAGMA, "no-cache")
-                             .build();
+        return TemporaryRedirect.to(files.prepareDownload(new PrepareDownloadCommand(caller.firebaseUid(), projectId, fileId)));
     }
 
     @PatchMapping("/{fileId}")

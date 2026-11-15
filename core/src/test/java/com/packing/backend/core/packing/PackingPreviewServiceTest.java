@@ -11,6 +11,7 @@ import com.packing.backend.domain.packing.PackingPreview;
 import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.packing.PreviewStatus;
+import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.user.UserId;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -35,10 +37,11 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PackingPreviewServiceTest {
 
-    private static final Instant            NOW    = Instant.parse("2026-11-06T10:15:30Z");
-    private static final PackingJobId       JOB_ID = PackingJobId.generate();
-    private static final List<PreviewModel> MODELS = List.of(new PreviewModel(PreviewQuality.LOW, 10, 100),
-                                                             new PreviewModel(PreviewQuality.HIGH, 40, 400));
+    private static final Instant            NOW             = Instant.parse("2026-11-06T10:15:30Z");
+    private static final PackingJobId       JOB_ID          = PackingJobId.generate();
+    private static final String             RESULT_CHECKSUM = "b".repeat(64);
+    private static final List<PreviewModel> MODELS          = List.of(new PreviewModel(PreviewQuality.LOW, 10, 100),
+                                                                      new PreviewModel(PreviewQuality.HIGH, 40, 400));
 
     @Mock
     private PackingJobRepository   jobs;
@@ -58,7 +61,9 @@ class PackingPreviewServiceTest {
         when(jobs.findById(JOB_ID)).thenReturn(Optional.of(job), Optional.of(job(PackingPreview.PENDING)));
         when(renderer.render(JOB_ID,
                              job.input()
-                                .items())).thenReturn(MODELS);
+                                .items(),
+                             RESULT_CHECKSUM,
+                             0)).thenReturn(new PackingPreviewRenderer.Rendered(MODELS, List.of()));
 
         service.build(JOB_ID);
 
@@ -66,6 +71,26 @@ class PackingPreviewServiceTest {
         verify(jobs).save(saved.capture());
         assertThat(saved.getValue()
                         .preview()).isEqualTo(PackingPreview.ready(MODELS));
+    }
+
+    @Test
+    void buildRendersEveryContainerOfAMultiContainerResult() {
+        List<ResultBin> bins = List.of(new ResultBin(7, "c".repeat(64)), new ResultBin(5, "d".repeat(64)));
+        PackingJob job = job(PackingPreview.PENDING, bins);
+        List<List<PreviewModel>> binModels = List.of(MODELS, MODELS.subList(1, 2));
+        when(jobs.findById(JOB_ID)).thenReturn(Optional.of(job), Optional.of(job(PackingPreview.PENDING, bins)));
+        when(renderer.render(JOB_ID,
+                             job.input()
+                                .items(),
+                             RESULT_CHECKSUM,
+                             2)).thenReturn(new PackingPreviewRenderer.Rendered(MODELS, binModels));
+
+        service.build(JOB_ID);
+
+        ArgumentCaptor<PackingJob> saved = ArgumentCaptor.forClass(PackingJob.class);
+        verify(jobs).save(saved.capture());
+        assertThat(saved.getValue()
+                        .preview()).isEqualTo(PackingPreview.ready(MODELS, binModels));
     }
 
     @Test
@@ -81,7 +106,7 @@ class PackingPreviewServiceTest {
     @Test
     void buildDoesNotOverwriteAPreviewSettledWhileItWasRendering() {
         when(jobs.findById(JOB_ID)).thenReturn(Optional.of(job(PackingPreview.PENDING)), Optional.of(job(PackingPreview.FAILED)));
-        when(renderer.render(any(), any())).thenReturn(MODELS);
+        when(renderer.render(any(), any(), any(), anyInt())).thenReturn(new PackingPreviewRenderer.Rendered(MODELS, List.of()));
 
         service.build(JOB_ID);
 
@@ -91,7 +116,7 @@ class PackingPreviewServiceTest {
     @Test
     void aRenderingFailurePropagatesSoTheActivityCanRetryIt() {
         when(jobs.findById(JOB_ID)).thenReturn(Optional.of(job(PackingPreview.PENDING)));
-        when(renderer.render(any(), any())).thenThrow(new IllegalStateException("gltfpack exited with 3"));
+        when(renderer.render(any(), any(), any(), anyInt())).thenThrow(new IllegalStateException("gltfpack exited with 3"));
 
         assertThatThrownBy(() -> service.build(JOB_ID)).isInstanceOf(IllegalStateException.class);
         verify(jobs, never()).save(any());
@@ -119,6 +144,10 @@ class PackingPreviewServiceTest {
     }
 
     private static PackingJob job(PackingPreview preview) {
+        return job(preview, List.of());
+    }
+
+    private static PackingJob job(PackingPreview preview, List<ResultBin> bins) {
         return PackingJob.rehydrate(JOB_ID,
                                     ProjectId.generate(),
                                     UserId.generate(),
@@ -132,9 +161,9 @@ class PackingPreviewServiceTest {
                                     NOW,
                                     "packed.obj",
                                     "model/obj",
-                                    "b".repeat(64),
+                                    RESULT_CHECKSUM,
                                     12L,
-                                    List.of(),
+                                    bins,
                                     null,
                                     preview,
                                     1,

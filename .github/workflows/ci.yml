@@ -66,6 +66,13 @@ jobs:
           "$RUNNER_TEMP/gltfpack/gltfpack" -v
           echo "GLTFPACK_PATH=$RUNNER_TEMP/gltfpack/gltfpack" >> "$GITHUB_ENV"
 
+      - name: Build the assimp pinned in the Dockerfile
+        run: |
+          docker build --target assimp --output "type=local,dest=$RUNNER_TEMP/assimp" .
+          chmod 0755 "$RUNNER_TEMP/assimp/assimp"
+          "$RUNNER_TEMP/assimp/assimp" version
+          echo "ASSIMP_PATH=$RUNNER_TEMP/assimp/assimp" >> "$GITHUB_ENV"
+
       - name: Build and test
         run: ./gradlew build --no-daemon
 

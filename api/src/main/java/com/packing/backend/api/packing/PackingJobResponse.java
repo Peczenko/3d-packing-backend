@@ -40,7 +40,7 @@ public record PackingJobResponse(
                                       view.resultContentType(),
                                       view.resultSizeBytes(),
                                       view.resultChecksum(),
-                                      PackingJobResultBinResponse.listFrom(view.resultBins()),
+                                      PackingJobResultBinResponse.listFrom(view.resultBins(), view.preview()),
                                       view.input() == null ? null : PackingJobInputResponse.from(view.input()),
                                       PackingJobPreviewResponse.from(view.preview()));
     }

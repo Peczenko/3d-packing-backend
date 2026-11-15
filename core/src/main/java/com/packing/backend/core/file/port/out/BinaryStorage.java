@@ -1,19 +1,15 @@
 package com.packing.backend.core.file.port.out;
 
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.file.StorageKey;
 
 import java.io.InputStream;
-import java.net.URI;
-import java.time.Instant;
 
 public interface BinaryStorage {
 
-    void write(StorageKey key, InputStream content, long contentLength, String contentType);
+    void write(StorageKey key, InputStream content, String contentType);
 
-    TemporaryUrl temporaryReadUrl(StorageKey key, String downloadFilename, String contentType);
+    TemporaryUrl readUrl(StorageKey key, String downloadFilename, String contentType);
 
     void delete(StorageKey key);
-
-    record TemporaryUrl(URI url, Instant expiresAt) {
-    }
 }

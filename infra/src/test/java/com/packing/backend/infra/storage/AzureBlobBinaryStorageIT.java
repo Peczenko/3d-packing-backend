@@ -4,6 +4,7 @@ import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.shared.ExternalServiceException;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.StorageKey;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +19,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Arrays;
 
@@ -46,7 +48,11 @@ class AzureBlobBinaryStorageIT {
     private BlobServiceClient serviceClient;
 
     private BinaryStorage storageWith(BlobStorageProperties properties) {
-        return new AzureBlobBinaryStorage(serviceClient, new AccountKeyBlobSasIssuer(), properties);
+        BlobContainer container = new BlobContainer(serviceClient.getBlobContainerClient(properties.containerName()),
+                                                    new AccountKeyBlobSasIssuer(),
+                                                    properties.autoCreateContainer(),
+                                                    Clock.systemUTC());
+        return new AzureBlobBinaryStorage(container, properties);
     }
 
     private static BlobStorageProperties properties(Duration ttl) {
@@ -82,7 +88,7 @@ class AzureBlobBinaryStorageIT {
         StorageKey key = newKey();
 
         storageWith(properties(Duration.ofMinutes(5)))
-                                                      .write(key, new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
+                                                      .write(key, new ByteArrayInputStream(BYTES), CONTENT_TYPE);
 
         assertThat(serviceClient.getBlobContainerClient("models")
                                 .exists()).isTrue();
@@ -92,9 +98,9 @@ class AzureBlobBinaryStorageIT {
     void writesBytesThatCanBeReadBackThroughTheIssuedUrl() throws Exception {
         BinaryStorage storage = storageWith(properties(Duration.ofMinutes(5)));
         StorageKey key = newKey();
-        storage.write(key, new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
+        storage.write(key, new ByteArrayInputStream(BYTES), CONTENT_TYPE);
 
-        BinaryStorage.TemporaryUrl url = storage.temporaryReadUrl(key, "bracket.stl", CONTENT_TYPE);
+        TemporaryUrl url = storage.readUrl(key, "bracket.stl", CONTENT_TYPE);
         HttpResponse<byte[]> response = fetch(url.url());
 
         assertThat(response.statusCode()).isEqualTo(200);
@@ -105,9 +111,9 @@ class AzureBlobBinaryStorageIT {
     void theIssuedUrlCarriesTheCanonicalTypeAndTheOriginalFilename() throws Exception {
         BinaryStorage storage = storageWith(properties(Duration.ofMinutes(5)));
         StorageKey key = newKey();
-        storage.write(key, new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
+        storage.write(key, new ByteArrayInputStream(BYTES), CONTENT_TYPE);
 
-        HttpResponse<byte[]> response = fetch(storage.temporaryReadUrl(key, "bracket.stl", CONTENT_TYPE)
+        HttpResponse<byte[]> response = fetch(storage.readUrl(key, "bracket.stl", CONTENT_TYPE)
                                                      .url());
 
         assertThat(response.headers()
@@ -123,9 +129,9 @@ class AzureBlobBinaryStorageIT {
     void aNonAsciiFilenameSurvivesAsTheEncodedForm() throws Exception {
         BinaryStorage storage = storageWith(properties(Duration.ofMinutes(5)));
         StorageKey key = newKey();
-        storage.write(key, new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
+        storage.write(key, new ByteArrayInputStream(BYTES), CONTENT_TYPE);
 
-        HttpResponse<byte[]> response = fetch(storage.temporaryReadUrl(key, "część.stl", CONTENT_TYPE)
+        HttpResponse<byte[]> response = fetch(storage.readUrl(key, "część.stl", CONTENT_TYPE)
                                                      .url());
 
         assertThat(response.headers()
@@ -139,9 +145,9 @@ class AzureBlobBinaryStorageIT {
     void reportsTheExpiryItActuallySigned() {
         BinaryStorage storage = storageWith(properties(Duration.ofMinutes(5)));
         StorageKey key = newKey();
-        storage.write(key, new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
+        storage.write(key, new ByteArrayInputStream(BYTES), CONTENT_TYPE);
 
-        BinaryStorage.TemporaryUrl url = storage.temporaryReadUrl(key, "bracket.stl", CONTENT_TYPE);
+        TemporaryUrl url = storage.readUrl(key, "bracket.stl", CONTENT_TYPE);
 
         assertThat(url.expiresAt()).isBetween(
                                               java.time.Instant.now()
@@ -154,10 +160,10 @@ class AzureBlobBinaryStorageIT {
     void anExpiredUrlIsRejected() throws Exception {
         BinaryStorage storage = storageWith(properties(Duration.ofMinutes(5)));
         StorageKey key = newKey();
-        storage.write(key, new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
+        storage.write(key, new ByteArrayInputStream(BYTES), CONTENT_TYPE);
 
         BinaryStorage expired = storageWith(properties(Duration.ofMinutes(-10)));
-        HttpResponse<byte[]> response = fetch(expired.temporaryReadUrl(key, "bracket.stl", CONTENT_TYPE)
+        HttpResponse<byte[]> response = fetch(expired.readUrl(key, "bracket.stl", CONTENT_TYPE)
                                                      .url());
 
         assertThat(response.statusCode()).isEqualTo(403);
@@ -169,10 +175,10 @@ class AzureBlobBinaryStorageIT {
         StorageKey key = newKey();
         byte[] replacement = "solid pyramid".getBytes(StandardCharsets.UTF_8);
 
-        storage.write(key, new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
-        storage.write(key, new ByteArrayInputStream(replacement), replacement.length, CONTENT_TYPE);
+        storage.write(key, new ByteArrayInputStream(BYTES), CONTENT_TYPE);
+        storage.write(key, new ByteArrayInputStream(replacement), CONTENT_TYPE);
 
-        HttpResponse<byte[]> response = fetch(storage.temporaryReadUrl(key, "bracket.stl", CONTENT_TYPE)
+        HttpResponse<byte[]> response = fetch(storage.readUrl(key, "bracket.stl", CONTENT_TYPE)
                                                      .url());
         assertThat(response.body()).isEqualTo(replacement);
     }
@@ -181,12 +187,12 @@ class AzureBlobBinaryStorageIT {
     void deleteRemovesTheBlobAndIsIdempotent() throws Exception {
         BinaryStorage storage = storageWith(properties(Duration.ofMinutes(5)));
         StorageKey key = newKey();
-        storage.write(key, new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
+        storage.write(key, new ByteArrayInputStream(BYTES), CONTENT_TYPE);
 
         storage.delete(key);
         storage.delete(key);
 
-        HttpResponse<byte[]> response = fetch(storage.temporaryReadUrl(key, "bracket.stl", CONTENT_TYPE)
+        HttpResponse<byte[]> response = fetch(storage.readUrl(key, "bracket.stl", CONTENT_TYPE)
                                                      .url());
         assertThat(response.statusCode()).isEqualTo(404);
     }
@@ -195,23 +201,22 @@ class AzureBlobBinaryStorageIT {
     void deletingAKeyThatNeverExistedIsNotAnError() {
         BinaryStorage storage = storageWith(properties(Duration.ofMinutes(5)));
         // Touch the container first so the delete is not merely failing on a missing one.
-        storage.write(newKey(), new ByteArrayInputStream(BYTES), BYTES.length, CONTENT_TYPE);
+        storage.write(newKey(), new ByteArrayInputStream(BYTES), CONTENT_TYPE);
 
         storage.delete(newKey());
     }
 
     @Test
     void theUnavailableAdapterReportsTheDependencyRatherThanSilentlyDoingNothing() {
-        BinaryStorage storage = new UnavailableBinaryStorage();
+        BinaryStorage storage = new AzureBlobBinaryStorage(BlobContainer.unavailable(), properties(Duration.ofMinutes(5)));
         StorageKey key = newKey();
 
         assertThatThrownBy(() -> storage.write(key,
                                                new ByteArrayInputStream(BYTES),
-                                               BYTES.length,
                                                CONTENT_TYPE))
                                                              .isInstanceOf(ExternalServiceException.class);
-        assertThatThrownBy(() -> storage.temporaryReadUrl(key, "bracket.stl", CONTENT_TYPE))
-                                                                                            .isInstanceOf(ExternalServiceException.class);
+        assertThatThrownBy(() -> storage.readUrl(key, "bracket.stl", CONTENT_TYPE))
+                                                                                   .isInstanceOf(ExternalServiceException.class);
         assertThatThrownBy(() -> storage.delete(key))
                                                      .isInstanceOf(ExternalServiceException.class);
     }

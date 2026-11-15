@@ -154,10 +154,39 @@ class JooqPackingJobRepositoryIT {
 
         List<PreviewModel> models = List.of(new PreviewModel(PreviewQuality.HIGH, 69_451, 1_234_567),
                                             new PreviewModel(PreviewQuality.LOW, 3_472, 45_678));
-        pending.completePreview(models);
+        pending.completePreview(models, List.of());
         repository().save(pending);
 
         assertThat(repository().findById(job.id())).hasValueSatisfying(found -> assertThat(found.preview()).isEqualTo(PackingPreview.ready(models)));
+    }
+
+    @Test
+    void persistsOnePreviewLadderPerContainer() {
+        PackingJob job = queuedJob(now());
+        List<ResultBin> bins = List.of(new ResultBin(7, "1".repeat(64)), new ResultBin(5, "2".repeat(64)));
+        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, bins, "v0.0.5", ENGINE_CHECKSUM, now());
+        List<PreviewModel> models = List.of(new PreviewModel(PreviewQuality.HIGH, 300, 30_000), new PreviewModel(PreviewQuality.LOW, 30, 3_000));
+        List<List<PreviewModel>> binModels = List.of(List.of(new PreviewModel(PreviewQuality.HIGH, 200, 20_000),
+                                                             new PreviewModel(PreviewQuality.MEDIUM, 90, 9_000)),
+                                                     List.of(new PreviewModel(PreviewQuality.HIGH, 100, 10_000)));
+        job.completePreview(models, binModels);
+
+        repository().save(job);
+
+        assertThat(repository().findById(job.id())).hasValueSatisfying(found -> assertThat(found.preview()).isEqualTo(PackingPreview.ready(models,
+                                                                                                                                           binModels)));
+    }
+
+    @Test
+    void theDatabaseRejectsContainerPreviewsOnAPreviewThatIsNotReady() {
+        PackingJob job = queuedJob(now());
+        job.succeed("packed.obj", "model/obj", 12, RESULT_CHECKSUM, List.of(), "packer 0.3.0", ENGINE_CHECKSUM, now());
+        repository().save(job);
+
+        assertThatThrownBy(() -> dsl.update(PACKING_JOBS)
+                                    .set(PACKING_JOBS.PREVIEW_BINS, JSONB.valueOf("[[], []]"))
+                                    .where(PACKING_JOBS.ID.eq(job.id()))
+                                    .execute()).hasStackTraceContaining("ck_packing_jobs_preview_bins");
     }
 
     @Test

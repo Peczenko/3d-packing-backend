@@ -1,5 +1,9 @@
 package com.packing.backend.infra.packing.preview;
 
+import com.packing.backend.infra.shared.mesh.MalformedObjException;
+import com.packing.backend.infra.shared.mesh.ObjReader;
+import com.packing.backend.core.packing.port.out.PackingArtifact;
+import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingPreviewRenderer;
 import com.packing.backend.domain.packing.PackingItem;
@@ -21,6 +25,8 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 @Component
@@ -46,12 +52,58 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
     }
 
     @Override
-    public List<PreviewModel> render(PackingJobId jobId, List<PackingItem> items) {
+    public Rendered render(PackingJobId jobId, List<PackingItem> items, String resultChecksum, int binCount) {
         long started = System.nanoTime();
         Path work = null;
         try {
             work = Files.createTempDirectory("packing-preview-" + jobId + "-");
-            Map<PreviewQuality, List<GlbMerger.Part>> packed = pack(jobId, items, work);
+            List<InstanceExtractor.Item> layout = items.stream()
+                                                       .map(item -> new InstanceExtractor.Item(item.fileName()
+                                                                                                   .value(),
+                                                                                               item.copies()))
+                                                       .toList();
+            BinMembership membership = binCount > 1 ? new BinMembership(layout, binCount) : null;
+            List<PreviewModel> models;
+            try (InputStream result = artifacts.open(new PackingArtifact.Result(jobId))) {
+                models = renderOne(result,
+                                   layout,
+                                   membership == null ? UnaryOperator.identity() : membership::observing,
+                                   work.resolve("result"),
+                                   quality -> new PackingArtifact.Preview(jobId, quality));
+            }
+            List<List<PreviewModel>> bins = new ArrayList<>();
+            for (int number = 1; membership != null && number <= binCount; number++) {
+                int bin = number;
+                try (InputStream result = artifacts.open(new PackingArtifact.BinResult(jobId, resultChecksum, bin, binCount))) {
+                    bins.add(renderOne(result,
+                                       membership.layout(bin),
+                                       UnaryOperator.identity(),
+                                       work.resolve("bin-" + bin),
+                                       quality -> new PackingArtifact.BinPreview(jobId, bin, binCount, quality)));
+                }
+            }
+            log.info("Preview built for packing job {} in {} ms: {}, {} containers",
+                     jobId,
+                     (System.nanoTime() - started) / 1_000_000,
+                     models,
+                     bins.size());
+            return new Rendered(models, bins);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Could not build the preview of packing job " + jobId, e);
+        } finally {
+            deleteQuietly(work);
+        }
+    }
+
+    private List<PreviewModel> renderOne(InputStream source,
+                                         List<InstanceExtractor.Item> layout,
+                                         UnaryOperator<ObjReader.Sink> observe,
+                                         Path work,
+                                         Function<PreviewQuality, PreviewArtifact> target)
+                                                                                           throws IOException {
+        Files.createDirectory(work);
+        try {
+            Map<PreviewQuality, List<GlbMerger.Part>> packed = pack(source, layout, observe, work);
             List<PreviewModel> models = new ArrayList<>();
             long finer = Long.MAX_VALUE;
             for (PreviewQuality quality : FINEST_FIRST) {
@@ -60,29 +112,25 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
                 if (finer != Long.MAX_VALUE && result.triangles() > finer * MIN_REDUCTION) {
                     continue;
                 }
-                artifacts.storePreview(jobId, quality, merged);
+                artifacts.storePreview(target.apply(quality), merged);
                 models.add(new PreviewModel(quality, result.triangles(), result.sizeBytes()));
                 finer = result.triangles();
             }
-            log.info("Preview built for packing job {} in {} ms: {}", jobId, (System.nanoTime() - started) / 1_000_000, models);
             return models;
-        } catch (IOException e) {
-            throw new UncheckedIOException("Could not build the preview of packing job " + jobId, e);
         } finally {
             deleteQuietly(work);
         }
     }
 
-    private Map<PreviewQuality, List<GlbMerger.Part>> pack(PackingJobId jobId, List<PackingItem> items, Path work) throws IOException {
+    private Map<PreviewQuality, List<GlbMerger.Part>> pack(InputStream source,
+                                                           List<InstanceExtractor.Item> layout,
+                                                           UnaryOperator<ObjReader.Sink> observe,
+                                                           Path work)
+                                                                      throws IOException {
         Map<PreviewQuality, List<GlbMerger.Part>> packed = new EnumMap<>(PreviewQuality.class);
         for (PreviewQuality quality : PreviewQuality.values()) {
             packed.put(quality, new ArrayList<>());
         }
-        List<InstanceExtractor.Item> layout = items.stream()
-                                                   .map(item -> new InstanceExtractor.Item(item.fileName()
-                                                                                               .value(),
-                                                                                           item.copies()))
-                                                   .toList();
         InstanceExtractor extractor = new InstanceExtractor(layout, part -> {
             try {
                 Path input = work.resolve("part-" + part.index() + ".glb");
@@ -98,11 +146,13 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
                 throw new UncheckedIOException(e);
             }
         });
-        try (InputStream result = artifacts.openResult(jobId)) {
-            PackerObjReader.read(result, extractor);
+        try {
+            ObjReader.read(source, observe.apply(extractor));
             extractor.finish();
         } catch (UncheckedIOException e) {
             throw e.getCause();
+        } catch (MalformedObjException e) {
+            throw new UnrecognizedPackerOutputException("The packing result is malformed at " + e.getMessage());
         }
         return packed;
     }

@@ -9,7 +9,9 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 @Getter
 @EqualsAndHashCode(onlyExplicitlyIncluded = true, callSuper = false)
@@ -22,13 +24,14 @@ public final class StoredFile extends AggregateRoot {
     @EqualsAndHashCode.Include
     private final FileId id;
 
-    private final UserId      ownerId;
-    private final ProjectId   projectId;
-    private final StorageKey  storageKey;
-    private final ModelFormat format;
-    private final long        sizeBytes;
-    private final Checksum    checksum;
-    private final Instant     createdAt;
+    private final UserId       ownerId;
+    private final ProjectId    projectId;
+    private final StorageKey   storageKey;
+    private final ModelFormat  format;
+    private final long         sizeBytes;
+    private final Checksum     checksum;
+    private final ConvertedObj convertedObj;
+    private final Instant      createdAt;
 
     private FileName   name;
     private FileStatus status;
@@ -44,6 +47,7 @@ public final class StoredFile extends AggregateRoot {
                        ModelFormat format,
                        long sizeBytes,
                        Checksum checksum,
+                       ConvertedObj convertedObj,
                        FileStatus status,
                        long version,
                        Instant createdAt,
@@ -57,6 +61,7 @@ public final class StoredFile extends AggregateRoot {
         this.format = Objects.requireNonNull(format, "format");
         this.sizeBytes = sizeBytes;
         this.checksum = Objects.requireNonNull(checksum, "checksum");
+        this.convertedObj = convertedObj;
         this.status = Objects.requireNonNull(status, "status");
         this.version = version;
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
@@ -71,16 +76,31 @@ public final class StoredFile extends AggregateRoot {
                                     long sizeBytes,
                                     Checksum checksum,
                                     Instant now) {
+        return upload(id, ownerId, projectId, name, sizeBytes, checksum, null, now);
+    }
+
+    public static StoredFile upload(FileId id,
+                                    UserId ownerId,
+                                    ProjectId projectId,
+                                    FileName name,
+                                    long sizeBytes,
+                                    Checksum checksum,
+                                    ConvertedObj convertedObj,
+                                    Instant now) {
+        ModelFormat format = name.format();
+        format.requireUploadable();
         requireValidSize(sizeBytes);
+        requireConversionMatches(id, name, format, convertedObj);
         return new StoredFile(
                               id,
                               ownerId,
                               projectId,
                               name,
                               StorageKey.forFile(id),
-                              name.format(),
+                              format,
                               sizeBytes,
                               checksum,
+                              convertedObj,
                               FileStatus.AVAILABLE,
                               INITIAL_VERSION,
                               now,
@@ -96,6 +116,7 @@ public final class StoredFile extends AggregateRoot {
                                        ModelFormat format,
                                        long sizeBytes,
                                        Checksum checksum,
+                                       ConvertedObj convertedObj,
                                        FileStatus status,
                                        long version,
                                        Instant createdAt,
@@ -109,6 +130,7 @@ public final class StoredFile extends AggregateRoot {
                               format,
                               sizeBytes,
                               checksum,
+                              convertedObj,
                               status,
                               version,
                               createdAt,
@@ -140,19 +162,33 @@ public final class StoredFile extends AggregateRoot {
         this.status = FileStatus.DELETED;
         this.deletedAt = now;
         this.updatedAt = now;
-        recordEvent(new FileDeleted(id, storageKey, ownerId, now));
+        recordEvent(new FileDeleted(id, storageKeys(), ownerId, now));
+    }
+
+    public Optional<ModelContent> packingContent() {
+        if (convertedObj != null) {
+            return Optional.of(new ModelContent(convertedObj.storageKey(), ModelFormat.OBJ, convertedObj.checksum()));
+        }
+        if (format == ModelFormat.OBJ) {
+            return Optional.of(new ModelContent(storageKey, format, checksum));
+        }
+        return Optional.empty();
+    }
+
+    public List<StorageKey> storageKeys() {
+        return convertedObj == null ? List.of(storageKey) : List.of(storageKey, convertedObj.storageKey());
     }
 
     public boolean isDeleted() {
         return status == FileStatus.DELETED;
     }
 
-    public boolean isOwnedBy(UserId candidate) {
-        return ownerId.equals(candidate);
-    }
-
     public boolean belongsTo(ProjectId candidate) {
         return projectId.equals(candidate);
+    }
+
+    public boolean isAvailableIn(ProjectId candidate) {
+        return belongsTo(candidate) && !isDeleted();
     }
 
     public String contentType() {
@@ -170,6 +206,30 @@ public final class StoredFile extends AggregateRoot {
         if (sizeBytes > MAX_SIZE_BYTES) {
             throw new DomainRuleViolationException(
                                                    "File must be at most " + MAX_SIZE_BYTES + " bytes, got " + sizeBytes);
+        }
+    }
+
+    private static void requireConversionMatches(FileId id, FileName name, ModelFormat format, ConvertedObj convertedObj) {
+        if (format == ModelFormat.OBJ) {
+            if (convertedObj != null) {
+                throw new DomainRuleViolationException(name + " is already OBJ and must not carry a converted copy");
+            }
+            return;
+        }
+        if (convertedObj == null) {
+            throw new DomainRuleViolationException(name + " must be converted to OBJ before it can be stored");
+        }
+        if (!convertedObj.storageKey()
+                         .equals(StorageKey.forConvertedObj(id))) {
+            throw new DomainRuleViolationException("The converted copy of " + name + " must be stored at " + StorageKey.forConvertedObj(id));
+        }
+        if (convertedObj.sizeBytes() <= 0) {
+            throw new DomainRuleViolationException(name + " converted to an empty OBJ");
+        }
+        if (convertedObj.sizeBytes() > ConvertedObj.MAX_SIZE_BYTES) {
+            throw new DomainRuleViolationException(
+                                                   name + " converts to an OBJ of " + convertedObj.sizeBytes() + " bytes; at most "
+                                                           + ConvertedObj.MAX_SIZE_BYTES + " are allowed");
         }
     }
 

@@ -1,20 +1,16 @@
 package com.packing.backend.infra.packing.preview;
 
 import com.packing.backend.domain.packing.PreviewQuality;
+import com.packing.backend.infra.shared.process.ExternalProcess;
 
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 final class Gltfpack {
-
-    private static final int LOG_TAIL_BYTES = 2048;
 
     private final String   executable;
     private final Duration timeout;
@@ -41,37 +37,20 @@ final class Gltfpack {
         command.add("-o");
         command.add(output.toString());
         Path log = output.resolveSibling(output.getFileName() + ".log");
-        Process process = new ProcessBuilder(command).redirectErrorStream(true)
-                                                     .redirectOutput(log.toFile())
-                                                     .start();
         try {
-            if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
+            ExternalProcess.Outcome outcome = ExternalProcess.run(command,
+                                                                  output.toAbsolutePath()
+                                                                        .getParent(),
+                                                                  log,
+                                                                  timeout);
+            if (outcome.timedOut()) {
                 throw new IOException("gltfpack did not finish " + quality + " within " + timeout);
             }
-        } catch (InterruptedException interrupted) {
-            process.destroyForcibly();
-            Thread.currentThread()
-                  .interrupt();
-            throw new IOException("Interrupted while gltfpack built " + quality, interrupted);
-        }
-        try {
-            if (process.exitValue() != 0 || !Files.isRegularFile(output) || Files.size(output) == 0) {
-                throw new IOException("gltfpack failed to build " + quality + " with exit code " + process.exitValue() + ": " + tail(log));
+            if (!outcome.succeeded() || !Files.isRegularFile(output) || Files.size(output) == 0) {
+                throw new IOException("gltfpack failed to build " + quality + " with exit code " + outcome.exitCode() + ": " + outcome.output());
             }
         } finally {
             Files.deleteIfExists(log);
-        }
-    }
-
-    private static String tail(Path log) throws IOException {
-        try (RandomAccessFile file = new RandomAccessFile(log.toFile(), "r")) {
-            long length = file.length();
-            int size = (int) Math.min(length, LOG_TAIL_BYTES);
-            byte[] bytes = new byte[size];
-            file.seek(length - size);
-            file.readFully(bytes);
-            return new String(bytes, StandardCharsets.UTF_8).strip();
         }
     }
 }

@@ -6,10 +6,15 @@ import com.packing.backend.domain.shared.DomainEvent;
 import com.packing.backend.domain.user.UserId;
 
 import java.time.Instant;
+import java.util.List;
 
 public record FileDeleted(
         FileId fileId,
-        StorageKey storageKey,
+        List<StorageKey> storageKeys,
         UserId ownerId,
         Instant occurredAt) implements DomainEvent {
+
+    public FileDeleted {
+        storageKeys = List.copyOf(storageKeys);
+    }
 }

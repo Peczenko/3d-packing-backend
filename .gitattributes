@@ -5,3 +5,8 @@
 go.mod text eol=lf
 go.sum text eol=lf
 *.obj -text
+*.stl -text
+*.ply -text
+*.gltf -text
+*.glb binary
+*.3mf binary
