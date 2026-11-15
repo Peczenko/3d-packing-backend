@@ -1,5 +1,6 @@
 package com.packing.backend.infra.packing.preview;
 
+import com.packing.backend.infra.shared.mesh.ObjReader;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -24,7 +25,7 @@ class BinMembershipTest {
     @Test
     void passesEveryCallThroughToTheObservedSink() {
         List<String> seen = new ArrayList<>();
-        PackerObjReader.Sink sink = new BinMembership(LAYOUT, 2).observing(new PackerObjReader.Sink() {
+        ObjReader.Sink sink = new BinMembership(LAYOUT, 2).observing(new ObjReader.Sink() {
 
             @Override
             public void object(String name) {
@@ -86,7 +87,7 @@ class BinMembershipTest {
 
     private static BinMembership observe(int binCount, String... names) {
         BinMembership membership = new BinMembership(LAYOUT, binCount);
-        PackerObjReader.Sink sink = membership.observing(new PackerObjReader.Sink() {
+        ObjReader.Sink sink = membership.observing(new ObjReader.Sink() {
 
             @Override
             public void object(String name) {

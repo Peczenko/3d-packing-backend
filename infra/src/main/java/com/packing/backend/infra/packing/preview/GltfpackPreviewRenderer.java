@@ -1,5 +1,7 @@
 package com.packing.backend.infra.packing.preview;
 
+import com.packing.backend.infra.shared.mesh.MalformedObjException;
+import com.packing.backend.infra.shared.mesh.ObjReader;
 import com.packing.backend.core.packing.port.out.PackingArtifact;
 import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
@@ -95,7 +97,7 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
 
     private List<PreviewModel> renderOne(InputStream source,
                                          List<InstanceExtractor.Item> layout,
-                                         UnaryOperator<PackerObjReader.Sink> observe,
+                                         UnaryOperator<ObjReader.Sink> observe,
                                          Path work,
                                          Function<PreviewQuality, PreviewArtifact> target)
                                                                                            throws IOException {
@@ -122,7 +124,7 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
 
     private Map<PreviewQuality, List<GlbMerger.Part>> pack(InputStream source,
                                                            List<InstanceExtractor.Item> layout,
-                                                           UnaryOperator<PackerObjReader.Sink> observe,
+                                                           UnaryOperator<ObjReader.Sink> observe,
                                                            Path work)
                                                                       throws IOException {
         Map<PreviewQuality, List<GlbMerger.Part>> packed = new EnumMap<>(PreviewQuality.class);
@@ -145,10 +147,12 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
             }
         });
         try {
-            PackerObjReader.read(source, observe.apply(extractor));
+            ObjReader.read(source, observe.apply(extractor));
             extractor.finish();
         } catch (UncheckedIOException e) {
             throw e.getCause();
+        } catch (MalformedObjException e) {
+            throw new UnrecognizedPackerOutputException("The packing result is malformed at " + e.getMessage());
         }
         return packed;
     }

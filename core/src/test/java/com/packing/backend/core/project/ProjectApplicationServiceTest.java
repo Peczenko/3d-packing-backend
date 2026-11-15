@@ -20,6 +20,7 @@ import com.packing.backend.core.shared.port.out.ActiveUserLookup;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.core.user.port.out.UserRepository;
 import com.packing.backend.domain.file.Checksum;
+import com.packing.backend.domain.file.ConvertedObj;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.StoredFile;
@@ -584,12 +585,14 @@ class ProjectApplicationServiceTest {
     }
 
     private StoredFile fileIn(ProjectId projectId, String name) {
-        return StoredFile.upload(FileId.generate(),
+        FileId id = FileId.generate();
+        return StoredFile.upload(id,
                                  CALLER,
                                  projectId,
                                  new FileName(name),
                                  1_024L,
                                  Checksum.ofHex("a".repeat(64)),
+                                 ConvertedObj.of(id, 2_048L, Checksum.ofHex("c".repeat(64))),
                                  NOW);
     }
 

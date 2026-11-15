@@ -94,6 +94,7 @@ class ProjectFileControllerTest {
                             PROJECT,
                             "bracket.stl",
                             ModelFormat.STL,
+                            ModelFormat.OBJ,
                             "model/stl",
                             BYTES.length,
                             "d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971",
@@ -116,6 +117,7 @@ class ProjectFileControllerTest {
                .andExpect(jsonPath("$.id").value(id.toString()))
                .andExpect(jsonPath("$.filename").value("bracket.stl"))
                .andExpect(jsonPath("$.format").value("STL"))
+               .andExpect(jsonPath("$.packingFormat").value("OBJ"))
                .andExpect(jsonPath("$.contentType").value("model/stl"))
                .andExpect(jsonPath("$.status").value("AVAILABLE"));
     }

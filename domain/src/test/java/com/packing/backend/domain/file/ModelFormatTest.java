@@ -52,8 +52,31 @@ class ModelFormatTest {
     }
 
     @Test
-    void exposesEveryExtensionForClientHints() {
-        assertThat(ModelFormat.allExtensions())
-                                               .contains("stl", "obj", "step", "stp", "3mf", "ply", "gltf", "glb");
+    void listsOnlyUploadableExtensions() {
+        assertThat(ModelFormat.uploadableExtensions())
+                                                      .containsExactly("3mf", "glb", "gltf", "obj", "ply", "stl");
+    }
+
+    @Test
+    void rejectsAnUnsupportedExtensionWithoutAdvertisingStep() {
+        assertThatThrownBy(() -> ModelFormat.fromExtension("exe"))
+                                                                  .hasMessageNotContaining("step");
+    }
+
+    @Test
+    void stepIsRecognisedButCannotBeUploaded() {
+        assertThat(ModelFormat.STEP.isUploadable()).isFalse();
+        assertThatThrownBy(ModelFormat.STEP::requireUploadable)
+                                                               .isInstanceOf(DomainRuleViolationException.class)
+                                                               .hasMessageContaining("STL or 3MF");
+    }
+
+    @Test
+    void everyMeshFormatIsUploadable() {
+        for (ModelFormat format : ModelFormat.values()) {
+            if (format != ModelFormat.STEP) {
+                format.requireUploadable();
+            }
+        }
     }
 }

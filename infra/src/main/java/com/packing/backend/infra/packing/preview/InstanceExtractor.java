@@ -1,11 +1,12 @@
 package com.packing.backend.infra.packing.preview;
 
+import com.packing.backend.infra.shared.mesh.ObjReader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
-final class InstanceExtractor implements PackerObjReader.Sink {
+final class InstanceExtractor implements ObjReader.Sink {
 
     static final double RELATIVE_SHAPE_TOLERANCE    = 1e-3;
     static final double RELATIVE_ROUNDING_TOLERANCE = 1e-5;

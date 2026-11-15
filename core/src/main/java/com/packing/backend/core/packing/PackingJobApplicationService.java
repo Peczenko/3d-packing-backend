@@ -16,6 +16,7 @@ import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.file.FileId;
+import com.packing.backend.domain.file.ModelContent;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.packing.PackingInput;
@@ -176,7 +177,7 @@ public class PackingJobApplicationService {
         List<PackingJobInputView.Item> kept = new ArrayList<>();
         List<OmittedItem> omitted = new ArrayList<>();
         for (PackingJobInputView.Item item : stored.items()) {
-            Optional<StoredFile> file = availableFile(projectId, new FileId(item.fileId())).filter(candidate -> accepted.contains(candidate.format()));
+            Optional<StoredFile> file = availableFile(projectId, new FileId(item.fileId())).filter(candidate -> isPackable(candidate, accepted));
             if (file.isPresent()) {
                 kept.add(new PackingJobInputView.Item(item.fileId(),
                                                       file.get()
@@ -211,8 +212,7 @@ public class PackingJobApplicationService {
             Optional<StoredFile> file = availableFile(projectId, item.fileId());
             if (file.isEmpty()) {
                 errors.put(pointer, FILE_NOT_AVAILABLE);
-            } else if (!accepted.contains(file.get()
-                                              .format())) {
+            } else if (!isPackable(file.get(), accepted)) {
                 errors.put(pointer, formatNotAccepted(file.get(), accepted));
             } else {
                 items.add(PackingItem.of(file.get(), item.copies()));
@@ -229,7 +229,22 @@ public class PackingJobApplicationService {
                     .filter(file -> file.isAvailableIn(projectId));
     }
 
+    private static boolean isPackable(StoredFile file, Set<ModelFormat> accepted) {
+        return file.packingContent()
+                   .map(ModelContent::format)
+                   .filter(accepted::contains)
+                   .isPresent();
+    }
+
     private static String formatNotAccepted(StoredFile file, Set<ModelFormat> accepted) {
+        if (file.packingContent()
+                .isEmpty()) {
+            return file.name()
+                       .value()
+                    + " was uploaded before " + file.format()
+                                                    .name()
+                    + " models were converted to OBJ; upload it again to pack it";
+        }
         return file.name()
                    .value()
                 + " is " + file.format()

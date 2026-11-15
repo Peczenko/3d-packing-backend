@@ -3,6 +3,7 @@ package com.packing.backend.domain.packing;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
+import com.packing.backend.domain.file.ModelContent;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StorageKey;
 import com.packing.backend.domain.file.StoredFile;
@@ -33,6 +34,8 @@ public record PackingItem(FileId fileId,
     }
 
     public static PackingItem of(StoredFile file, int copies) {
-        return new PackingItem(file.id(), file.name(), file.format(), file.checksum(), file.storageKey(), copies);
+        ModelContent content = file.packingContent()
+                                   .orElseThrow(() -> new DomainRuleViolationException(file.name() + " has no OBJ to pack"));
+        return new PackingItem(file.id(), file.name(), content.format(), content.checksum(), content.storageKey(), copies);
     }
 }

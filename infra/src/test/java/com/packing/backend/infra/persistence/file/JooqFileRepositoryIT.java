@@ -3,6 +3,8 @@ package com.packing.backend.infra.persistence.file;
 import com.packing.backend.core.shared.ConcurrentUpdateException;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
+import com.packing.backend.domain.file.ModelContent;
+import com.packing.backend.domain.file.ConvertedObj;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.FileStatus;
 import com.packing.backend.domain.file.ModelFormat;
@@ -42,7 +44,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(TestcontainersConfiguration.class)
 class JooqFileRepositoryIT {
 
-    private static final Checksum CHECKSUM = Checksum.ofHex("d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971");
+    private static final Checksum CHECKSUM           = Checksum.ofHex("d3a15aa3cd30cc79123d6a50d2809ed794a452e67fa857bbc7ac343cbfca9971");
+    private static final Checksum CONVERTED_CHECKSUM = Checksum.ofHex("c".repeat(64));
 
     @Autowired
     private DSLContext dsl;
@@ -74,12 +77,15 @@ class JooqFileRepositoryIT {
     private StoredFile newFile(String filename) {
         Instant now = Instant.now()
                              .truncatedTo(ChronoUnit.MICROS);
-        return StoredFile.upload(FileId.generate(),
+        FileId id = FileId.generate();
+        FileName name = new FileName(filename);
+        return StoredFile.upload(id,
                                  owner,
                                  project,
-                                 new FileName(filename),
+                                 name,
                                  2_048L,
                                  CHECKSUM,
+                                 name.format() == ModelFormat.OBJ ? null : ConvertedObj.of(id, 4_096L, CONVERTED_CHECKSUM),
                                  now);
     }
 
@@ -100,12 +106,49 @@ class JooqFileRepositoryIT {
             assertThat(file.contentType()).isEqualTo("model/stl");
             assertThat(file.sizeBytes()).isEqualTo(2_048L);
             assertThat(file.checksum()).isEqualTo(CHECKSUM);
+            assertThat(file.convertedObj()).isEqualTo(ConvertedObj.of(saved.id(), 4_096L, CONVERTED_CHECKSUM));
             assertThat(file.status()).isEqualTo(FileStatus.AVAILABLE);
             assertThat(file.version()).isEqualTo(StoredFile.INITIAL_VERSION + 1);
             assertThat(file.createdAt()).isEqualTo(saved.createdAt());
             assertThat(file.updatedAt()).isEqualTo(saved.updatedAt());
             assertThat(file.deletedAt()).isNull();
         });
+    }
+
+    @Test
+    void anObjUploadIsStoredWithoutAConvertedCopy() {
+        StoredFile saved = newFile("bunny.obj");
+        repository().save(saved);
+
+        assertThat(repository().findById(saved.id())).hasValueSatisfying(file -> {
+            assertThat(file.convertedObj()).isNull();
+            assertThat(file.packingContent()).contains(new ModelContent(StorageKey.forFile(saved.id()), ModelFormat.OBJ, CHECKSUM));
+        });
+    }
+
+    @Test
+    void theDatabaseRejectsAConvertedCopyOfAnObj() {
+        FileId id = FileId.generate();
+        Instant now = Instant.now()
+                             .truncatedTo(ChronoUnit.MICROS);
+        StoredFile objWithCopy = StoredFile.rehydrate(id,
+                                                      owner,
+                                                      project,
+                                                      new FileName("bunny.obj"),
+                                                      StorageKey.forFile(id),
+                                                      ModelFormat.OBJ,
+                                                      2_048L,
+                                                      CHECKSUM,
+                                                      ConvertedObj.of(id, 4_096L, CONVERTED_CHECKSUM),
+                                                      FileStatus.AVAILABLE,
+                                                      StoredFile.INITIAL_VERSION,
+                                                      now,
+                                                      now,
+                                                      null);
+
+        assertThatThrownBy(() -> repository().save(objWithCopy))
+                                                                .isInstanceOf(DataIntegrityViolationException.class)
+                                                                .hasMessageContaining("ck_files_obj_not_converted");
     }
 
     @Test
@@ -215,7 +258,7 @@ class JooqFileRepositoryIT {
         StoredFile orphan = StoredFile.upload(FileId.generate(),
                                               UserId.generate(),
                                               project,
-                                              new FileName("bracket.stl"),
+                                              new FileName("bracket.obj"),
                                               2_048L,
                                               CHECKSUM,
                                               Instant.now()
@@ -231,7 +274,7 @@ class JooqFileRepositoryIT {
         StoredFile orphan = StoredFile.upload(FileId.generate(),
                                               owner,
                                               ProjectId.generate(),
-                                              new FileName("bracket.stl"),
+                                              new FileName("bracket.obj"),
                                               2_048L,
                                               CHECKSUM,
                                               Instant.now()

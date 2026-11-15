@@ -1,6 +1,7 @@
 package com.packing.backend.infra.persistence.file;
 
 import com.packing.backend.domain.file.Checksum;
+import com.packing.backend.domain.file.ConvertedObj;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.FileStatus;
@@ -32,6 +33,7 @@ class FileRecordMapperTest {
                                                ModelFormat.STL,
                                                2_048L,
                                                Checksum.ofHex("a".repeat(64)),
+                                               ConvertedObj.of(id, 4_096L, Checksum.ofHex("c".repeat(64))),
                                                FileStatus.AVAILABLE,
                                                4L,
                                                NOW,
@@ -49,6 +51,7 @@ class FileRecordMapperTest {
         assertThat(result.contentType()).isEqualTo(file.contentType());
         assertThat(result.sizeBytes()).isEqualTo(2_048L);
         assertThat(result.checksum()).isEqualTo(file.checksum());
+        assertThat(result.convertedObj()).isEqualTo(ConvertedObj.of(id, 4_096L, Checksum.ofHex("c".repeat(64))));
         assertThat(result.status()).isEqualTo(FileStatus.AVAILABLE);
         assertThat(result.version()).isEqualTo(4L);
         assertThat(result.createdAt()).isEqualTo(NOW);
@@ -67,6 +70,7 @@ class FileRecordMapperTest {
                                                ModelFormat.STL,
                                                1L,
                                                Checksum.ofHex("b".repeat(64)),
+                                               null,
                                                FileStatus.DELETED,
                                                2L,
                                                NOW,
@@ -77,5 +81,6 @@ class FileRecordMapperTest {
 
         assertThat(result.status()).isEqualTo(FileStatus.DELETED);
         assertThat(result.deletedAt()).isEqualTo(NOW.plusSeconds(9));
+        assertThat(result.convertedObj()).isNull();
     }
 }

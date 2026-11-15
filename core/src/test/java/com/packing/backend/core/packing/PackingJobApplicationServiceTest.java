@@ -34,6 +34,9 @@ import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
+import com.packing.backend.domain.file.StorageKey;
+import com.packing.backend.domain.file.FileStatus;
+import com.packing.backend.domain.file.ConvertedObj;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StoredFile;
@@ -175,12 +178,51 @@ class PackingJobApplicationServiceTest {
     }
 
     @Test
+    void createPacksTheConvertedObjOfAModelUploadedInAnotherFormat() {
+        StoredFile bracket = file(PROJECT_ID, "bracket.stl");
+        givenAccess(ProjectPermission.WRITE);
+        when(schema.validate(BODY)).thenReturn(validated(new RequestedItem(bracket.id(), 2)));
+        when(schema.acceptedFormats()).thenReturn(Set.of(ModelFormat.OBJ));
+        when(files.findById(bracket.id())).thenReturn(Optional.of(bracket));
+        when(finder.detailInProject(eq(PROJECT_ID), any())).thenReturn(Optional.of(view(UUID.randomUUID(), PROJECT_ID.value())));
+
+        service.create(create());
+
+        ArgumentCaptor<PackingJob> saved = ArgumentCaptor.forClass(PackingJob.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue()
+                        .input()
+                        .items()).containsExactly(new PackingItem(bracket.id(),
+                                                                  new FileName("bracket.stl"),
+                                                                  ModelFormat.OBJ,
+                                                                  bracket.convertedObj()
+                                                                         .checksum(),
+                                                                  StorageKey.forConvertedObj(bracket.id()),
+                                                                  2));
+    }
+
+    @Test
+    void createReportsAFileTheEngineDoesNotAcceptByItsFormat() {
+        StoredFile bunny = file(PROJECT_ID, "bunny.obj");
+        givenAccess(ProjectPermission.WRITE);
+        when(schema.validate(BODY)).thenReturn(validated(new RequestedItem(bunny.id(), 1)));
+        when(schema.acceptedFormats()).thenReturn(Set.of(ModelFormat.STL));
+        when(files.findById(bunny.id())).thenReturn(Optional.of(bunny));
+
+        assertThatThrownBy(() -> service.create(create()))
+                                                          .isInstanceOfSatisfying(PackingInputRejectedException.class,
+                                                                                  e -> assertThat(e.errors()).containsExactly(
+                                                                                                                              entry("/items/0/fileId",
+                                                                                                                                    "bunny.obj is OBJ; the packing engine accepts STL")));
+    }
+
+    @Test
     void createReportsEveryUnusableFileAtItsPointer() {
         FileId missing = FileId.generate();
         StoredFile foreign = file(OTHER_PROJECT_ID, "foreign.obj");
         StoredFile deleted = file(PROJECT_ID, "deleted.obj");
         deleted.delete(NOW);
-        StoredFile bracket = file(PROJECT_ID, "bracket.stl");
+        StoredFile bracket = legacyFile(PROJECT_ID, "bracket.stl");
         givenAccess(ProjectPermission.WRITE);
         when(schema.validate(BODY)).thenReturn(validated(new RequestedItem(missing, 1),
                                                          new RequestedItem(foreign.id(), 1),
@@ -202,7 +244,7 @@ class PackingJobApplicationServiceTest {
                                                                                                                               entry("/items/2/fileId",
                                                                                                                                     "File is not available in this project"),
                                                                                                                               entry("/items/3/fileId",
-                                                                                                                                    "bracket.stl is STL; the packing engine accepts OBJ")));
+                                                                                                                                    "bracket.stl was uploaded before STL models were converted to OBJ; upload it again to pack it")));
         verify(repository, never()).save(any());
         verify(events, never()).publishAll(any());
     }
@@ -792,10 +834,35 @@ class PackingJobApplicationServiceTest {
     }
 
     @Test
+    void draftKeepsAModelThatWasConvertedToObj() {
+        UUID jobId = UUID.randomUUID();
+        StoredFile bracket = file(PROJECT_ID, "bracket.stl");
+        givenReadAccess();
+        when(finder.latestOwnInProject(PROJECT_ID, USER_ID)).thenReturn(Optional.of(storedJob(jobId,
+                                                                                              new PackingJobInputView.Item(bracket.id()
+                                                                                                                                  .value(),
+                                                                                                                           "bracket.stl",
+                                                                                                                           2))));
+        when(schema.acceptedFormats()).thenReturn(Set.of(ModelFormat.OBJ));
+        when(files.findById(bracket.id())).thenReturn(Optional.of(bracket));
+        when(schema.reconcile(any())).thenReturn(new Reconciled(new Settings(120, PARAMETERS), List.of()));
+        when(schema.document()).thenReturn(SCHEMA_V1);
+
+        PackingJobDraft draft = service.draft(new DraftQuery(FIREBASE_UID, PROJECT_ID.value(), null));
+
+        assertThat(draft.input()
+                        .items()).containsExactly(new PackingJobInputView.Item(bracket.id()
+                                                                                      .value(),
+                                                                               "bracket.stl",
+                                                                               2));
+        assertThat(draft.omittedItems()).isEmpty();
+    }
+
+    @Test
     void draftOmitsAFileTheEngineNoLongerAccepts() {
         UUID jobId = UUID.randomUUID();
         FileId bracketId = FileId.generate();
-        StoredFile bracket = StoredFile.upload(bracketId, USER_ID, PROJECT_ID, new FileName("bracket.stl"), 1_024, new Checksum("a".repeat(64)), NOW);
+        StoredFile bracket = legacyFile(bracketId, PROJECT_ID, "bracket.stl");
         givenReadAccess();
         when(finder.latestOwnInProject(PROJECT_ID, USER_ID)).thenReturn(Optional.of(storedJob(jobId,
                                                                                               new PackingJobInputView.Item(bracketId.value(), "bracket.stl", 2))));
@@ -859,13 +926,39 @@ class PackingJobApplicationServiceTest {
     }
 
     private static StoredFile file(ProjectId projectId, String name) {
-        return StoredFile.upload(FileId.generate(),
+        FileId id = FileId.generate();
+        FileName fileName = new FileName(name);
+        ConvertedObj converted = fileName.format() == ModelFormat.OBJ ? null : ConvertedObj.of(id, 2_048, new Checksum("c".repeat(64)));
+        return StoredFile.upload(id,
                                  USER_ID,
                                  projectId,
-                                 new FileName(name),
+                                 fileName,
                                  1_024,
                                  new Checksum("a".repeat(64)),
+                                 converted,
                                  NOW);
+    }
+
+    private static StoredFile legacyFile(ProjectId projectId, String name) {
+        return legacyFile(FileId.generate(), projectId, name);
+    }
+
+    private static StoredFile legacyFile(FileId id, ProjectId projectId, String name) {
+        FileName fileName = new FileName(name);
+        return StoredFile.rehydrate(id,
+                                    USER_ID,
+                                    projectId,
+                                    fileName,
+                                    StorageKey.forFile(id),
+                                    fileName.format(),
+                                    1_024,
+                                    new Checksum("a".repeat(64)),
+                                    null,
+                                    FileStatus.AVAILABLE,
+                                    1,
+                                    NOW,
+                                    NOW,
+                                    null);
     }
 
     private static ProjectAccess projectAccess(ProjectPermission permission) {

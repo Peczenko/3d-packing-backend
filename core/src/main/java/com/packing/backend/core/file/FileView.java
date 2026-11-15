@@ -1,6 +1,7 @@
 package com.packing.backend.core.file;
 
 import com.packing.backend.domain.file.FileStatus;
+import com.packing.backend.domain.file.ModelContent;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StoredFile;
 
@@ -12,6 +13,7 @@ public record FileView(
         UUID projectId,
         String filename,
         ModelFormat format,
+        ModelFormat packingFormat,
         String contentType,
         long sizeBytes,
         String checksumSha256,
@@ -27,6 +29,9 @@ public record FileView(
                             file.name()
                                 .value(),
                             file.format(),
+                            file.packingContent()
+                                .map(ModelContent::format)
+                                .orElse(null),
                             file.contentType(),
                             file.sizeBytes(),
                             file.checksum()

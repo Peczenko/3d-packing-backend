@@ -1,11 +1,11 @@
-package com.packing.backend.infra.packing.preview;
+package com.packing.backend.infra.shared.mesh;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-final class PackerObjReader {
+public final class ObjReader {
 
     private static final int      INITIAL_BUFFER  = 1 << 20;
     private static final int      MAX_FAST_DIGITS = 18;
@@ -23,13 +23,13 @@ final class PackerObjReader {
     private long   vertexCount;
     private int[]  polygon = new int[8];
 
-    private PackerObjReader(InputStream in, Sink sink) {
+    private ObjReader(InputStream in, Sink sink) {
         this.in = in;
         this.sink = sink;
     }
 
-    static void read(InputStream in, Sink sink) throws IOException {
-        new PackerObjReader(in, sink).run();
+    public static void read(InputStream in, Sink sink) throws IOException {
+        new ObjReader(in, sink).run();
     }
 
     private void run() throws IOException {
@@ -253,11 +253,11 @@ final class PackerObjReader {
         return b >= '0' && b <= '9';
     }
 
-    private UnrecognizedPackerOutputException malformed(String problem) {
-        return new UnrecognizedPackerOutputException("Line " + lineNumber + " of the packing result: " + problem);
+    private MalformedObjException malformed(String problem) {
+        return new MalformedObjException("line " + lineNumber + ": " + problem);
     }
 
-    interface Sink {
+    public interface Sink {
 
         void object(String name);
 
