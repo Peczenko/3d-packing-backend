@@ -114,7 +114,8 @@ public class ClasspathSampleModelCatalog implements SampleModelCatalog {
 
     private static ContentDigest digest(String id, String path) {
         if (ClasspathSampleModelCatalog.class.getClassLoader()
-                                             .getResource(path) == null) {
+                                             .getResource(path)
+                == null) {
             throw invalid(id, path + " is not on the classpath");
         }
         String sizeRule = path + " must hold between 1 and " + StoredFile.MAX_SIZE_BYTES + " bytes";

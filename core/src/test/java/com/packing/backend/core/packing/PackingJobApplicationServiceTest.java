@@ -296,8 +296,8 @@ class PackingJobApplicationServiceTest {
         UUID jobId = UUID.randomUUID();
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED);
         TemporaryUrl expected = new TemporaryUrl(
-                                                                                                 URI.create("https://storage.example/result?sig=secret"),
-                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+                                                 URI.create("https://storage.example/result?sig=secret"),
+                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(jobId)))
                                                                                              .thenReturn(Optional.of(job));
@@ -305,7 +305,7 @@ class PackingJobApplicationServiceTest {
         when(artifacts.readUrl(new PackingArtifact.Result(job.id()), Duration.ofMinutes(10), false)).thenReturn(expected);
 
         TemporaryUrl result = service.prepareResultDownload(
-                                                                                    new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId));
+                                                            new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId));
 
         assertThat(result).isEqualTo(expected);
         verify(artifacts).readUrl(new PackingArtifact.Result(job.id()), Duration.ofMinutes(10), false);
@@ -316,8 +316,8 @@ class PackingJobApplicationServiceTest {
         UUID jobId = UUID.randomUUID();
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, PackingPreview.NONE, TWO_BINS);
         TemporaryUrl expected = new TemporaryUrl(
-                                                                                                 URI.create("https://storage.example/bin?sig=secret"),
-                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+                                                 URI.create("https://storage.example/bin?sig=secret"),
+                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(job.id())).thenReturn(Optional.of(job));
         when(artifacts.readUrl(new PackingArtifact.BinResult(job.id(), "b".repeat(64), 2, 2),
@@ -325,7 +325,7 @@ class PackingJobApplicationServiceTest {
                                true)).thenReturn(expected);
 
         TemporaryUrl result = service.prepareResultBinDownload(
-                                                                                       new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, 2));
+                                                               new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, 2));
 
         assertThat(result).isEqualTo(expected);
     }
@@ -368,8 +368,8 @@ class PackingJobApplicationServiceTest {
                                                       List.of(readyPreview().models(), List.of(new PreviewModel(PreviewQuality.HIGH, 4, 128))));
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, preview, TWO_BINS);
         TemporaryUrl expected = new TemporaryUrl(
-                                                                                                 URI.create("https://storage.example/bins/2/high.glb?sig=secret"),
-                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+                                                 URI.create("https://storage.example/bins/2/high.glb?sig=secret"),
+                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(job.id())).thenReturn(Optional.of(job));
         when(artifacts.readUrl(new PackingArtifact.BinPreview(job.id(), 2, 2, PreviewQuality.HIGH),
@@ -436,14 +436,14 @@ class PackingJobApplicationServiceTest {
         UUID jobId = UUID.randomUUID();
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, readyPreview());
         TemporaryUrl expected = new TemporaryUrl(
-                                                                                                 URI.create("https://storage.example/medium.glb?sig=secret"),
-                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+                                                 URI.create("https://storage.example/medium.glb?sig=secret"),
+                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(job.id())).thenReturn(Optional.of(job));
         when(artifacts.readUrl(new PackingArtifact.Preview(job.id(), PreviewQuality.MEDIUM), Duration.ofMinutes(10), false)).thenReturn(expected);
 
         TemporaryUrl result = service.preparePreviewDownload(
-                                                                                     previewQuery(jobId, PreviewQuality.MEDIUM, false));
+                                                             previewQuery(jobId, PreviewQuality.MEDIUM, false));
 
         assertThat(result).isEqualTo(expected);
     }

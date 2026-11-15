@@ -14,9 +14,9 @@ class SasWindowTest {
     @Test
     void everyRequestInsideOneWindowGetsTheSameStartAndExpirySoTheUrlStaysCacheable() {
         SasWindow early = SasWindow.aligned(Instant.parse("2026-11-06T10:00:00Z"),
-                                                                                                         TEN_MINUTES);
+                                            TEN_MINUTES);
         SasWindow late = SasWindow.aligned(Instant.parse("2026-11-06T10:09:59Z"),
-                                                                                                        TEN_MINUTES);
+                                           TEN_MINUTES);
 
         assertThat(late).isEqualTo(early);
         assertThat(early.start()).isEqualTo(Instant.parse("2026-11-06T09:55:00Z"));
@@ -26,7 +26,7 @@ class SasWindowTest {
     @Test
     void theNextWindowStartsAtItsBoundary() {
         SasWindow next = SasWindow.aligned(Instant.parse("2026-11-06T10:10:00Z"),
-                                                                                                        TEN_MINUTES);
+                                           TEN_MINUTES);
 
         assertThat(next.expiry()).isEqualTo(Instant.parse("2026-11-06T10:30:00Z"));
     }

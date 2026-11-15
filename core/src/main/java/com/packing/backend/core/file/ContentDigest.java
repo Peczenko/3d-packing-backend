@@ -32,8 +32,9 @@ public record ContentDigest(long sizeBytes, Checksum checksum) {
         } catch (IOException e) {
             throw new UncheckedIOException("Could not read the file content", e);
         }
-        return new ContentDigest(size, Checksum.ofHex(HexFormat.of()
-                                                               .formatHex(digest.digest())));
+        return new ContentDigest(size,
+                                 Checksum.ofHex(HexFormat.of()
+                                                         .formatHex(digest.digest())));
     }
 
     private static MessageDigest sha256() {

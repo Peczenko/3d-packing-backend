@@ -463,8 +463,8 @@ class ProjectFileControllerTest {
         UUID id = UUID.randomUUID();
         when(files.prepareDownload(any())).thenReturn(
                                                       new TemporaryUrl(
-                                                                                     URI.create("https://acct.blob.core.windows.net/models/files/x?sig=y"),
-                                                                                     Instant.parse("2026-07-19T10:20:30Z")));
+                                                                       URI.create("https://acct.blob.core.windows.net/models/files/x?sig=y"),
+                                                                       Instant.parse("2026-07-19T10:20:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/files/{id}/content", PROJECT, id))
                .andExpect(status().isFound())

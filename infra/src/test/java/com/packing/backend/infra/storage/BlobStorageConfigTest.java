@@ -50,8 +50,8 @@ class BlobStorageConfigTest {
                     PackingJobArtifactStore artifacts = context.getBean(PackingJobArtifactStore.class);
 
                     assertThatThrownBy(() -> files.delete(StorageKey.forFile(FileId.generate())))
-                                                                                                  .isInstanceOf(ExternalServiceException.class)
-                                                                                                  .hasMessageContaining("app.storage.enabled");
+                                                                                                 .isInstanceOf(ExternalServiceException.class)
+                                                                                                 .hasMessageContaining("app.storage.enabled");
                     assertThatThrownBy(() -> artifacts.findResult(PackingJobId.generate()))
                                                                                            .isInstanceOf(ExternalServiceException.class)
                                                                                            .hasMessageContaining("app.storage.enabled");

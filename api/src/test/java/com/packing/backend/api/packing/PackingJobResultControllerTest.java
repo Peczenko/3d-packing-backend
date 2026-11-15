@@ -65,8 +65,8 @@ class PackingJobResultControllerTest {
         authenticate();
         UUID jobId = UUID.randomUUID();
         when(jobs.prepareResultDownload(any())).thenReturn(new TemporaryUrl(
-                                                                                                    URI.create("https://storage.example/packing-jobs/result?sig=secret"),
-                                                                                                    Instant.parse("2026-08-01T10:25:30Z")));
+                                                                            URI.create("https://storage.example/packing-jobs/result?sig=secret"),
+                                                                            Instant.parse("2026-08-01T10:25:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result", PROJECT_ID, jobId))
                .andExpect(status().isFound())
@@ -115,8 +115,8 @@ class PackingJobResultControllerTest {
         authenticate();
         UUID jobId = UUID.randomUUID();
         when(jobs.prepareResultBinDownload(any())).thenReturn(new TemporaryUrl(
-                                                                                                       URI.create("https://storage.example/packing-jobs/result/bins/2?sig=secret"),
-                                                                                                       Instant.parse("2026-11-11T10:25:30Z")));
+                                                                               URI.create("https://storage.example/packing-jobs/result/bins/2?sig=secret"),
+                                                                               Instant.parse("2026-11-11T10:25:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result/bins/2", PROJECT_ID, jobId))
                .andExpect(status().isFound())
@@ -141,8 +141,8 @@ class PackingJobResultControllerTest {
         authenticate();
         UUID jobId = UUID.randomUUID();
         when(jobs.prepareResultBinPreviewDownload(any())).thenReturn(new TemporaryUrl(
-                                                                                                              URI.create("https://storage.example/packing-jobs/preview/bins/2/low.glb?sig=secret"),
-                                                                                                              Instant.parse("2026-11-15T10:25:30Z")));
+                                                                                      URI.create("https://storage.example/packing-jobs/preview/bins/2/low.glb?sig=secret"),
+                                                                                      Instant.parse("2026-11-15T10:25:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result/bins/2/preview/LOW", PROJECT_ID, jobId).param("download",
                                                                                                                                     "true"))
@@ -168,8 +168,8 @@ class PackingJobResultControllerTest {
         authenticate();
         UUID jobId = UUID.randomUUID();
         when(jobs.preparePreviewDownload(any())).thenReturn(new TemporaryUrl(
-                                                                                                     URI.create("https://storage.example/packing-jobs/preview/medium.glb?sig=secret"),
-                                                                                                     Instant.parse("2026-11-06T10:25:30Z")));
+                                                                             URI.create("https://storage.example/packing-jobs/preview/medium.glb?sig=secret"),
+                                                                             Instant.parse("2026-11-06T10:25:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/preview/MEDIUM", PROJECT_ID, jobId))
                .andExpect(status().isFound())
@@ -186,8 +186,8 @@ class PackingJobResultControllerTest {
         authenticate();
         UUID jobId = UUID.randomUUID();
         when(jobs.preparePreviewDownload(any())).thenReturn(new TemporaryUrl(
-                                                                                                     URI.create("https://storage.example/high.glb?sig=secret"),
-                                                                                                     Instant.parse("2026-11-06T10:25:30Z")));
+                                                                             URI.create("https://storage.example/high.glb?sig=secret"),
+                                                                             Instant.parse("2026-11-06T10:25:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/preview/HIGH", PROJECT_ID, jobId).param("download", "true"))
                .andExpect(status().isFound());

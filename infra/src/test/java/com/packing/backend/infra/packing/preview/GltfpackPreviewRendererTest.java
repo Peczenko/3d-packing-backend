@@ -235,11 +235,15 @@ class GltfpackPreviewRendererTest {
         @Override
         public void storePreview(PreviewArtifact preview, Path glb) {
             switch (preview) {
-                case PackingArtifact.Preview whole -> previews.put(whole.quality(), copy(glb, whole.quality()
-                                                                                                .name()));
+                case PackingArtifact.Preview whole -> previews.put(whole.quality(),
+                                                                   copy(glb,
+                                                                        whole.quality()
+                                                                             .name()));
                 case PackingArtifact.BinPreview bin -> binPreviews.computeIfAbsent(bin.number(), ignored -> new EnumMap<>(PreviewQuality.class))
-                                                                  .put(bin.quality(), copy(glb, "bin-" + bin.number() + "-" + bin.quality()
-                                                                                                                                    .name()));
+                                                                  .put(bin.quality(),
+                                                                       copy(glb,
+                                                                            "bin-" + bin.number() + "-" + bin.quality()
+                                                                                                             .name()));
             }
         }
 

@@ -386,12 +386,12 @@ class FileApplicationServiceTest {
         when(files.findById(id)).thenReturn(Optional.of(file));
         Instant expiry = NOW.plusSeconds(300);
         when(storage.readUrl(file.storageKey(), "cube.stl", "model/stl"))
-                                                                                  .thenReturn(new TemporaryUrl(
-                                                                                                                             URI.create("https://blob/cube?sig=x"),
-                                                                                                                             expiry));
+                                                                         .thenReturn(new TemporaryUrl(
+                                                                                                      URI.create("https://blob/cube?sig=x"),
+                                                                                                      expiry));
 
         TemporaryUrl download = service.prepareDownload(
-                                                                      new PrepareDownloadCommand(UID, PROJECT.value(), id.value()));
+                                                        new PrepareDownloadCommand(UID, PROJECT.value(), id.value()));
 
         assertThat(download.url()).isEqualTo(URI.create("https://blob/cube?sig=x"));
         assertThat(download.expiresAt()).isEqualTo(expiry);
@@ -404,9 +404,9 @@ class FileApplicationServiceTest {
         StoredFile file = storedFile(id, PROJECT);
         when(files.findById(id)).thenReturn(Optional.of(file));
         when(storage.readUrl(any(), anyString(), anyString()))
-                                                                       .thenReturn(new TemporaryUrl(
-                                                                                                                  URI.create("https://blob/cube?sig=x"),
-                                                                                                                  NOW.plusSeconds(300)));
+                                                              .thenReturn(new TemporaryUrl(
+                                                                                           URI.create("https://blob/cube?sig=x"),
+                                                                                           NOW.plusSeconds(300)));
 
         assertThat(service.prepareDownload(
                                            new PrepareDownloadCommand(UID, PROJECT.value(), id.value()))).isNotNull();

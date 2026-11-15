@@ -81,12 +81,12 @@ class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
         return switch (artifact) {
             case Result ignored -> job + "/result/output";
             case BinResult bin -> bin.binCount() == 1
-                    ? job + "/result/output"
-                    : job + "/result/bins/" + bin.resultChecksum() + "/" + bin.number();
+                                                      ? job + "/result/output"
+                                                      : job + "/result/bins/" + bin.resultChecksum() + "/" + bin.number();
             case Preview preview -> job + "/preview/" + previewFile(preview.quality());
             case BinPreview bin -> bin.binCount() == 1
-                    ? job + "/preview/" + previewFile(bin.quality())
-                    : job + "/preview/bins/" + bin.number() + "/" + previewFile(bin.quality());
+                                                       ? job + "/preview/" + previewFile(bin.quality())
+                                                       : job + "/preview/bins/" + bin.number() + "/" + previewFile(bin.quality());
         };
     }
 
@@ -115,13 +115,13 @@ class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
 
     private static String requiredMetadata(Map<String, String> metadata, String name, PackingJobId jobId) {
         String value = metadata == null ? null
-                : metadata.entrySet()
-                          .stream()
-                          .filter(entry -> entry.getKey()
-                                                .equalsIgnoreCase(name))
-                          .map(Map.Entry::getValue)
-                          .findFirst()
-                          .orElse(null);
+                                        : metadata.entrySet()
+                                                  .stream()
+                                                  .filter(entry -> entry.getKey()
+                                                                        .equalsIgnoreCase(name))
+                                                  .map(Map.Entry::getValue)
+                                                  .findFirst()
+                                                  .orElse(null);
         if (value == null || value.isBlank()) {
             throw invalidResult(jobId, "required metadata " + name);
         }

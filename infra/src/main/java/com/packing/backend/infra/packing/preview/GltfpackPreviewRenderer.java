@@ -98,7 +98,7 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
                                          UnaryOperator<PackerObjReader.Sink> observe,
                                          Path work,
                                          Function<PreviewQuality, PreviewArtifact> target)
-                                                                                 throws IOException {
+                                                                                           throws IOException {
         Files.createDirectory(work);
         try {
             Map<PreviewQuality, List<GlbMerger.Part>> packed = pack(source, layout, observe, work);

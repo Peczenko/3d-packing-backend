@@ -216,7 +216,7 @@ class AzureBlobBinaryStorageIT {
                                                CONTENT_TYPE))
                                                              .isInstanceOf(ExternalServiceException.class);
         assertThatThrownBy(() -> storage.readUrl(key, "bracket.stl", CONTENT_TYPE))
-                                                                                            .isInstanceOf(ExternalServiceException.class);
+                                                                                   .isInstanceOf(ExternalServiceException.class);
         assertThatThrownBy(() -> storage.delete(key))
                                                      .isInstanceOf(ExternalServiceException.class);
     }

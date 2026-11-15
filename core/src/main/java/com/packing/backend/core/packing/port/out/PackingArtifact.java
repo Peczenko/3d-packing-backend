@@ -13,13 +13,19 @@ public sealed interface PackingArtifact {
     String downloadName();
 
     static BinResult binResult(PackingJob job, int number) {
-        return new BinResult(job.id(), job.resultChecksum(), number, job.resultBins()
-                                                                        .size());
+        return new BinResult(job.id(),
+                             job.resultChecksum(),
+                             number,
+                             job.resultBins()
+                                .size());
     }
 
     static BinPreview binPreview(PackingJob job, int number, PreviewQuality quality) {
-        return new BinPreview(job.id(), number, job.resultBins()
-                                                   .size(), quality);
+        return new BinPreview(job.id(),
+                              number,
+                              job.resultBins()
+                                 .size(),
+                              quality);
     }
 
     sealed interface PreviewArtifact extends PackingArtifact permits Preview, BinPreview {

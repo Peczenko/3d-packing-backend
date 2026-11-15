@@ -81,11 +81,11 @@ public class PackingJobResultController {
                                            @Parameter(description = "Ask the browser to save the file instead of handing it to a viewer")
                                            @RequestParam(defaultValue = "false") boolean download) {
         return TemporaryRedirect.to(jobs.prepareResultBinPreviewDownload(new PackingJobResultBinPreviewQuery(caller.firebaseUid(),
-                                                                                                 projectId,
-                                                                                                 jobId,
-                                                                                                 number,
-                                                                                                 quality,
-                                                                                                 download)));
+                                                                                                             projectId,
+                                                                                                             jobId,
+                                                                                                             number,
+                                                                                                             quality,
+                                                                                                             download)));
     }
 
     @GetMapping("/{jobId}/preview/{quality}")
@@ -103,9 +103,9 @@ public class PackingJobResultController {
                                         @Parameter(description = "Ask the browser to save the file instead of handing it to a viewer")
                                         @RequestParam(defaultValue = "false") boolean download) {
         return TemporaryRedirect.to(jobs.preparePreviewDownload(new PackingJobPreviewQuery(caller.firebaseUid(),
-                                                                               projectId,
-                                                                               jobId,
-                                                                               quality,
-                                                                               download)));
+                                                                                           projectId,
+                                                                                           jobId,
+                                                                                           quality,
+                                                                                           download)));
     }
 }

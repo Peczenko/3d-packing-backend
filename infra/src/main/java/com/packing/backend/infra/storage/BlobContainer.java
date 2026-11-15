@@ -51,23 +51,27 @@ class BlobContainer {
 
     void upload(String key, InputStream content, BlobHttpHeaders headers) {
         BlobClient blob = writable().getBlobClient(key);
-        translating("write", key, () -> blob.uploadWithResponse(new BlobParallelUploadOptions(content).setHeaders(headers),
-                                                                null,
-                                                                Context.NONE));
+        translating("write",
+                    key,
+                    () -> blob.uploadWithResponse(new BlobParallelUploadOptions(content).setHeaders(headers),
+                                                  null,
+                                                  Context.NONE));
     }
 
     void upload(String key, Path file, BlobHttpHeaders headers) {
         BlobClient blob = writable().getBlobClient(key);
-        translating("write", key, () -> blob.uploadFromFileWithResponse(new BlobUploadFromFileOptions(file.toString()).setHeaders(headers),
-                                                                        null,
-                                                                        Context.NONE));
+        translating("write",
+                    key,
+                    () -> blob.uploadFromFileWithResponse(new BlobUploadFromFileOptions(file.toString()).setHeaders(headers),
+                                                          null,
+                                                          Context.NONE));
     }
 
     boolean uploadIfAbsent(String key, byte[] content, BlobHttpHeaders headers) {
         BlobClient blob = writable().getBlobClient(key);
         BlobParallelUploadOptions options = new BlobParallelUploadOptions(new ByteArrayInputStream(content))
-                                                                                                         .setHeaders(headers)
-                                                                                                         .setRequestConditions(new BlobRequestConditions().setIfNoneMatch("*"));
+                                                                                                            .setHeaders(headers)
+                                                                                                            .setRequestConditions(new BlobRequestConditions().setIfNoneMatch("*"));
         try {
             blob.uploadWithResponse(options, null, Context.NONE);
             return true;
@@ -81,8 +85,10 @@ class BlobContainer {
 
     byte[] download(String key) {
         BlobClient blob = client().getBlobClient(key);
-        return translating("read", key, () -> blob.downloadContent()
-                                                  .toBytes());
+        return translating("read",
+                           key,
+                           () -> blob.downloadContent()
+                                     .toBytes());
     }
 
     InputStream open(String key) {
@@ -121,7 +127,8 @@ class BlobContainer {
             values.setContentType(request.contentType());
         }
         BlobClient blob = client().getBlobClient(key);
-        return translating("sign a read URL for", key,
+        return translating("sign a read URL for",
+                           key,
                            () -> new TemporaryUrl(URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)), window.expiry()));
     }
 
