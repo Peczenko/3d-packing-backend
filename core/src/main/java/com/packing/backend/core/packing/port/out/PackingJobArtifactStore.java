@@ -23,9 +23,16 @@ public interface PackingJobArtifactStore {
 
     InputStream openResult(PackingJobId jobId);
 
+    InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number);
+
     void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb);
 
+    void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb);
+
     TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName);
+
+    TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
+                                     String attachmentFileName);
 
     record ResultArtifact(String fileName, String contentType, long sizeBytes,
             String checksum, String engineVersion, String engineChecksum) {

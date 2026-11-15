@@ -20,6 +20,8 @@ import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.SortDirection;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingPreview;
+import com.packing.backend.domain.packing.PreviewQuality;
+import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import org.junit.jupiter.api.AfterEach;
@@ -414,7 +416,43 @@ class PackingJobControllerTest {
                .andExpect(jsonPath("$.resultBins[0].number").value(1))
                .andExpect(jsonPath("$.resultBins[0].sizeBytes").value(7))
                .andExpect(jsonPath("$.resultBins[1].number").value(2))
-               .andExpect(jsonPath("$.resultBins[1].checksum").value("2".repeat(64)));
+               .andExpect(jsonPath("$.resultBins[1].checksum").value("2".repeat(64)))
+               .andExpect(jsonPath("$.resultBins[0].previews").isEmpty());
+    }
+
+    @Test
+    void detailListsEachContainersPreviewModels() throws Exception {
+        authenticate();
+        UUID jobId = UUID.randomUUID();
+        PackingPreview preview = PackingPreview.ready(List.of(new PreviewModel(PreviewQuality.HIGH, 30, 3_000)),
+                                                      List.of(List.of(new PreviewModel(PreviewQuality.HIGH, 20, 2_000),
+                                                                      new PreviewModel(PreviewQuality.LOW, 5, 500)),
+                                                              List.of(new PreviewModel(PreviewQuality.HIGH, 10, 1_000))));
+        when(jobs.get(any())).thenReturn(new PackingJobView(jobId,
+                                                            PROJECT_ID,
+                                                            PackingJobStatus.SUCCEEDED,
+                                                            "v0.0.5",
+                                                            "a".repeat(64),
+                                                            Instant.parse("2026-11-11T10:15:30Z"),
+                                                            Instant.parse("2026-11-11T10:15:31Z"),
+                                                            Instant.parse("2026-11-11T10:16:31Z"),
+                                                            null,
+                                                            "packed.obj",
+                                                            "model/obj",
+                                                            12L,
+                                                            "b".repeat(64),
+                                                            List.of(new ResultBin(7, "1".repeat(64)), new ResultBin(5, "2".repeat(64))),
+                                                            INPUT,
+                                                            preview));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}", PROJECT_ID, jobId))
+               .andExpect(status().isOk())
+               .andExpect(jsonPath("$.preview.models.length()").value(1))
+               .andExpect(jsonPath("$.resultBins[0].previews.length()").value(2))
+               .andExpect(jsonPath("$.resultBins[0].previews[0].quality").value("LOW"))
+               .andExpect(jsonPath("$.resultBins[0].previews[0].triangles").value(5))
+               .andExpect(jsonPath("$.resultBins[1].previews.length()").value(1))
+               .andExpect(jsonPath("$.resultBins[1].previews[0].sizeBytes").value(1_000));
     }
 
     @Test

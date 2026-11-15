@@ -35,9 +35,18 @@ final class PackerOutput {
     }
 
     PackerOutput place(double[] meshVertices, int[] faces, double[] placement, double scale) {
+        return place("Object_" + objects, meshVertices, faces, placement, scale);
+    }
+
+    PackerOutput place(String name, double[] meshVertices, int[] faces, double[] placement) {
+        return place(name, meshVertices, faces, placement, 1);
+    }
+
+    private PackerOutput place(String name, double[] meshVertices, int[] faces, double[] placement, double scale) {
         double norm = Math.sqrt(placement[0] * placement[0] + placement[1] * placement[1] + placement[2] * placement[2] + placement[3] * placement[3]);
-        text.append("o Object_")
-            .append(objects++)
+        objects++;
+        text.append("o ")
+            .append(name)
             .append('\n');
         for (int i = 0; i < meshVertices.length; i += 3) {
             double[] p = RigidFit.rotate(placement[0] / norm,

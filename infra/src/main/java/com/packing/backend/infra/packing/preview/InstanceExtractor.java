@@ -253,7 +253,7 @@ final class InstanceExtractor implements PackerObjReader.Sink {
         return value * value;
     }
 
-    private static UnrecognizedPackerOutputException mismatch(String problem) {
+    static UnrecognizedPackerOutputException mismatch(String problem) {
         return new UnrecognizedPackerOutputException("The packing result does not match the job: " + problem);
     }
 

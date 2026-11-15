@@ -231,12 +231,28 @@ class PackingTemporalWiringIT {
         }
 
         @Override
+        public InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb) {
             throw new UnsupportedOperationException();
         }
 
         @Override
+        public void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
+                                                String attachmentFileName) {
             throw new UnsupportedOperationException();
         }
     }

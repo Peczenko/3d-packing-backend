@@ -4,6 +4,7 @@ import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
@@ -63,6 +64,30 @@ public class PackingJobResultController {
                                             @Parameter(description = "One-based container number, as listed in resultBins")
                                             @PathVariable int number) {
         return redirect(jobs.prepareResultBinDownload(new PackingJobResultBinQuery(caller.firebaseUid(), projectId, jobId, number)));
+    }
+
+    @GetMapping("/{jobId}/result/bins/{number}/preview/{quality}")
+    @Operation(operationId = "downloadPackingJobResultBinPreview",
+               summary = "Redirect to a short-lived URL for a glTF preview of one filled container of a job result")
+    @ApiResponse(responseCode = "302",
+                 description = "Redirect to the container's preview model, in the container's own coordinates",
+                 headers = @Header(name = HttpHeaders.LOCATION,
+                                   description = "Short-lived storage URL",
+                                   schema = @Schema(type = "string", format = "uri")))
+    public ResponseEntity<Void> binPreview(@CurrentUser AuthenticatedUser caller,
+                                           @PathVariable UUID projectId,
+                                           @PathVariable UUID jobId,
+                                           @Parameter(description = "One-based container number, as listed in resultBins")
+                                           @PathVariable int number,
+                                           @PathVariable PreviewQuality quality,
+                                           @Parameter(description = "Ask the browser to save the file instead of handing it to a viewer")
+                                           @RequestParam(defaultValue = "false") boolean download) {
+        return redirect(jobs.prepareResultBinPreviewDownload(new PackingJobResultBinPreviewQuery(caller.firebaseUid(),
+                                                                                                 projectId,
+                                                                                                 jobId,
+                                                                                                 number,
+                                                                                                 quality,
+                                                                                                 download)));
     }
 
     @GetMapping("/{jobId}/preview/{quality}")

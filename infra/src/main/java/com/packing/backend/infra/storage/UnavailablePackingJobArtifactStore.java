@@ -44,12 +44,28 @@ class UnavailablePackingJobArtifactStore implements PackingJobArtifactStore {
     }
 
     @Override
+    public InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number) {
+        throw unavailable();
+    }
+
+    @Override
     public void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb) {
         throw unavailable();
     }
 
     @Override
+    public void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb) {
+        throw unavailable();
+    }
+
+    @Override
     public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
+        throw unavailable();
+    }
+
+    @Override
+    public TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
+                                            String attachmentFileName) {
         throw unavailable();
     }
 

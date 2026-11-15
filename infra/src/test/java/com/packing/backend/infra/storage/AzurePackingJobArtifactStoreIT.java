@@ -336,6 +336,53 @@ class AzurePackingJobArtifactStoreIT {
                                                                .plusSeconds(660));
     }
 
+    @Test
+    void streamsAResultBinFromWhereTheWorkerStoredIt() throws Exception {
+        PackingJobId jobId = jobId();
+        String checksum = "e".repeat(64);
+        byte[] second = "o bin_2_mesh_1\nv 0 0 0\n".getBytes(StandardCharsets.UTF_8);
+        container.getBlobClient("packing-jobs/" + jobId + "/result/bins/" + checksum + "/2")
+                 .upload(new ByteArrayInputStream(second), second.length);
+
+        try (InputStream bin = artifacts.openResultBin(jobId, checksum, 2)) {
+            assertThat(bin.readAllBytes()).isEqualTo(second);
+        }
+    }
+
+    @Test
+    void storesAContainerPreviewApartFromTheWholePreviewAndSignsTheWholeOneForTheOnlyContainer() throws Exception {
+        PackingJobId jobId = jobId();
+        byte[] whole = "whole preview".getBytes(StandardCharsets.UTF_8);
+        byte[] second = "container two preview".getBytes(StandardCharsets.UTF_8);
+        Path wholeFile = Files.createTempFile("preview", ".glb");
+        Path secondFile = Files.createTempFile("preview", ".glb");
+        Files.write(wholeFile, whole);
+        Files.write(secondFile, second);
+        artifacts.storePreview(jobId, PreviewQuality.LOW, wholeFile);
+
+        artifacts.storeBinPreview(jobId, 2, PreviewQuality.LOW, secondFile);
+
+        BlobProperties properties = container.getBlobClient("packing-jobs/" + jobId + "/preview/bins/2/low.glb")
+                                             .getProperties();
+        assertThat(properties.getContentType()).isEqualTo("model/gltf-binary");
+        assertThat(properties.getCacheControl()).contains("immutable");
+        PackingJobArtifactStore.TemporaryUrl bin = artifacts.createBinPreviewUrl(jobId,
+                                                                                 2,
+                                                                                 2,
+                                                                                 PreviewQuality.LOW,
+                                                                                 Duration.ofMinutes(10),
+                                                                                 "packing-job-" + jobId + "-bin-002-low.glb");
+        PackingJobArtifactStore.TemporaryUrl only = artifacts.createBinPreviewUrl(jobId, 1, 1, PreviewQuality.LOW, Duration.ofMinutes(10), null);
+        HttpResponse<byte[]> binResponse = fetch(bin.url());
+        assertThat(binResponse.body()).isEqualTo(second);
+        assertThat(binResponse.headers()
+                              .firstValue("Content-Disposition")).hasValueSatisfying(disposition -> assertThat(disposition).contains("packing-job-"
+                                      + jobId + "-bin-002-low.glb"));
+        assertThat(fetch(only.url()).body()).isEqualTo(whole);
+        Files.delete(wholeFile);
+        Files.delete(secondFile);
+    }
+
     private static PackingRequestEnvelope envelope(long runtime, String parameters) {
         FileId fileId = new FileId(UUID.fromString("0b6c3c1e-4c4f-4a39-9b5e-2b8c2e6b1f00"));
         return new PackingRequestEnvelope(PackingRequestEnvelope.VERSION,
