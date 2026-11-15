@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.8.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.7.0...v1.8.0) (2026-11-15)
+
+
+### Features
+
+* convert uploaded models to OBJ for packing ([#100](https://github.com/Peczenko/3d-packing-backend/issues/100)) ([e5ca596](https://github.com/Peczenko/3d-packing-backend/commit/e5ca596b1ca40e97fb5b23ac7fa3322831c83d9a))
+* per-container glb previews ([fe4e741](https://github.com/Peczenko/3d-packing-backend/commit/fe4e7417aea1c13200d2e20e3858047cb5608d4a))
+
+
+### Refactoring
+
+* unify blob storage and file access plumbing ([#99](https://github.com/Peczenko/3d-packing-backend/issues/99)) ([7fd9168](https://github.com/Peczenko/3d-packing-backend/commit/7fd9168fdf76a0f30cbea45d8466bacf03049ebd))
+
+
+### Chores & Dependencies
+
+* merge master into dev ([a7b6d9a](https://github.com/Peczenko/3d-packing-backend/commit/a7b6d9a242035cba4e9a5b7cc2c640ac04e78cf1))
+
 ## [1.7.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.6.0...v1.7.0) (2026-11-11)
 
 
