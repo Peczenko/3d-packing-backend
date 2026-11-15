@@ -466,7 +466,7 @@ class PackingJobTest {
 
         assertThat(failed.preview()).isEqualTo(PackingPreview.NONE);
         assertThat(cancelled.preview()).isEqualTo(PackingPreview.NONE);
-        assertThat(failed.completePreview(List.of(model(PreviewQuality.HIGH)))).isFalse();
+        assertThat(failed.completePreview(List.of(model(PreviewQuality.HIGH)), List.of())).isFalse();
         assertThat(cancelled.failPreview()).isFalse();
     }
 
@@ -474,7 +474,7 @@ class PackingJobTest {
     void completingAPendingPreviewListsItsModelsFromLowToHigh() {
         PackingJob job = succeededJob();
 
-        boolean changed = job.completePreview(List.of(model(PreviewQuality.HIGH), model(PreviewQuality.LOW)));
+        boolean changed = job.completePreview(List.of(model(PreviewQuality.HIGH), model(PreviewQuality.LOW)), List.of());
 
         assertThat(changed).isTrue();
         assertThat(job.preview()
@@ -487,16 +487,16 @@ class PackingJobTest {
     @Test
     void aSettledPreviewIgnoresEveryLaterOutcome() {
         PackingJob ready = succeededJob();
-        ready.completePreview(List.of(model(PreviewQuality.HIGH)));
+        ready.completePreview(List.of(model(PreviewQuality.HIGH)), List.of());
         PackingJob failed = succeededJob();
         failed.failPreview();
 
         assertThat(ready.failPreview()).isFalse();
-        assertThat(ready.completePreview(List.of(model(PreviewQuality.LOW)))).isFalse();
+        assertThat(ready.completePreview(List.of(model(PreviewQuality.LOW)), List.of())).isFalse();
         assertThat(ready.preview()
                         .models()).extracting(PreviewModel::quality)
                                   .containsExactly(PreviewQuality.HIGH);
-        assertThat(failed.completePreview(List.of(model(PreviewQuality.HIGH)))).isFalse();
+        assertThat(failed.completePreview(List.of(model(PreviewQuality.HIGH)), List.of())).isFalse();
         assertThat(failed.preview()).isEqualTo(PackingPreview.FAILED);
     }
 
@@ -504,9 +504,9 @@ class PackingJobTest {
     void aReadyPreviewNeedsAtLeastOneModelAndNoQualityTwice() {
         PackingJob job = succeededJob();
 
-        assertThatThrownBy(() -> job.completePreview(List.of())).isInstanceOf(DomainRuleViolationException.class);
-        assertThatThrownBy(() -> job.completePreview(List.of(model(PreviewQuality.LOW), model(PreviewQuality.LOW))))
-                                                                                                                    .isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> job.completePreview(List.of(), List.of())).isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> job.completePreview(List.of(model(PreviewQuality.LOW), model(PreviewQuality.LOW)), List.of()))
+                                                                                                                               .isInstanceOf(DomainRuleViolationException.class);
         assertThat(job.preview()).isEqualTo(PackingPreview.PENDING);
     }
 
@@ -514,11 +514,102 @@ class PackingJobTest {
     void requirePreviewDistinguishesAPreviewNotReadyFromAQualityNeverProduced() {
         PackingJob pending = succeededJob();
         PackingJob ready = succeededJob();
-        ready.completePreview(List.of(model(PreviewQuality.HIGH)));
+        ready.completePreview(List.of(model(PreviewQuality.HIGH)), List.of());
 
         assertThatThrownBy(() -> pending.requirePreview(PreviewQuality.HIGH)).isInstanceOf(ResourceConflictException.class);
         assertThatThrownBy(() -> ready.requirePreview(PreviewQuality.LOW)).isInstanceOf(ResourceNotFoundException.class);
         assertThat(ready.requirePreview(PreviewQuality.HIGH)).isEqualTo(model(PreviewQuality.HIGH));
+    }
+
+    @Test
+    void aPreviewOfSeveralContainersCarriesOneLadderPerContainer() {
+        PackingJob job = twoContainerJob();
+
+        boolean changed = job.completePreview(List.of(model(PreviewQuality.HIGH)),
+                                              List.of(List.of(model(PreviewQuality.HIGH), model(PreviewQuality.LOW)),
+                                                      List.of(model(PreviewQuality.HIGH))));
+
+        assertThat(changed).isTrue();
+        assertThat(job.preview()
+                      .bins()
+                      .getFirst()).extracting(PreviewModel::quality)
+                                  .containsExactly(PreviewQuality.LOW, PreviewQuality.HIGH);
+        assertThat(job.requireBinPreview(1, PreviewQuality.LOW)).isEqualTo(model(PreviewQuality.LOW));
+        assertThat(job.requireBinPreview(2, PreviewQuality.HIGH)).isEqualTo(model(PreviewQuality.HIGH));
+    }
+
+    @Test
+    void aPreviewMustCoverEveryContainerOfAMultiContainerResultAndNoneOfASingleOne() {
+        PackingJob twoContainers = twoContainerJob();
+        PackingJob oneContainer = queuedJob();
+        oneContainer.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)), "v0.0.5", SHA_A, NOW);
+        List<PreviewModel> high = List.of(model(PreviewQuality.HIGH));
+
+        assertThatThrownBy(() -> twoContainers.completePreview(high, List.of())).isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> twoContainers.completePreview(high, List.of(high))).isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> twoContainers.completePreview(high, List.of(high, List.of()))).isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> oneContainer.completePreview(high, List.of(high))).isInstanceOf(DomainRuleViolationException.class);
+        assertThat(twoContainers.preview()).isEqualTo(PackingPreview.PENDING);
+        assertThat(oneContainer.preview()).isEqualTo(PackingPreview.PENDING);
+    }
+
+    @Test
+    void theOnlyContainerOfAResultSharesTheWholePreview() {
+        PackingJob job = queuedJob();
+        job.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)), "v0.0.5", SHA_A, NOW);
+        job.completePreview(List.of(model(PreviewQuality.HIGH), model(PreviewQuality.MEDIUM)), List.of());
+
+        assertThat(job.requireBinPreview(1, PreviewQuality.MEDIUM)).isEqualTo(model(PreviewQuality.MEDIUM));
+        assertThat(job.preview()
+                      .binModels(1, 1)).isEqualTo(job.preview()
+                                                     .models());
+    }
+
+    @Test
+    void requireBinPreviewDistinguishesNotReadyFromNeverProduced() {
+        PackingJob queued = queuedJob();
+        PackingJob pending = twoContainerJob();
+        PackingJob ready = twoContainerJob();
+        ready.completePreview(List.of(model(PreviewQuality.HIGH)), List.of(List.of(model(PreviewQuality.HIGH)), List.of(model(PreviewQuality.HIGH))));
+        PackingJob builtBeforeContainerPreviews = PackingJob.rehydrate(JOB_ID,
+                                                                       PROJECT_ID,
+                                                                       USER_ID,
+                                                                       PackingInputs.single(),
+                                                                       60,
+                                                                       PackingJobStatus.SUCCEEDED,
+                                                                       "v0.0.5",
+                                                                       SHA_A,
+                                                                       NOW,
+                                                                       NOW,
+                                                                       NOW,
+                                                                       "packed.obj",
+                                                                       "model/obj",
+                                                                       SHA_B,
+                                                                       12L,
+                                                                       List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_A)),
+                                                                       null,
+                                                                       PackingPreview.ready(List.of(model(PreviewQuality.HIGH))),
+                                                                       3,
+                                                                       NOW);
+
+        assertThatThrownBy(() -> queued.requireBinPreview(1, PreviewQuality.HIGH)).isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> pending.requireBinPreview(1, PreviewQuality.HIGH)).isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> ready.requireBinPreview(3, PreviewQuality.HIGH)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> ready.requireBinPreview(2, PreviewQuality.LOW)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> builtBeforeContainerPreviews.requireBinPreview(1, PreviewQuality.HIGH))
+                                                                                                        .isInstanceOf(ResourceNotFoundException.class);
+        assertThat(builtBeforeContainerPreviews.preview()
+                                               .binModels(1, 2)).isEmpty();
+    }
+
+    @Test
+    void onlyAReadyPreviewHasContainerPreviews() {
+        List<List<PreviewModel>> bins = List.of(List.of(model(PreviewQuality.HIGH)), List.of(model(PreviewQuality.HIGH)));
+
+        assertThatThrownBy(() -> new PackingPreview(PreviewStatus.FAILED, List.of(), bins)).isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> PackingPreview.ready(List.of(model(PreviewQuality.HIGH)),
+                                                      List.of(List.of(model(PreviewQuality.LOW), model(PreviewQuality.LOW)))))
+                                                                                                                              .isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
@@ -589,6 +680,12 @@ class PackingJobTest {
                     "packer 0.3.0",
                     SHA_A,
                     NOW.plusSeconds(2));
+        return job;
+    }
+
+    private PackingJob twoContainerJob() {
+        PackingJob job = queuedJob();
+        job.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_A)), "v0.0.5", SHA_A, NOW);
         return job;
     }
 

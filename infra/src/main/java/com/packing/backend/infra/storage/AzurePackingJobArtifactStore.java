@@ -126,30 +126,59 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
 
     @Override
     public InputStream openResult(PackingJobId jobId) {
+        return open(resultKey(jobId), "open result", jobId);
+    }
+
+    @Override
+    public InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number) {
+        return open(resultBinKey(jobId, resultChecksum, number), "open result bin " + number, jobId);
+    }
+
+    private InputStream open(String key, String operation, PackingJobId jobId) {
         try {
-            return container.getBlobClient(resultKey(jobId))
+            return container.getBlobClient(key)
                             .openInputStream();
         } catch (BlobStorageException e) {
-            throw external("open result", jobId, e);
+            throw external(operation, jobId, e);
         }
     }
 
     @Override
     public void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb) {
+        uploadPreview(previewKey(jobId, quality), glb, "store " + quality + " preview", jobId);
+    }
+
+    @Override
+    public void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb) {
+        uploadPreview(binPreviewKey(jobId, number, quality), glb, "store " + quality + " preview of result bin " + number, jobId);
+    }
+
+    private void uploadPreview(String key, Path glb, String operation, PackingJobId jobId) {
         try {
-            container.getBlobClient(previewKey(jobId, quality))
+            container.getBlobClient(key)
                      .uploadFromFileWithResponse(new BlobUploadFromFileOptions(glb.toString())
                                                                                               .setHeaders(new BlobHttpHeaders().setContentType(PREVIEW_CONTENT_TYPE)
                                                                                                                                .setCacheControl(PREVIEW_CACHE_CONTROL)),
                                                  null,
                                                  Context.NONE);
         } catch (BlobStorageException e) {
-            throw external("store " + quality + " preview", jobId, e);
+            throw external(operation, jobId, e);
         }
     }
 
     @Override
     public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
+        return previewUrl(previewKey(jobId, quality), validity, attachmentFileName, "issue " + quality + " preview URL", jobId);
+    }
+
+    @Override
+    public TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
+                                            String attachmentFileName) {
+        String key = binCount == 1 ? previewKey(jobId, quality) : binPreviewKey(jobId, number, quality);
+        return previewUrl(key, validity, attachmentFileName, "issue " + quality + " preview URL of result bin " + number, jobId);
+    }
+
+    private TemporaryUrl previewUrl(String key, Duration validity, String attachmentFileName, String operation, PackingJobId jobId) {
         SasWindow window = SasWindow.containing(Instant.now(), validity);
         BlobServiceSasSignatureValues values = new BlobServiceSasSignatureValues(
                                                                                  window.expiry()
@@ -160,11 +189,11 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
         if (attachmentFileName != null) {
             values.setContentDisposition(AttachmentDisposition.of(attachmentFileName));
         }
-        BlobClient blob = container.getBlobClient(previewKey(jobId, quality));
+        BlobClient blob = container.getBlobClient(key);
         try {
             return new TemporaryUrl(URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)), window.expiry());
         } catch (BlobStorageException e) {
-            throw external("issue " + quality + " preview URL", jobId, e);
+            throw external(operation, jobId, e);
         }
     }
 
@@ -249,8 +278,16 @@ public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
     }
 
     private static String previewKey(PackingJobId id, PreviewQuality quality) {
-        return "packing-jobs/" + id + "/preview/" + quality.name()
-                                                           .toLowerCase(Locale.ROOT)
+        return "packing-jobs/" + id + "/preview/" + previewFile(quality);
+    }
+
+    private static String binPreviewKey(PackingJobId id, int number, PreviewQuality quality) {
+        return "packing-jobs/" + id + "/preview/bins/" + number + "/" + previewFile(quality);
+    }
+
+    private static String previewFile(PreviewQuality quality) {
+        return quality.name()
+                      .toLowerCase(Locale.ROOT)
                 + ".glb";
     }
 }

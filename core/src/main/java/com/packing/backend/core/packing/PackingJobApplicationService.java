@@ -163,6 +163,23 @@ public class PackingJobApplicationService {
     }
 
     @Transactional(readOnly = true)
+    public PackingJobArtifactStore.TemporaryUrl prepareResultBinPreviewDownload(PackingJobResultBinPreviewQuery query) {
+        ProjectAccess project = requireAccess(query.firebaseUid(),
+                                              query.projectId(),
+                                              ProjectPermission.READ);
+        PackingJob job = requireJob(project.projectId(), new PackingJobId(query.jobId()));
+        PreviewModel model = job.requireBinPreview(query.number(), query.quality());
+        String attachment = query.download() ? resultBinPreviewFileName(job.id(), query.number(), model.quality()) : null;
+        return artifacts.createBinPreviewUrl(job.id(),
+                                             query.number(),
+                                             job.resultBins()
+                                                .size(),
+                                             model.quality(),
+                                             DOWNLOAD_URL_VALIDITY,
+                                             attachment);
+    }
+
+    @Transactional(readOnly = true)
     public PackingJobDraft draft(DraftQuery query) {
         ProjectAccess project = requireAccess(query.firebaseUid(),
                                               query.projectId(),
@@ -257,13 +274,24 @@ public class PackingJobApplicationService {
     }
 
     private static String resultBinFileName(PackingJobId jobId, int number) {
-        return "packing-job-" + jobId + "-bin-" + String.format(Locale.ROOT, "%03d", number) + ".obj";
+        return "packing-job-" + jobId + "-bin-" + binLabel(number) + ".obj";
     }
 
     private static String previewFileName(PackingJobId jobId, PreviewQuality quality) {
-        return "packing-job-" + jobId + "-" + quality.name()
-                                                     .toLowerCase(Locale.ROOT)
-                + ".glb";
+        return "packing-job-" + jobId + "-" + qualityLabel(quality) + ".glb";
+    }
+
+    private static String resultBinPreviewFileName(PackingJobId jobId, int number, PreviewQuality quality) {
+        return "packing-job-" + jobId + "-bin-" + binLabel(number) + "-" + qualityLabel(quality) + ".glb";
+    }
+
+    private static String binLabel(int number) {
+        return String.format(Locale.ROOT, "%03d", number);
+    }
+
+    private static String qualityLabel(PreviewQuality quality) {
+        return quality.name()
+                      .toLowerCase(Locale.ROOT);
     }
 
     private PackingJob requireJob(ProjectId projectId, PackingJobId jobId) {
@@ -328,6 +356,10 @@ public class PackingJobApplicationService {
     }
 
     public record PackingJobResultBinQuery(String firebaseUid, UUID projectId, UUID jobId, int number) {
+    }
+
+    public record PackingJobResultBinPreviewQuery(String firebaseUid, UUID projectId, UUID jobId, int number, PreviewQuality quality,
+            boolean download) {
     }
 
     public record PackingJobPreviewQuery(String firebaseUid, UUID projectId, UUID jobId, PreviewQuality quality, boolean download) {

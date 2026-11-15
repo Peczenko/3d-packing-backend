@@ -8,5 +8,8 @@ import java.util.List;
 
 public interface PackingPreviewRenderer {
 
-    List<PreviewModel> render(PackingJobId jobId, List<PackingItem> items);
+    Rendered render(PackingJobId jobId, List<PackingItem> items, String resultChecksum, int binCount);
+
+    record Rendered(List<PreviewModel> models, List<List<PreviewModel>> bins) {
+    }
 }

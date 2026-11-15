@@ -1,6 +1,7 @@
 package com.packing.backend.api.packing;
 
 import com.packing.backend.core.notification.port.out.ErrorAlerter;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
@@ -130,6 +131,33 @@ class PackingJobResultControllerTest {
         authenticate();
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result/bins/first", PROJECT_ID, UUID.randomUUID()))
+               .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(jobs);
+    }
+
+    @Test
+    void binPreviewRedirectsToTheTemporaryUrlOfTheRequestedContainerAndQuality() throws Exception {
+        authenticate();
+        UUID jobId = UUID.randomUUID();
+        when(jobs.prepareResultBinPreviewDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+                                                                                                              URI.create("https://storage.example/packing-jobs/preview/bins/2/low.glb?sig=secret"),
+                                                                                                              Instant.parse("2026-11-15T10:25:30Z")));
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result/bins/2/preview/LOW", PROJECT_ID, jobId).param("download",
+                                                                                                                                    "true"))
+               .andExpect(status().isFound())
+               .andExpect(header().string("Location", "https://storage.example/packing-jobs/preview/bins/2/low.glb?sig=secret"))
+               .andExpect(header().string("Cache-Control", "no-store"));
+
+        verify(jobs).prepareResultBinPreviewDownload(new PackingJobResultBinPreviewQuery(UID, PROJECT_ID, jobId, 2, PreviewQuality.LOW, true));
+    }
+
+    @Test
+    void aBinPreviewWithAnUnknownQualityIsABadRequest() throws Exception {
+        authenticate();
+
+        mockMvc.perform(get("/api/v1/projects/{projectId}/packing-jobs/{jobId}/result/bins/1/preview/ULTRA", PROJECT_ID, UUID.randomUUID()))
                .andExpect(status().isBadRequest());
 
         verifyNoInteractions(jobs);

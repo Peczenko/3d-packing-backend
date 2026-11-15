@@ -5,14 +5,11 @@ import com.packing.backend.core.packing.port.out.PackingPreviewRenderer;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
-import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewStatus;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -28,11 +25,14 @@ public class PackingPreviewService {
                .status() != PreviewStatus.PENDING) {
             return;
         }
-        List<PreviewModel> models = renderer.render(id,
-                                                    job.input()
-                                                       .items());
+        PackingPreviewRenderer.Rendered rendered = renderer.render(id,
+                                                                   job.input()
+                                                                      .items(),
+                                                                   job.resultChecksum(),
+                                                                   job.resultBins()
+                                                                      .size());
         PackingJob current = require(id);
-        if (current.completePreview(models)) {
+        if (current.completePreview(rendered.models(), rendered.bins())) {
             jobs.save(current);
         }
     }

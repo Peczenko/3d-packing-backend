@@ -268,11 +268,16 @@ public final class PackingJob extends AggregateRoot {
         return true;
     }
 
-    public boolean completePreview(List<PreviewModel> models) {
+    public boolean completePreview(List<PreviewModel> models, List<List<PreviewModel>> bins) {
         if (preview.status() != PreviewStatus.PENDING) {
             return false;
         }
-        preview = PackingPreview.ready(models);
+        int expected = resultBins.size() > 1 ? resultBins.size() : 0;
+        if (bins.size() != expected) {
+            throw new DomainRuleViolationException("A result in " + resultBins.size() + " containers needs " + expected
+                    + " container previews, not " + bins.size());
+        }
+        preview = PackingPreview.ready(models, bins);
         return true;
     }
 
@@ -285,11 +290,17 @@ public final class PackingJob extends AggregateRoot {
     }
 
     public PreviewModel requirePreview(PreviewQuality quality) {
-        if (preview.status() != PreviewStatus.READY) {
-            throw new ResourceConflictException("Packing job " + id + " has no preview ready");
-        }
+        requirePreviewReady();
         return preview.model(quality)
                       .orElseThrow(() -> new ResourceNotFoundException("Packing job " + id + " has no " + quality + " preview"));
+    }
+
+    public PreviewModel requireBinPreview(int number, PreviewQuality quality) {
+        requireResultBin(number);
+        requirePreviewReady();
+        return preview.binModel(number, resultBins.size(), quality)
+                      .orElseThrow(() -> new ResourceNotFoundException("Packing job " + id + " has no " + quality
+                              + " preview of result bin " + number));
     }
 
     public ResultBin requireResultBin(int number) {
@@ -320,6 +331,12 @@ public final class PackingJob extends AggregateRoot {
                                            resultSizeBytes,
                                            startedAt,
                                            now));
+    }
+
+    private void requirePreviewReady() {
+        if (preview.status() != PreviewStatus.READY) {
+            throw new ResourceConflictException("Packing job " + id + " has no preview ready");
+        }
     }
 
     private boolean isTerminal() {

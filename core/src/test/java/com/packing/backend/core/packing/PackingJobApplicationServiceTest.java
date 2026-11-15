@@ -8,6 +8,7 @@ import com.packing.backend.core.packing.PackingJobApplicationService.ListPacking
 import com.packing.backend.core.packing.PackingJobApplicationService.OmittedItem;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobDraft;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
+import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
@@ -357,6 +358,79 @@ class PackingJobApplicationServiceTest {
         assertThatThrownBy(() -> service.prepareResultBinDownload(new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), UUID.randomUUID(), 1)))
                                                                                                                                                         .isInstanceOf(ProjectNotFoundException.class);
 
+        verify(repository, never()).findById(any());
+    }
+
+    @Test
+    void prepareResultBinPreviewDownloadNamesTheContainerAndQualityAndSaysHowManyContainersThereAre() {
+        UUID jobId = UUID.randomUUID();
+        PackingPreview preview = PackingPreview.ready(readyPreview().models(),
+                                                      List.of(readyPreview().models(), List.of(new PreviewModel(PreviewQuality.HIGH, 4, 128))));
+        PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, preview, TWO_BINS);
+        PackingJobArtifactStore.TemporaryUrl expected = new PackingJobArtifactStore.TemporaryUrl(
+                                                                                                 URI.create("https://storage.example/bins/2/high.glb?sig=secret"),
+                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+        givenReadAccess();
+        when(repository.findById(job.id())).thenReturn(Optional.of(job));
+        when(artifacts.createBinPreviewUrl(job.id(),
+                                           2,
+                                           2,
+                                           PreviewQuality.HIGH,
+                                           Duration.ofMinutes(10),
+                                           "packing-job-" + jobId + "-bin-002-high.glb")).thenReturn(expected);
+
+        PackingJobArtifactStore.TemporaryUrl result = service.prepareResultBinPreviewDownload(binPreviewQuery(jobId, 2, PreviewQuality.HIGH, true));
+
+        assertThat(result).isEqualTo(expected);
+    }
+
+    @Test
+    void prepareResultBinPreviewDownloadServesTheWholePreviewForTheOnlyContainerInline() {
+        UUID jobId = UUID.randomUUID();
+        PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, readyPreview(), List.of(new ResultBin(12, "b".repeat(64))));
+        givenReadAccess();
+        when(repository.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.prepareResultBinPreviewDownload(binPreviewQuery(jobId, 1, PreviewQuality.MEDIUM, false));
+
+        verify(artifacts).createBinPreviewUrl(job.id(), 1, 1, PreviewQuality.MEDIUM, Duration.ofMinutes(10), null);
+    }
+
+    @Test
+    void prepareResultBinPreviewDownloadRejectsAPendingPreviewAContainerNeverFilledAndAQualityNeverStored() {
+        UUID pendingId = UUID.randomUUID();
+        UUID readyId = UUID.randomUUID();
+        PackingPreview preview = PackingPreview.ready(readyPreview().models(),
+                                                      List.of(readyPreview().models(), List.of(new PreviewModel(PreviewQuality.HIGH, 4, 128))));
+        givenReadAccess();
+        when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(pendingId)))
+                                                                                                 .thenReturn(Optional.of(job(pendingId,
+                                                                                                                             PROJECT_ID,
+                                                                                                                             PackingJobStatus.SUCCEEDED,
+                                                                                                                             PackingPreview.PENDING,
+                                                                                                                             TWO_BINS)));
+        when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(readyId)))
+                                                                                               .thenReturn(Optional.of(job(readyId,
+                                                                                                                           PROJECT_ID,
+                                                                                                                           PackingJobStatus.SUCCEEDED,
+                                                                                                                           preview,
+                                                                                                                           TWO_BINS)));
+
+        assertThatThrownBy(() -> service.prepareResultBinPreviewDownload(binPreviewQuery(pendingId, 1, PreviewQuality.HIGH, false)))
+                                                                                                                                    .isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> service.prepareResultBinPreviewDownload(binPreviewQuery(readyId, 3, PreviewQuality.HIGH, false)))
+                                                                                                                                  .isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> service.prepareResultBinPreviewDownload(binPreviewQuery(readyId, 2, PreviewQuality.MEDIUM, false)))
+                                                                                                                                    .isInstanceOf(ResourceNotFoundException.class);
+        verify(artifacts, never()).createBinPreviewUrl(any(), anyInt(), anyInt(), any(), any(), any());
+    }
+
+    @Test
+    void prepareResultBinPreviewDownloadRejectsANonMemberBeforeLoadingTheJob() {
+        when(access.findAccess(new FirebaseUid(FIREBASE_UID), PROJECT_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.prepareResultBinPreviewDownload(binPreviewQuery(UUID.randomUUID(), 1, PreviewQuality.HIGH, false)))
+                                                                                                                                            .isInstanceOf(ProjectNotFoundException.class);
         verify(repository, never()).findById(any());
     }
 
@@ -852,6 +926,10 @@ class PackingJobApplicationServiceTest {
                                     preview,
                                     0,
                                     NOW);
+    }
+
+    private static PackingJobResultBinPreviewQuery binPreviewQuery(UUID jobId, int number, PreviewQuality quality, boolean download) {
+        return new PackingJobResultBinPreviewQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, number, quality, download);
     }
 
     private static PackingJobPreviewQuery previewQuery(UUID jobId, PreviewQuality quality, boolean download) {

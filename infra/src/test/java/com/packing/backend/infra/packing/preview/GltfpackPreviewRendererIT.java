@@ -57,7 +57,10 @@ class GltfpackPreviewRendererIT {
         GltfpackPreviewRenderer renderer = new GltfpackPreviewRenderer(artifacts, new Gltfpack(GLTFPACK, Duration.ofMinutes(2)));
 
         List<PreviewModel> models = renderer.render(PackingJobId.generate(),
-                                                    List.of(PackingInputs.item("torus.obj", COPIES), PackingInputs.item("cube.obj", 1)));
+                                                    List.of(PackingInputs.item("torus.obj", COPIES), PackingInputs.item("cube.obj", 1)),
+                                                    "c".repeat(64),
+                                                    1)
+                                            .models();
 
         long torusTriangles = faces.length / 3;
         assertThat(models.getFirst()
@@ -141,6 +144,22 @@ class GltfpackPreviewRendererIT {
         @Override
         public InputStream openResult(PackingJobId jobId) {
             return new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
+                                                String attachmentFileName) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
