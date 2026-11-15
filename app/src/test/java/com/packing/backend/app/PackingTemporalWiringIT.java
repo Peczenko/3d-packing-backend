@@ -13,7 +13,6 @@ import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
-import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.packing.PreviewStatus;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectName;
