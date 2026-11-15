@@ -1,14 +1,13 @@
 package com.packing.backend.core.packing.port.out;
 
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
+import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.packing.PackingJobId;
-import com.packing.backend.domain.packing.PreviewQuality;
 
 import java.io.InputStream;
-import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Optional;
 
 public interface PackingJobArtifactStore {
@@ -17,27 +16,13 @@ public interface PackingJobArtifactStore {
 
     Optional<ResultArtifact> findResult(PackingJobId jobId);
 
-    TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity);
+    InputStream open(PackingArtifact artifact);
 
-    TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity, String attachmentFileName);
+    void storePreview(PreviewArtifact preview, Path glb);
 
-    InputStream openResult(PackingJobId jobId);
-
-    InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number);
-
-    void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb);
-
-    void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb);
-
-    TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName);
-
-    TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
-                                     String attachmentFileName);
+    TemporaryUrl readUrl(PackingArtifact artifact, Duration validity, boolean asAttachment);
 
     record ResultArtifact(String fileName, String contentType, long sizeBytes,
             String checksum, String engineVersion, String engineChecksum) {
-    }
-
-    record TemporaryUrl(URI url, Instant expiresAt) {
     }
 }

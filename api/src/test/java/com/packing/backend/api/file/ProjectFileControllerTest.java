@@ -10,10 +10,10 @@ import com.packing.backend.core.file.FileApplicationService.ListFilesCommand;
 import com.packing.backend.core.file.FileListCriteria;
 import com.packing.backend.core.file.FileApplicationService.RenameFileCommand;
 import com.packing.backend.core.file.FileApplicationService.UploadFileCommand;
-import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.shared.ContentSource;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.SortDirection;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.file.FileStatus;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StoredFileNotFoundException;
@@ -136,8 +136,6 @@ class ProjectFileControllerTest {
                           .projectId()).isEqualTo(PROJECT);
         assertThat(command.getValue()
                           .originalFilename()).isEqualTo("bracket.stl");
-        assertThat(command.getValue()
-                          .declaredSizeBytes()).isEqualTo(BYTES.length);
     }
 
     @Test
@@ -464,9 +462,9 @@ class ProjectFileControllerTest {
         authenticate();
         UUID id = UUID.randomUUID();
         when(files.prepareDownload(any())).thenReturn(
-                                                      new BinaryStorage.TemporaryUrl(
-                                                                                     URI.create("https://acct.blob.core.windows.net/models/files/x?sig=y"),
-                                                                                     Instant.parse("2026-07-19T10:20:30Z")));
+                                                      new TemporaryUrl(
+                                                                       URI.create("https://acct.blob.core.windows.net/models/files/x?sig=y"),
+                                                                       Instant.parse("2026-07-19T10:20:30Z")));
 
         mockMvc.perform(get("/api/v1/projects/{projectId}/files/{id}/content", PROJECT, id))
                .andExpect(status().isFound())

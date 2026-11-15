@@ -2,7 +2,10 @@ package com.packing.backend.infra.packing.preview;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
+import com.packing.backend.core.packing.port.out.PackingArtifact;
+import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.core.packing.port.out.PackingPreviewRenderer;
 import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingItem;
@@ -214,29 +217,34 @@ class GltfpackPreviewRendererTest {
         }
 
         @Override
-        public InputStream openResult(PackingJobId jobId) {
-            assertThat(jobId).isEqualTo(JOB_ID);
-            return new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8));
+        public InputStream open(PackingArtifact artifact) {
+            assertThat(artifact.jobId()).isEqualTo(JOB_ID);
+            return switch (artifact) {
+                case PackingArtifact.Result ignored -> new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8));
+                case PackingArtifact.BinResult bin -> {
+                    assertThat(bin.resultChecksum()).isEqualTo(CHECKSUM);
+                    assertThat(bin.binCount()).isEqualTo(bins.size());
+                    openedBins.add(bin.number());
+                    yield new ByteArrayInputStream(bins.get(bin.number() - 1)
+                                                       .getBytes(StandardCharsets.UTF_8));
+                }
+                default -> throw new UnsupportedOperationException();
+            };
         }
 
         @Override
-        public InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number) {
-            assertThat(jobId).isEqualTo(JOB_ID);
-            assertThat(resultChecksum).isEqualTo(CHECKSUM);
-            openedBins.add(number);
-            return new ByteArrayInputStream(bins.get(number - 1)
-                                                .getBytes(StandardCharsets.UTF_8));
-        }
-
-        @Override
-        public void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb) {
-            previews.put(quality, copy(glb, quality.name()));
-        }
-
-        @Override
-        public void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb) {
-            binPreviews.computeIfAbsent(number, ignored -> new EnumMap<>(PreviewQuality.class))
-                       .put(quality, copy(glb, "bin-" + number + "-" + quality.name()));
+        public void storePreview(PreviewArtifact preview, Path glb) {
+            switch (preview) {
+                case PackingArtifact.Preview whole -> previews.put(whole.quality(),
+                                                                   copy(glb,
+                                                                        whole.quality()
+                                                                             .name()));
+                case PackingArtifact.BinPreview bin -> binPreviews.computeIfAbsent(bin.number(), ignored -> new EnumMap<>(PreviewQuality.class))
+                                                                  .put(bin.quality(),
+                                                                       copy(glb,
+                                                                            "bin-" + bin.number() + "-" + bin.quality()
+                                                                                                             .name()));
+            }
         }
 
         private Path copy(Path glb, String name) {
@@ -260,24 +268,7 @@ class GltfpackPreviewRendererTest {
         }
 
         @Override
-        public TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity,
-                                               String attachmentFileName) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
-                                                String attachmentFileName) {
+        public TemporaryUrl readUrl(PackingArtifact artifact, Duration validity, boolean asAttachment) {
             throw new UnsupportedOperationException();
         }
     }

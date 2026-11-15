@@ -147,12 +147,12 @@ public final class StoredFile extends AggregateRoot {
         return status == FileStatus.DELETED;
     }
 
-    public boolean isOwnedBy(UserId candidate) {
-        return ownerId.equals(candidate);
-    }
-
     public boolean belongsTo(ProjectId candidate) {
         return projectId.equals(candidate);
+    }
+
+    public boolean isAvailableIn(ProjectId candidate) {
+        return belongsTo(candidate) && !isDeleted();
     }
 
     public String contentType() {

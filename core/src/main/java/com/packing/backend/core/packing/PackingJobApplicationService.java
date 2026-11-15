@@ -1,6 +1,7 @@
 package com.packing.backend.core.packing;
 
 import com.packing.backend.core.file.port.out.FileRepository;
+import com.packing.backend.core.packing.port.out.PackingArtifact;
 import com.packing.backend.core.packing.port.out.PackingInputSchema;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.Reconciled;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.RequestedItem;
@@ -9,9 +10,10 @@ import com.packing.backend.core.packing.port.out.PackingInputSchema.ValidatedInp
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
-import com.packing.backend.core.project.port.out.ProjectAccessLookup;
+import com.packing.backend.core.project.ProjectAccessGuard;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.Page;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.ModelFormat;
@@ -26,11 +28,9 @@ import com.packing.backend.domain.packing.PackingParameters;
 import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.project.ProjectId;
-import com.packing.backend.domain.project.ProjectNotFoundException;
 import com.packing.backend.domain.project.ProjectPermission;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.domain.shared.ResourceNotFoundException;
-import com.packing.backend.domain.user.FirebaseUid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -41,7 +41,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -58,7 +57,7 @@ public class PackingJobApplicationService {
 
     private final PackingJobRepository    jobs;
     private final PackingJobFinder        finder;
-    private final ProjectAccessLookup     access;
+    private final ProjectAccessGuard      access;
     private final DomainEventPublisher    events;
     private final PackingJobArtifactStore artifacts;
     private final PackingInputSchema      schema;
@@ -66,9 +65,7 @@ public class PackingJobApplicationService {
     private final Clock                   clock;
 
     public PackingJobView create(CreatePackingJobCommand command) {
-        ProjectAccess project = requireAccess(command.firebaseUid(),
-                                              command.projectId(),
-                                              ProjectPermission.WRITE).requireWritable();
+        ProjectAccess project = access.requireWritable(command.firebaseUid(), command.projectId());
         ValidatedInput validated = schema.validate(command.body());
         PackingInput input = new PackingInput(validated.schemaVersion(),
                                               resolveItems(project.projectId(), validated.items()),
@@ -85,9 +82,7 @@ public class PackingJobApplicationService {
     }
 
     public PackingJobView cancel(CancelPackingJobCommand command) {
-        ProjectAccess project = requireAccess(command.firebaseUid(),
-                                              command.projectId(),
-                                              ProjectPermission.WRITE).requireWritable();
+        ProjectAccess project = access.requireWritable(command.firebaseUid(), command.projectId());
         PackingJob job = requireJob(project.projectId(), new PackingJobId(command.jobId()));
         job.requireCancellable();
         if (job.cancel(clock.instant())) {
@@ -104,25 +99,19 @@ public class PackingJobApplicationService {
 
     @Transactional(readOnly = true)
     public Page<PackingJobView> list(ListPackingJobsQuery query) {
-        ProjectAccess project = requireAccess(query.firebaseUid(),
-                                              query.projectId(),
-                                              ProjectPermission.READ);
+        ProjectAccess project = access.require(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
         return finder.listInProject(project.projectId(), query.criteria());
     }
 
     @Transactional(readOnly = true)
     public PackingJobView get(PackingJobQuery query) {
-        ProjectAccess project = requireAccess(query.firebaseUid(),
-                                              query.projectId(),
-                                              ProjectPermission.READ);
+        ProjectAccess project = access.require(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
         return requireView(project.projectId(), new PackingJobId(query.jobId()));
     }
 
     @Transactional(readOnly = true)
-    public PackingJobArtifactStore.TemporaryUrl prepareResultDownload(PackingJobResultQuery query) {
-        ProjectAccess project = requireAccess(query.firebaseUid(),
-                                              query.projectId(),
-                                              ProjectPermission.READ);
+    public TemporaryUrl prepareResultDownload(PackingJobResultQuery query) {
+        ProjectAccess project = access.require(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
         PackingJobId jobId = new PackingJobId(query.jobId());
         PackingJob job = requireJob(project.projectId(), jobId);
         if (job.status() != PackingJobStatus.SUCCEEDED) {
@@ -132,58 +121,36 @@ public class PackingJobApplicationService {
         artifacts.findResult(jobId)
                  .orElseThrow(() -> new ResourceNotFoundException(
                                                                   "Result artifact for packing job " + jobId + " was not found"));
-        return artifacts.createResultDownloadUrl(jobId, DOWNLOAD_URL_VALIDITY);
+        return artifacts.readUrl(new PackingArtifact.Result(jobId), DOWNLOAD_URL_VALIDITY, false);
     }
 
     @Transactional(readOnly = true)
-    public PackingJobArtifactStore.TemporaryUrl prepareResultBinDownload(PackingJobResultBinQuery query) {
-        ProjectAccess project = requireAccess(query.firebaseUid(),
-                                              query.projectId(),
-                                              ProjectPermission.READ);
+    public TemporaryUrl prepareResultBinDownload(PackingJobResultBinQuery query) {
+        ProjectAccess project = access.require(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
         PackingJob job = requireJob(project.projectId(), new PackingJobId(query.jobId()));
         job.requireResultBin(query.number());
-        return artifacts.createResultBinUrl(job.id(),
-                                            job.resultChecksum(),
-                                            query.number(),
-                                            job.resultBins()
-                                               .size(),
-                                            DOWNLOAD_URL_VALIDITY,
-                                            resultBinFileName(job.id(), query.number()));
+        return artifacts.readUrl(PackingArtifact.binResult(job, query.number()), DOWNLOAD_URL_VALIDITY, true);
     }
 
     @Transactional(readOnly = true)
-    public PackingJobArtifactStore.TemporaryUrl preparePreviewDownload(PackingJobPreviewQuery query) {
-        ProjectAccess project = requireAccess(query.firebaseUid(),
-                                              query.projectId(),
-                                              ProjectPermission.READ);
+    public TemporaryUrl preparePreviewDownload(PackingJobPreviewQuery query) {
+        ProjectAccess project = access.require(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
         PackingJob job = requireJob(project.projectId(), new PackingJobId(query.jobId()));
         PreviewModel model = job.requirePreview(query.quality());
-        String attachment = query.download() ? previewFileName(job.id(), model.quality()) : null;
-        return artifacts.createPreviewUrl(job.id(), model.quality(), DOWNLOAD_URL_VALIDITY, attachment);
+        return artifacts.readUrl(new PackingArtifact.Preview(job.id(), model.quality()), DOWNLOAD_URL_VALIDITY, query.download());
     }
 
     @Transactional(readOnly = true)
-    public PackingJobArtifactStore.TemporaryUrl prepareResultBinPreviewDownload(PackingJobResultBinPreviewQuery query) {
-        ProjectAccess project = requireAccess(query.firebaseUid(),
-                                              query.projectId(),
-                                              ProjectPermission.READ);
+    public TemporaryUrl prepareResultBinPreviewDownload(PackingJobResultBinPreviewQuery query) {
+        ProjectAccess project = access.require(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
         PackingJob job = requireJob(project.projectId(), new PackingJobId(query.jobId()));
         PreviewModel model = job.requireBinPreview(query.number(), query.quality());
-        String attachment = query.download() ? resultBinPreviewFileName(job.id(), query.number(), model.quality()) : null;
-        return artifacts.createBinPreviewUrl(job.id(),
-                                             query.number(),
-                                             job.resultBins()
-                                                .size(),
-                                             model.quality(),
-                                             DOWNLOAD_URL_VALIDITY,
-                                             attachment);
+        return artifacts.readUrl(PackingArtifact.binPreview(job, query.number(), model.quality()), DOWNLOAD_URL_VALIDITY, query.download());
     }
 
     @Transactional(readOnly = true)
     public PackingJobDraft draft(DraftQuery query) {
-        ProjectAccess project = requireAccess(query.firebaseUid(),
-                                              query.projectId(),
-                                              ProjectPermission.READ);
+        ProjectAccess project = access.require(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
         ProjectId projectId = project.projectId();
         if (query.fromJobId() != null) {
             PackingJobView selected = requireView(projectId, new PackingJobId(query.fromJobId()));
@@ -259,7 +226,7 @@ public class PackingJobApplicationService {
 
     private Optional<StoredFile> availableFile(ProjectId projectId, FileId fileId) {
         return files.findById(fileId)
-                    .filter(file -> file.belongsTo(projectId) && !file.isDeleted());
+                    .filter(file -> file.isAvailableIn(projectId));
     }
 
     private static String formatNotAccepted(StoredFile file, Set<ModelFormat> accepted) {
@@ -273,41 +240,11 @@ public class PackingJobApplicationService {
                                                             .collect(Collectors.joining(", "));
     }
 
-    private static String resultBinFileName(PackingJobId jobId, int number) {
-        return "packing-job-" + jobId + "-bin-" + binLabel(number) + ".obj";
-    }
-
-    private static String previewFileName(PackingJobId jobId, PreviewQuality quality) {
-        return "packing-job-" + jobId + "-" + qualityLabel(quality) + ".glb";
-    }
-
-    private static String resultBinPreviewFileName(PackingJobId jobId, int number, PreviewQuality quality) {
-        return "packing-job-" + jobId + "-bin-" + binLabel(number) + "-" + qualityLabel(quality) + ".glb";
-    }
-
-    private static String binLabel(int number) {
-        return String.format(Locale.ROOT, "%03d", number);
-    }
-
-    private static String qualityLabel(PreviewQuality quality) {
-        return quality.name()
-                      .toLowerCase(Locale.ROOT);
-    }
-
     private PackingJob requireJob(ProjectId projectId, PackingJobId jobId) {
         return jobs.findById(jobId)
                    .filter(candidate -> candidate.projectId()
                                                  .equals(projectId))
                    .orElseThrow(() -> PackingJobNotFoundException.byId(jobId));
-    }
-
-    private ProjectAccess requireAccess(String firebaseUid,
-                                        UUID projectId,
-                                        ProjectPermission required) {
-        ProjectId id = new ProjectId(projectId);
-        return access.findAccess(new FirebaseUid(firebaseUid), id)
-                     .orElseThrow(() -> ProjectNotFoundException.byId(id))
-                     .requireAtLeast(required);
     }
 
     private PackingJobView requireView(ProjectId projectId, PackingJobId jobId) {

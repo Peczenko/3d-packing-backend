@@ -1,5 +1,7 @@
 package com.packing.backend.infra.packing.preview;
 
+import com.packing.backend.core.packing.port.out.PackingArtifact;
+import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.packing.port.out.PackingPreviewRenderer;
 import com.packing.backend.domain.packing.PackingItem;
@@ -21,7 +23,7 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
@@ -60,22 +62,22 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
                                                        .toList();
             BinMembership membership = binCount > 1 ? new BinMembership(layout, binCount) : null;
             List<PreviewModel> models;
-            try (InputStream result = artifacts.openResult(jobId)) {
+            try (InputStream result = artifacts.open(new PackingArtifact.Result(jobId))) {
                 models = renderOne(result,
                                    layout,
                                    membership == null ? UnaryOperator.identity() : membership::observing,
                                    work.resolve("result"),
-                                   (quality, glb) -> artifacts.storePreview(jobId, quality, glb));
+                                   quality -> new PackingArtifact.Preview(jobId, quality));
             }
             List<List<PreviewModel>> bins = new ArrayList<>();
             for (int number = 1; membership != null && number <= binCount; number++) {
                 int bin = number;
-                try (InputStream result = artifacts.openResultBin(jobId, resultChecksum, bin)) {
+                try (InputStream result = artifacts.open(new PackingArtifact.BinResult(jobId, resultChecksum, bin, binCount))) {
                     bins.add(renderOne(result,
                                        membership.layout(bin),
                                        UnaryOperator.identity(),
                                        work.resolve("bin-" + bin),
-                                       (quality, glb) -> artifacts.storeBinPreview(jobId, bin, quality, glb)));
+                                       quality -> new PackingArtifact.BinPreview(jobId, bin, binCount, quality)));
                 }
             }
             log.info("Preview built for packing job {} in {} ms: {}, {} containers",
@@ -95,8 +97,8 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
                                          List<InstanceExtractor.Item> layout,
                                          UnaryOperator<PackerObjReader.Sink> observe,
                                          Path work,
-                                         BiConsumer<PreviewQuality, Path> store)
-                                                                                 throws IOException {
+                                         Function<PreviewQuality, PreviewArtifact> target)
+                                                                                           throws IOException {
         Files.createDirectory(work);
         try {
             Map<PreviewQuality, List<GlbMerger.Part>> packed = pack(source, layout, observe, work);
@@ -108,7 +110,7 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
                 if (finer != Long.MAX_VALUE && result.triangles() > finer * MIN_REDUCTION) {
                     continue;
                 }
-                store.accept(quality, merged);
+                artifacts.storePreview(target.apply(quality), merged);
                 models.add(new PreviewModel(quality, result.triangles(), result.sizeBytes()));
                 finer = result.triangles();
             }

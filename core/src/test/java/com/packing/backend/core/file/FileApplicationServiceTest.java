@@ -10,6 +10,7 @@ import com.packing.backend.core.file.port.out.BinaryStorage;
 import com.packing.backend.core.file.port.out.FileFinder;
 import com.packing.backend.core.file.port.out.FileRepository;
 import com.packing.backend.core.file.port.out.SampleModelCatalog;
+import com.packing.backend.core.project.ProjectAccessGuard;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
 import com.packing.backend.core.shared.ContentSource;
@@ -17,6 +18,7 @@ import com.packing.backend.core.shared.InstantRange;
 import com.packing.backend.core.shared.Page;
 import com.packing.backend.core.shared.PageRequest;
 import com.packing.backend.core.shared.SortDirection;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.core.shared.port.out.DomainEventPublisher;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
@@ -61,7 +63,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -102,7 +103,7 @@ class FileApplicationServiceTest {
                                              fileFinder,
                                              storage,
                                              samples,
-                                             projectAccess,
+                                             new ProjectAccessGuard(projectAccess),
                                              eventPublisher,
                                              Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -149,7 +150,7 @@ class FileApplicationServiceTest {
     }
 
     private UploadFileCommand upload(String filename, byte[] bytes) {
-        return new UploadFileCommand(UID, PROJECT.value(), filename, bytes.length, sourceOf(bytes));
+        return new UploadFileCommand(UID, PROJECT.value(), filename, sourceOf(bytes));
     }
 
     @Test
@@ -161,7 +162,7 @@ class FileApplicationServiceTest {
 
         InOrder order = inOrder(storage, files);
         order.verify(storage)
-             .write(any(), any(), anyLong(), anyString());
+             .write(any(), any(), anyString());
         order.verify(files)
              .save(any());
     }
@@ -174,22 +175,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.upload(upload("cube.stl", BYTES)))
                                                                            .isInstanceOf(IllegalStateException.class);
 
-        verify(storage).write(any(), any(), anyLong(), anyString());
-    }
-
-    @Test
-    void uploadStoresTheReceivedByteCountNotTheDeclaredOne() {
-        access(ProjectPermission.WRITE);
-        when(files.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
-        FileView view = service.upload(new UploadFileCommand(
-                                                             UID,
-                                                             PROJECT.value(),
-                                                             "cube.stl",
-                                                             999_999L,
-                                                             sourceOf(BYTES)));
-
-        assertThat(view.sizeBytes()).isEqualTo(BYTES.length);
+        verify(storage).write(any(), any(), anyString());
     }
 
     @Test
@@ -226,12 +212,11 @@ class FileApplicationServiceTest {
                                              UID,
                                              PROJECT.value(),
                                              "cube.stl",
-                                             BYTES.length,
                                              counting));
 
         assertThat(opens).hasValue(2);
         ArgumentCaptor<InputStream> written = ArgumentCaptor.forClass(InputStream.class);
-        verify(storage).write(any(), written.capture(), eq((long) BYTES.length), eq("model/stl"));
+        verify(storage).write(any(), written.capture(), eq("model/stl"));
         assertThat(written.getValue()).isNotNull();
     }
 
@@ -243,7 +228,7 @@ class FileApplicationServiceTest {
 
         FileView view = service.upload(upload("cube.stl", BYTES));
 
-        verify(storage).write(key.capture(), any(), anyLong(), eq("model/stl"));
+        verify(storage).write(key.capture(), any(), eq("model/stl"));
         assertThat(key.getValue()).isEqualTo(StorageKey.forFile(new FileId(view.id())));
     }
 
@@ -254,7 +239,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.upload(upload("notes.txt", BYTES)))
                                                                             .isInstanceOf(DomainRuleViolationException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
         verify(files, never()).save(any());
     }
 
@@ -265,7 +250,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.upload(upload("cube.stl", new byte[0])))
                                                                                  .isInstanceOf(DomainRuleViolationException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
     }
 
     @Test
@@ -275,7 +260,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.upload(upload("cube.stl", BYTES)))
                                                                            .isInstanceOf(PermissionDeniedException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
     }
 
     @Test
@@ -285,7 +270,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.upload(upload("cube.stl", BYTES)))
                                                                            .isInstanceOf(ResourceConflictException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
     }
 
     @Test
@@ -295,7 +280,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.upload(upload("cube.stl", BYTES)))
                                                                            .isInstanceOf(ProjectNotFoundException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
     }
 
     @Test
@@ -307,7 +292,7 @@ class FileApplicationServiceTest {
 
         FileView view = service.addSample(addSample("cube"));
 
-        verify(storage).write(key.capture(), any(), eq((long) BYTES.length), eq("model/obj"));
+        verify(storage).write(key.capture(), any(), eq("model/obj"));
         assertThat(key.getValue()).isEqualTo(StorageKey.forFile(new FileId(view.id())));
         assertThat(view.projectId()).isEqualTo(PROJECT.value());
         assertThat(view.filename()).isEqualTo("cube.obj");
@@ -340,7 +325,7 @@ class FileApplicationServiceTest {
 
         assertThat(first.id()).isNotEqualTo(second.id());
         ArgumentCaptor<StorageKey> keys = ArgumentCaptor.forClass(StorageKey.class);
-        verify(storage, times(2)).write(keys.capture(), any(), anyLong(), anyString());
+        verify(storage, times(2)).write(keys.capture(), any(), anyString());
         assertThat(keys.getAllValues()).doesNotHaveDuplicates();
     }
 
@@ -352,7 +337,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.addSample(addSample("teapot")))
                                                                         .isInstanceOf(SampleModelNotFoundException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
         verify(files, never()).save(any());
     }
 
@@ -363,7 +348,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.addSample(addSample("cube")))
                                                                       .isInstanceOf(PermissionDeniedException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
     }
 
     @Test
@@ -373,7 +358,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.addSample(addSample("cube")))
                                                                       .isInstanceOf(ResourceConflictException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
     }
 
     @Test
@@ -383,7 +368,7 @@ class FileApplicationServiceTest {
         assertThatThrownBy(() -> service.addSample(addSample("cube")))
                                                                       .isInstanceOf(ProjectNotFoundException.class);
 
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
     }
 
     @Test
@@ -400,13 +385,13 @@ class FileApplicationServiceTest {
         StoredFile file = storedFile(id, PROJECT);
         when(files.findById(id)).thenReturn(Optional.of(file));
         Instant expiry = NOW.plusSeconds(300);
-        when(storage.temporaryReadUrl(file.storageKey(), "cube.stl", "model/stl"))
-                                                                                  .thenReturn(new BinaryStorage.TemporaryUrl(
-                                                                                                                             URI.create("https://blob/cube?sig=x"),
-                                                                                                                             expiry));
+        when(storage.readUrl(file.storageKey(), "cube.stl", "model/stl"))
+                                                                         .thenReturn(new TemporaryUrl(
+                                                                                                      URI.create("https://blob/cube?sig=x"),
+                                                                                                      expiry));
 
-        BinaryStorage.TemporaryUrl download = service.prepareDownload(
-                                                                      new PrepareDownloadCommand(UID, PROJECT.value(), id.value()));
+        TemporaryUrl download = service.prepareDownload(
+                                                        new PrepareDownloadCommand(UID, PROJECT.value(), id.value()));
 
         assertThat(download.url()).isEqualTo(URI.create("https://blob/cube?sig=x"));
         assertThat(download.expiresAt()).isEqualTo(expiry);
@@ -418,10 +403,10 @@ class FileApplicationServiceTest {
         FileId id = FileId.generate();
         StoredFile file = storedFile(id, PROJECT);
         when(files.findById(id)).thenReturn(Optional.of(file));
-        when(storage.temporaryReadUrl(any(), anyString(), anyString()))
-                                                                       .thenReturn(new BinaryStorage.TemporaryUrl(
-                                                                                                                  URI.create("https://blob/cube?sig=x"),
-                                                                                                                  NOW.plusSeconds(300)));
+        when(storage.readUrl(any(), anyString(), anyString()))
+                                                              .thenReturn(new TemporaryUrl(
+                                                                                           URI.create("https://blob/cube?sig=x"),
+                                                                                           NOW.plusSeconds(300)));
 
         assertThat(service.prepareDownload(
                                            new PrepareDownloadCommand(UID, PROJECT.value(), id.value()))).isNotNull();
@@ -532,7 +517,7 @@ class FileApplicationServiceTest {
                                            new RenameFileCommand(UID, PROJECT.value(), id.value(), "chassis.stl"));
 
         assertThat(view.filename()).isEqualTo("chassis.stl");
-        verify(storage, never()).write(any(), any(), anyLong(), anyString());
+        verify(storage, never()).write(any(), any(), anyString());
         verify(storage, never()).delete(any());
     }
 

@@ -20,7 +20,10 @@ import com.packing.backend.core.packing.port.out.PackingInputSchema.SchemaDocume
 import com.packing.backend.core.packing.port.out.PackingInputSchema.Settings;
 import com.packing.backend.core.packing.port.out.PackingInputSchema.ValidatedInput;
 import com.packing.backend.core.packing.port.out.PackingJobFinder;
+import com.packing.backend.core.packing.port.out.PackingArtifact;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.core.project.ProjectAccessGuard;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.core.packing.port.out.PackingJobRepository;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup;
 import com.packing.backend.core.project.port.out.ProjectAccessLookup.ProjectAccess;
@@ -80,7 +83,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -133,7 +136,7 @@ class PackingJobApplicationServiceTest {
     void setUp() {
         service = new PackingJobApplicationService(repository,
                                                    finder,
-                                                   access,
+                                                   new ProjectAccessGuard(access),
                                                    events,
                                                    artifacts,
                                                    schema,
@@ -292,40 +295,37 @@ class PackingJobApplicationServiceTest {
     void prepareResultDownloadAllowsReadAccessAndIssuesATenMinuteUrlForASucceededJob() {
         UUID jobId = UUID.randomUUID();
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED);
-        PackingJobArtifactStore.TemporaryUrl expected = new PackingJobArtifactStore.TemporaryUrl(
-                                                                                                 URI.create("https://storage.example/result?sig=secret"),
-                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+        TemporaryUrl expected = new TemporaryUrl(
+                                                 URI.create("https://storage.example/result?sig=secret"),
+                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(jobId)))
                                                                                              .thenReturn(Optional.of(job));
         when(artifacts.findResult(job.id())).thenReturn(Optional.of(resultArtifact()));
-        when(artifacts.createResultDownloadUrl(job.id(), Duration.ofMinutes(10))).thenReturn(expected);
+        when(artifacts.readUrl(new PackingArtifact.Result(job.id()), Duration.ofMinutes(10), false)).thenReturn(expected);
 
-        PackingJobArtifactStore.TemporaryUrl result = service.prepareResultDownload(
-                                                                                    new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId));
+        TemporaryUrl result = service.prepareResultDownload(
+                                                            new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId));
 
         assertThat(result).isEqualTo(expected);
-        verify(artifacts).createResultDownloadUrl(job.id(), Duration.ofMinutes(10));
+        verify(artifacts).readUrl(new PackingArtifact.Result(job.id()), Duration.ofMinutes(10), false);
     }
 
     @Test
     void prepareResultBinDownloadNamesTheContainerAndSaysHowManyThereAre() {
         UUID jobId = UUID.randomUUID();
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, PackingPreview.NONE, TWO_BINS);
-        PackingJobArtifactStore.TemporaryUrl expected = new PackingJobArtifactStore.TemporaryUrl(
-                                                                                                 URI.create("https://storage.example/bin?sig=secret"),
-                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+        TemporaryUrl expected = new TemporaryUrl(
+                                                 URI.create("https://storage.example/bin?sig=secret"),
+                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(job.id())).thenReturn(Optional.of(job));
-        when(artifacts.createResultBinUrl(job.id(),
-                                          "b".repeat(64),
-                                          2,
-                                          2,
-                                          Duration.ofMinutes(10),
-                                          "packing-job-" + jobId + "-bin-002.obj")).thenReturn(expected);
+        when(artifacts.readUrl(new PackingArtifact.BinResult(job.id(), "b".repeat(64), 2, 2),
+                               Duration.ofMinutes(10),
+                               true)).thenReturn(expected);
 
-        PackingJobArtifactStore.TemporaryUrl result = service.prepareResultBinDownload(
-                                                                                       new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, 2));
+        TemporaryUrl result = service.prepareResultBinDownload(
+                                                               new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, 2));
 
         assertThat(result).isEqualTo(expected);
     }
@@ -348,7 +348,7 @@ class PackingJobApplicationServiceTest {
                                                                                                                                                .isInstanceOf(ResourceConflictException.class);
         assertThatThrownBy(() -> service.prepareResultBinDownload(new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), succeededId, 3)))
                                                                                                                                                   .isInstanceOf(ResourceNotFoundException.class);
-        verify(artifacts, never()).createResultBinUrl(any(), any(), anyInt(), anyInt(), any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -367,19 +367,16 @@ class PackingJobApplicationServiceTest {
         PackingPreview preview = PackingPreview.ready(readyPreview().models(),
                                                       List.of(readyPreview().models(), List.of(new PreviewModel(PreviewQuality.HIGH, 4, 128))));
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, preview, TWO_BINS);
-        PackingJobArtifactStore.TemporaryUrl expected = new PackingJobArtifactStore.TemporaryUrl(
-                                                                                                 URI.create("https://storage.example/bins/2/high.glb?sig=secret"),
-                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+        TemporaryUrl expected = new TemporaryUrl(
+                                                 URI.create("https://storage.example/bins/2/high.glb?sig=secret"),
+                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(job.id())).thenReturn(Optional.of(job));
-        when(artifacts.createBinPreviewUrl(job.id(),
-                                           2,
-                                           2,
-                                           PreviewQuality.HIGH,
-                                           Duration.ofMinutes(10),
-                                           "packing-job-" + jobId + "-bin-002-high.glb")).thenReturn(expected);
+        when(artifacts.readUrl(new PackingArtifact.BinPreview(job.id(), 2, 2, PreviewQuality.HIGH),
+                               Duration.ofMinutes(10),
+                               true)).thenReturn(expected);
 
-        PackingJobArtifactStore.TemporaryUrl result = service.prepareResultBinPreviewDownload(binPreviewQuery(jobId, 2, PreviewQuality.HIGH, true));
+        TemporaryUrl result = service.prepareResultBinPreviewDownload(binPreviewQuery(jobId, 2, PreviewQuality.HIGH, true));
 
         assertThat(result).isEqualTo(expected);
     }
@@ -393,7 +390,7 @@ class PackingJobApplicationServiceTest {
 
         service.prepareResultBinPreviewDownload(binPreviewQuery(jobId, 1, PreviewQuality.MEDIUM, false));
 
-        verify(artifacts).createBinPreviewUrl(job.id(), 1, 1, PreviewQuality.MEDIUM, Duration.ofMinutes(10), null);
+        verify(artifacts).readUrl(new PackingArtifact.BinPreview(job.id(), 1, 1, PreviewQuality.MEDIUM), Duration.ofMinutes(10), false);
     }
 
     @Test
@@ -422,7 +419,7 @@ class PackingJobApplicationServiceTest {
                                                                                                                                   .isInstanceOf(ResourceNotFoundException.class);
         assertThatThrownBy(() -> service.prepareResultBinPreviewDownload(binPreviewQuery(readyId, 2, PreviewQuality.MEDIUM, false)))
                                                                                                                                     .isInstanceOf(ResourceNotFoundException.class);
-        verify(artifacts, never()).createBinPreviewUrl(any(), anyInt(), anyInt(), any(), any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -438,15 +435,15 @@ class PackingJobApplicationServiceTest {
     void preparePreviewDownloadIssuesAnInlineUrlForAReadyQuality() {
         UUID jobId = UUID.randomUUID();
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED, readyPreview());
-        PackingJobArtifactStore.TemporaryUrl expected = new PackingJobArtifactStore.TemporaryUrl(
-                                                                                                 URI.create("https://storage.example/medium.glb?sig=secret"),
-                                                                                                 NOW.plus(Duration.ofMinutes(10)));
+        TemporaryUrl expected = new TemporaryUrl(
+                                                 URI.create("https://storage.example/medium.glb?sig=secret"),
+                                                 NOW.plus(Duration.ofMinutes(10)));
         givenReadAccess();
         when(repository.findById(job.id())).thenReturn(Optional.of(job));
-        when(artifacts.createPreviewUrl(job.id(), PreviewQuality.MEDIUM, Duration.ofMinutes(10), null)).thenReturn(expected);
+        when(artifacts.readUrl(new PackingArtifact.Preview(job.id(), PreviewQuality.MEDIUM), Duration.ofMinutes(10), false)).thenReturn(expected);
 
-        PackingJobArtifactStore.TemporaryUrl result = service.preparePreviewDownload(
-                                                                                     previewQuery(jobId, PreviewQuality.MEDIUM, false));
+        TemporaryUrl result = service.preparePreviewDownload(
+                                                             previewQuery(jobId, PreviewQuality.MEDIUM, false));
 
         assertThat(result).isEqualTo(expected);
     }
@@ -460,10 +457,7 @@ class PackingJobApplicationServiceTest {
 
         service.preparePreviewDownload(previewQuery(jobId, PreviewQuality.HIGH, true));
 
-        verify(artifacts).createPreviewUrl(job.id(),
-                                           PreviewQuality.HIGH,
-                                           Duration.ofMinutes(10),
-                                           "packing-job-" + jobId + "-high.glb");
+        verify(artifacts).readUrl(new PackingArtifact.Preview(job.id(), PreviewQuality.HIGH), Duration.ofMinutes(10), true);
     }
 
     @Test
@@ -487,7 +481,7 @@ class PackingJobApplicationServiceTest {
                                                                                                                      .isInstanceOf(ResourceConflictException.class);
         assertThatThrownBy(() -> service.preparePreviewDownload(previewQuery(readyId, PreviewQuality.LOW, false)))
                                                                                                                   .isInstanceOf(ResourceNotFoundException.class);
-        verify(artifacts, never()).createPreviewUrl(any(), any(), any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -502,7 +496,7 @@ class PackingJobApplicationServiceTest {
 
         assertThatThrownBy(() -> service.preparePreviewDownload(previewQuery(jobId, PreviewQuality.HIGH, false)))
                                                                                                                  .isInstanceOf(PackingJobNotFoundException.class);
-        verify(artifacts, never()).createPreviewUrl(any(), any(), any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -526,7 +520,7 @@ class PackingJobApplicationServiceTest {
                                                                                                                                    .isInstanceOf(PackingJobNotFoundException.class);
 
         verify(artifacts, never()).findResult(any());
-        verify(artifacts, never()).createResultDownloadUrl(any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -541,7 +535,7 @@ class PackingJobApplicationServiceTest {
                                                                                                                                    .isInstanceOf(PackingJobNotFoundException.class);
 
         verify(artifacts, never()).findResult(any());
-        verify(artifacts, never()).createResultDownloadUrl(any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -555,7 +549,7 @@ class PackingJobApplicationServiceTest {
 
         verify(repository, never()).findById(any());
         verify(artifacts, never()).findResult(any());
-        verify(artifacts, never()).createResultDownloadUrl(any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -570,7 +564,7 @@ class PackingJobApplicationServiceTest {
                                                                                                                                    .isInstanceOf(ResourceConflictException.class);
 
         verify(artifacts, never()).findResult(any());
-        verify(artifacts, never()).createResultDownloadUrl(any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -587,7 +581,7 @@ class PackingJobApplicationServiceTest {
         }
 
         verify(artifacts, never()).findResult(any());
-        verify(artifacts, never()).createResultDownloadUrl(any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test
@@ -602,7 +596,7 @@ class PackingJobApplicationServiceTest {
                                                                new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
                                                                                                                                    .isInstanceOf(ResourceNotFoundException.class);
 
-        verify(artifacts, never()).createResultDownloadUrl(any(), any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
     }
 
     @Test

@@ -1,293 +1,135 @@
 package com.packing.backend.infra.storage;
 
-import com.azure.core.util.Context;
-import com.azure.storage.blob.BlobClient;
-import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.models.BlobHttpHeaders;
 import com.azure.storage.blob.models.BlobProperties;
-import com.azure.storage.blob.models.BlobRequestConditions;
-import com.azure.storage.blob.models.BlobStorageException;
-import com.azure.storage.blob.options.BlobParallelUploadOptions;
-import com.azure.storage.blob.options.BlobUploadFromFileOptions;
-import com.azure.storage.blob.sas.BlobSasPermission;
-import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
+import com.packing.backend.core.packing.port.out.PackingArtifact;
+import com.packing.backend.core.packing.port.out.PackingArtifact.BinPreview;
+import com.packing.backend.core.packing.port.out.PackingArtifact.BinResult;
+import com.packing.backend.core.packing.port.out.PackingArtifact.Preview;
+import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
+import com.packing.backend.core.packing.port.out.PackingArtifact.Result;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.shared.ExternalServiceException;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.shared.ResourceConflictException;
 import com.packing.backend.infra.packing.PackingContractCodec;
+import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-@RequiredArgsConstructor
-public class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
+@Component
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
+class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
 
-    private static final String   SERVICE                      = "azure-blob-storage";
-    private static final int      CLOCK_SKEW_ALLOWANCE_MINUTES = 5;
-    private static final String   PREVIEW_CONTENT_TYPE         = "model/gltf-binary";
-    private static final String   PREVIEW_CACHE_CONTROL        = "private, max-age=86400, immutable";
-    private static final Duration CLOCK_SKEW_ALLOWANCE         = Duration.ofMinutes(CLOCK_SKEW_ALLOWANCE_MINUTES);
+    private static final String PREVIEW_CONTENT_TYPE  = "model/gltf-binary";
+    private static final String PREVIEW_CACHE_CONTROL = "private, max-age=86400, immutable";
 
-    private final BlobContainerClient  container;
-    private final BlobSasIssuer        sasIssuer;
+    private final BlobContainer        container;
     private final PackingContractCodec codec;
-    private final AtomicBoolean        containerEnsured = new AtomicBoolean();
 
     @Override
     public void writeRequestIfAbsent(PackingJobId jobId, PackingRequestEnvelope envelope) {
         byte[] request = codec.encodeRequest(envelope)
                               .getBytes(StandardCharsets.UTF_8);
-        BlobClient blob = ensureContainer(jobId).getBlobClient(requestKey(jobId));
-        try {
-            blob.uploadWithResponse(new BlobParallelUploadOptions(new ByteArrayInputStream(request))
-                                                                                                    .setHeaders(new BlobHttpHeaders().setContentType("application/json"))
-                                                                                                    .setRequestConditions(new BlobRequestConditions().setIfNoneMatch("*")),
-                                    null,
-                                    Context.NONE);
-        } catch (BlobStorageException e) {
-            if (isAlreadyExists(e)) {
-                acceptOnlyIdenticalRequest(blob, request, jobId);
-                return;
-            }
-            throw external("write request", jobId, e);
+        String key = requestKey(jobId);
+        if (!container.uploadIfAbsent(key, request, new BlobHttpHeaders().setContentType("application/json"))
+                && !Arrays.equals(request, container.download(key))) {
+            throw new ResourceConflictException("Packing job request already exists with different content");
         }
     }
 
     @Override
     public Optional<ResultArtifact> findResult(PackingJobId jobId) {
-        try {
-            BlobProperties properties = container.getBlobClient(resultKey(jobId))
-                                                 .getProperties();
-            Map<String, String> metadata = properties.getMetadata();
-            if (properties.getBlobSize() <= 0) {
-                throw invalidResult(jobId, "a positive size");
-            }
-            return Optional.of(new ResultArtifact(
-                                                  requiredMetadata(metadata, "fileName", jobId),
-                                                  requiredMetadata(metadata, "contentType", jobId),
-                                                  properties.getBlobSize(),
-                                                  requiredMetadata(metadata, "checksumSha256", jobId),
-                                                  requiredMetadata(metadata, "engineVersion", jobId),
-                                                  requiredMetadata(metadata, "engineChecksumSha256", jobId)));
-        } catch (BlobStorageException e) {
-            if (e.getStatusCode() == 404) {
-                return Optional.empty();
-            }
-            throw external("read result metadata", jobId, e);
-        }
+        return container.findProperties(keyOf(new Result(jobId)))
+                        .map(properties -> resultArtifact(jobId, properties));
     }
 
     @Override
-    public TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity) {
-        return resultUrl(resultKey(jobId), validity, null, "issue result download URL", jobId);
+    public InputStream open(PackingArtifact artifact) {
+        return container.open(keyOf(artifact));
     }
 
     @Override
-    public TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity,
-                                           String attachmentFileName) {
-        String key = binCount == 1 ? resultKey(jobId) : resultBinKey(jobId, resultChecksum, number);
-        return resultUrl(key, validity, attachmentFileName, "issue result bin " + number + " URL", jobId);
-    }
-
-    private TemporaryUrl resultUrl(String key, Duration validity, String attachmentFileName, String operation, PackingJobId jobId) {
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        OffsetDateTime expiry = now.plus(validity);
-        BlobServiceSasSignatureValues values = new BlobServiceSasSignatureValues(
-                                                                                 expiry,
-                                                                                 new BlobSasPermission().setReadPermission(true))
-                                                                                                                                 .setStartTime(now.minusMinutes(CLOCK_SKEW_ALLOWANCE_MINUTES));
-        if (attachmentFileName != null) {
-            values.setContentDisposition(AttachmentDisposition.of(attachmentFileName));
-        }
-        BlobClient blob = container.getBlobClient(key);
-        try {
-            return new TemporaryUrl(
-                                    URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)),
-                                    expiry.toInstant());
-        } catch (BlobStorageException e) {
-            throw external(operation, jobId, e);
-        }
+    public void storePreview(PreviewArtifact preview, Path glb) {
+        container.upload(keyOf(preview),
+                         glb,
+                         new BlobHttpHeaders().setContentType(PREVIEW_CONTENT_TYPE)
+                                              .setCacheControl(PREVIEW_CACHE_CONTROL));
     }
 
     @Override
-    public InputStream openResult(PackingJobId jobId) {
-        return open(resultKey(jobId), "open result", jobId);
+    public TemporaryUrl readUrl(PackingArtifact artifact, Duration validity, boolean asAttachment) {
+        ReadUrl request = ReadUrl.validFor(validity)
+                                 .asAttachment(asAttachment ? artifact.downloadName() : null);
+        return container.readUrl(keyOf(artifact), artifact instanceof PreviewArtifact ? request.cacheable() : request);
     }
 
-    @Override
-    public InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number) {
-        return open(resultBinKey(jobId, resultChecksum, number), "open result bin " + number, jobId);
+    private static String keyOf(PackingArtifact artifact) {
+        String job = "packing-jobs/" + artifact.jobId();
+        return switch (artifact) {
+            case Result ignored -> job + "/result/output";
+            case BinResult bin -> bin.binCount() == 1
+                                                      ? job + "/result/output"
+                                                      : job + "/result/bins/" + bin.resultChecksum() + "/" + bin.number();
+            case Preview preview -> job + "/preview/" + previewFile(preview.quality());
+            case BinPreview bin -> bin.binCount() == 1
+                                                       ? job + "/preview/" + previewFile(bin.quality())
+                                                       : job + "/preview/bins/" + bin.number() + "/" + previewFile(bin.quality());
+        };
     }
 
-    private InputStream open(String key, String operation, PackingJobId jobId) {
-        try {
-            return container.getBlobClient(key)
-                            .openInputStream();
-        } catch (BlobStorageException e) {
-            throw external(operation, jobId, e);
-        }
-    }
-
-    @Override
-    public void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb) {
-        uploadPreview(previewKey(jobId, quality), glb, "store " + quality + " preview", jobId);
-    }
-
-    @Override
-    public void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb) {
-        uploadPreview(binPreviewKey(jobId, number, quality), glb, "store " + quality + " preview of result bin " + number, jobId);
-    }
-
-    private void uploadPreview(String key, Path glb, String operation, PackingJobId jobId) {
-        try {
-            container.getBlobClient(key)
-                     .uploadFromFileWithResponse(new BlobUploadFromFileOptions(glb.toString())
-                                                                                              .setHeaders(new BlobHttpHeaders().setContentType(PREVIEW_CONTENT_TYPE)
-                                                                                                                               .setCacheControl(PREVIEW_CACHE_CONTROL)),
-                                                 null,
-                                                 Context.NONE);
-        } catch (BlobStorageException e) {
-            throw external(operation, jobId, e);
-        }
-    }
-
-    @Override
-    public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
-        return previewUrl(previewKey(jobId, quality), validity, attachmentFileName, "issue " + quality + " preview URL", jobId);
-    }
-
-    @Override
-    public TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
-                                            String attachmentFileName) {
-        String key = binCount == 1 ? previewKey(jobId, quality) : binPreviewKey(jobId, number, quality);
-        return previewUrl(key, validity, attachmentFileName, "issue " + quality + " preview URL of result bin " + number, jobId);
-    }
-
-    private TemporaryUrl previewUrl(String key, Duration validity, String attachmentFileName, String operation, PackingJobId jobId) {
-        SasWindow window = SasWindow.containing(Instant.now(), validity);
-        BlobServiceSasSignatureValues values = new BlobServiceSasSignatureValues(
-                                                                                 window.expiry()
-                                                                                       .atOffset(ZoneOffset.UTC),
-                                                                                 new BlobSasPermission().setReadPermission(true))
-                                                                                                                                 .setStartTime(window.start()
-                                                                                                                                                     .atOffset(ZoneOffset.UTC));
-        if (attachmentFileName != null) {
-            values.setContentDisposition(AttachmentDisposition.of(attachmentFileName));
-        }
-        BlobClient blob = container.getBlobClient(key);
-        try {
-            return new TemporaryUrl(URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)), window.expiry());
-        } catch (BlobStorageException e) {
-            throw external(operation, jobId, e);
-        }
-    }
-
-    record SasWindow(Instant start, Instant expiry) {
-
-        static SasWindow containing(Instant now, Duration validity) {
-            long seconds = Math.max(1, validity.toSeconds());
-            long epoch = now.getEpochSecond();
-            Instant windowStart = Instant.ofEpochSecond(epoch - Math.floorMod(epoch, seconds));
-            return new SasWindow(windowStart.minus(CLOCK_SKEW_ALLOWANCE), windowStart.plusSeconds(2 * seconds));
-        }
-    }
-
-    private void acceptOnlyIdenticalRequest(BlobClient blob, byte[] requested, PackingJobId jobId) {
-        try {
-            if (!java.util.Arrays.equals(requested,
-                                         blob.downloadContent()
-                                             .toBytes())) {
-                throw new ResourceConflictException("Packing job request already exists with different content");
-            }
-        } catch (BlobStorageException e) {
-            throw external("read existing request", jobId, e);
-        }
-    }
-
-    private static boolean isAlreadyExists(BlobStorageException exception) {
-        return exception.getStatusCode() == 409 || exception.getStatusCode() == 412;
-    }
-
-    private String requiredMetadata(Map<String, String> metadata, String name, PackingJobId jobId) {
-        if (metadata == null) {
-            throw invalidResult(jobId, "required metadata " + name);
-        }
-        String value = metadata.entrySet()
-                               .stream()
-                               .filter(entry -> entry.getKey()
-                                                     .equalsIgnoreCase(name))
-                               .map(Map.Entry::getValue)
-                               .findFirst()
-                               .orElse(null);
-        if (value == null || value.isBlank()) {
-            throw invalidResult(jobId, "required metadata " + name);
-        }
-        return value;
-    }
-
-    private ExternalServiceException invalidResult(PackingJobId jobId, String problem) {
-        return new ExternalServiceException(SERVICE,
-                                            "Result artifact for packing job " + jobId + " is missing " + problem);
-    }
-
-    private BlobContainerClient ensureContainer(PackingJobId jobId) {
-        if (containerEnsured.get()) {
-            return container;
-        }
-        try {
-            container.createIfNotExists();
-            containerEnsured.set(true);
-            return container;
-        } catch (BlobStorageException e) {
-            throw external("create storage container", jobId, e);
-        }
-    }
-
-    private ExternalServiceException external(String operation, PackingJobId jobId,
-                                              BlobStorageException exception) {
-        return new ExternalServiceException(SERVICE,
-                                            "Could not " + operation + " for packing job " + jobId,
-                                            exception);
-    }
-
-    private static String requestKey(PackingJobId id) {
-        return "packing-jobs/" + id + "/request.json";
-    }
-
-    private static String resultKey(PackingJobId id) {
-        return "packing-jobs/" + id + "/result/output";
-    }
-
-    private static String resultBinKey(PackingJobId id, String resultChecksum, int number) {
-        return "packing-jobs/" + id + "/result/bins/" + resultChecksum + "/" + number;
-    }
-
-    private static String previewKey(PackingJobId id, PreviewQuality quality) {
-        return "packing-jobs/" + id + "/preview/" + previewFile(quality);
-    }
-
-    private static String binPreviewKey(PackingJobId id, int number, PreviewQuality quality) {
-        return "packing-jobs/" + id + "/preview/bins/" + number + "/" + previewFile(quality);
+    private static String requestKey(PackingJobId jobId) {
+        return "packing-jobs/" + jobId + "/request.json";
     }
 
     private static String previewFile(PreviewQuality quality) {
         return quality.name()
                       .toLowerCase(Locale.ROOT)
                 + ".glb";
+    }
+
+    private static ResultArtifact resultArtifact(PackingJobId jobId, BlobProperties properties) {
+        if (properties.getBlobSize() <= 0) {
+            throw invalidResult(jobId, "a positive size");
+        }
+        Map<String, String> metadata = properties.getMetadata();
+        return new ResultArtifact(requiredMetadata(metadata, "fileName", jobId),
+                                  requiredMetadata(metadata, "contentType", jobId),
+                                  properties.getBlobSize(),
+                                  requiredMetadata(metadata, "checksumSha256", jobId),
+                                  requiredMetadata(metadata, "engineVersion", jobId),
+                                  requiredMetadata(metadata, "engineChecksumSha256", jobId));
+    }
+
+    private static String requiredMetadata(Map<String, String> metadata, String name, PackingJobId jobId) {
+        String value = metadata == null ? null
+                                        : metadata.entrySet()
+                                                  .stream()
+                                                  .filter(entry -> entry.getKey()
+                                                                        .equalsIgnoreCase(name))
+                                                  .map(Map.Entry::getValue)
+                                                  .findFirst()
+                                                  .orElse(null);
+        if (value == null || value.isBlank()) {
+            throw invalidResult(jobId, "required metadata " + name);
+        }
+        return value;
+    }
+
+    private static ExternalServiceException invalidResult(PackingJobId jobId, String problem) {
+        return new ExternalServiceException(BlobContainer.SERVICE,
+                                            "Result artifact for packing job " + jobId + " is missing " + problem);
     }
 }
