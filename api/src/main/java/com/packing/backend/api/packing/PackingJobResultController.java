@@ -2,12 +2,12 @@ package com.packing.backend.api.packing;
 
 import com.packing.backend.api.shared.security.AuthenticatedUser;
 import com.packing.backend.api.shared.security.CurrentUser;
+import com.packing.backend.api.shared.web.TemporaryRedirect;
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultBinQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
-import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.domain.packing.PreviewQuality;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,9 +16,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,7 +45,7 @@ public class PackingJobResultController {
     public ResponseEntity<Void> download(@CurrentUser AuthenticatedUser caller,
                                          @PathVariable UUID projectId,
                                          @PathVariable UUID jobId) {
-        return redirect(jobs.prepareResultDownload(new PackingJobResultQuery(caller.firebaseUid(), projectId, jobId)));
+        return TemporaryRedirect.to(jobs.prepareResultDownload(new PackingJobResultQuery(caller.firebaseUid(), projectId, jobId)));
     }
 
     @GetMapping("/{jobId}/result/bins/{number}")
@@ -63,7 +61,7 @@ public class PackingJobResultController {
                                             @PathVariable UUID jobId,
                                             @Parameter(description = "One-based container number, as listed in resultBins")
                                             @PathVariable int number) {
-        return redirect(jobs.prepareResultBinDownload(new PackingJobResultBinQuery(caller.firebaseUid(), projectId, jobId, number)));
+        return TemporaryRedirect.to(jobs.prepareResultBinDownload(new PackingJobResultBinQuery(caller.firebaseUid(), projectId, jobId, number)));
     }
 
     @GetMapping("/{jobId}/result/bins/{number}/preview/{quality}")
@@ -82,7 +80,7 @@ public class PackingJobResultController {
                                            @PathVariable PreviewQuality quality,
                                            @Parameter(description = "Ask the browser to save the file instead of handing it to a viewer")
                                            @RequestParam(defaultValue = "false") boolean download) {
-        return redirect(jobs.prepareResultBinPreviewDownload(new PackingJobResultBinPreviewQuery(caller.firebaseUid(),
+        return TemporaryRedirect.to(jobs.prepareResultBinPreviewDownload(new PackingJobResultBinPreviewQuery(caller.firebaseUid(),
                                                                                                  projectId,
                                                                                                  jobId,
                                                                                                  number,
@@ -104,18 +102,10 @@ public class PackingJobResultController {
                                         @PathVariable PreviewQuality quality,
                                         @Parameter(description = "Ask the browser to save the file instead of handing it to a viewer")
                                         @RequestParam(defaultValue = "false") boolean download) {
-        return redirect(jobs.preparePreviewDownload(new PackingJobPreviewQuery(caller.firebaseUid(),
+        return TemporaryRedirect.to(jobs.preparePreviewDownload(new PackingJobPreviewQuery(caller.firebaseUid(),
                                                                                projectId,
                                                                                jobId,
                                                                                quality,
                                                                                download)));
-    }
-
-    private static ResponseEntity<Void> redirect(PackingJobArtifactStore.TemporaryUrl target) {
-        return ResponseEntity.status(HttpStatus.FOUND)
-                             .location(target.url())
-                             .cacheControl(CacheControl.noStore())
-                             .header(HttpHeaders.PRAGMA, "no-cache")
-                             .build();
     }
 }

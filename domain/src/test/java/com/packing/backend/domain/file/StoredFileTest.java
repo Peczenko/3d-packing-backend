@@ -208,11 +208,15 @@ class StoredFileTest {
     }
 
     @Test
-    void isOwnedByDistinguishesTheOwnerFromEveryoneElse() {
+    void aFileIsAvailableOnlyInItsOwnProjectAndOnlyUntilDeleted() {
         StoredFile file = availableFile();
 
-        assertThat(file.isOwnedBy(OWNER)).isTrue();
-        assertThat(file.isOwnedBy(UserId.generate())).isFalse();
+        assertThat(file.isAvailableIn(PROJECT)).isTrue();
+        assertThat(file.isAvailableIn(ProjectId.generate())).isFalse();
+
+        file.delete(NOW);
+
+        assertThat(file.isAvailableIn(PROJECT)).isFalse();
     }
 
     @Test

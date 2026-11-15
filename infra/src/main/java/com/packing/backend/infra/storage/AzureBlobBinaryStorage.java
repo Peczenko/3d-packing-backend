@@ -1,106 +1,37 @@
 package com.packing.backend.infra.storage;
 
-import com.azure.core.util.Context;
-import com.azure.storage.blob.BlobClient;
-import com.azure.storage.blob.BlobContainerClient;
-import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.models.BlobHttpHeaders;
-import com.azure.storage.blob.models.BlobStorageException;
-import com.azure.storage.blob.options.BlobParallelUploadOptions;
-import com.azure.storage.blob.sas.BlobSasPermission;
-import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.packing.backend.core.file.port.out.BinaryStorage;
-import com.packing.backend.core.shared.ExternalServiceException;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.file.StorageKey;
+import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
-import java.io.UncheckedIOException;
-import java.net.URI;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-@RequiredArgsConstructor
-public class AzureBlobBinaryStorage implements BinaryStorage {
+@Component
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
+class AzureBlobBinaryStorage implements BinaryStorage {
 
-    private static final String SERVICE                      = "azure-blob-storage";
-    private static final int    CLOCK_SKEW_ALLOWANCE_MINUTES = 5;
-
-    private final BlobServiceClient     serviceClient;
-    private final BlobSasIssuer         sasIssuer;
+    private final BlobContainer         container;
     private final BlobStorageProperties properties;
-    private final AtomicBoolean         containerEnsured = new AtomicBoolean();
 
     @Override
-    public void write(StorageKey key, InputStream content, long contentLength, String contentType) {
-        BlobContainerClient container = ensureContainer();
-        try {
-            container.getBlobClient(key.value())
-                     .uploadWithResponse(
-                                         new BlobParallelUploadOptions(content)
-                                                                               .setHeaders(new BlobHttpHeaders().setContentType(contentType)),
-                                         null,
-                                         Context.NONE);
-        } catch (BlobStorageException | UncheckedIOException e) {
-            throw new ExternalServiceException(SERVICE,
-                                               "Could not write blob " + key + " to container "
-                                                       + properties.containerName(),
-                                               e);
-        }
+    public void write(StorageKey key, InputStream content, String contentType) {
+        container.upload(key.value(), content, new BlobHttpHeaders().setContentType(contentType));
     }
 
     @Override
-    public TemporaryUrl temporaryReadUrl(StorageKey key, String downloadFilename, String contentType) {
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        OffsetDateTime expiry = now.plus(properties.downloadUrlTtl());
-
-        BlobServiceSasSignatureValues values = new BlobServiceSasSignatureValues(
-                                                                                 expiry,
-                                                                                 new BlobSasPermission().setReadPermission(true))
-                                                                                                                                 .setStartTime(now.minusMinutes(CLOCK_SKEW_ALLOWANCE_MINUTES))
-                                                                                                                                 .setContentType(contentType)
-                                                                                                                                 .setContentDisposition(AttachmentDisposition.of(downloadFilename));
-
-        try {
-            BlobClient blob = container().getBlobClient(key.value());
-            return new TemporaryUrl(
-                                    URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)),
-                                    expiry.toInstant());
-        } catch (BlobStorageException e) {
-            throw new ExternalServiceException(SERVICE,
-                                               "Could not issue a download URL for blob " + key,
-                                               e);
-        }
+    public TemporaryUrl readUrl(StorageKey key, String downloadFilename, String contentType) {
+        return container.readUrl(key.value(),
+                                 ReadUrl.validFor(properties.downloadUrlTtl())
+                                        .asAttachment(downloadFilename)
+                                        .servedAs(contentType));
     }
 
     @Override
     public void delete(StorageKey key) {
-        try {
-            container().getBlobClient(key.value())
-                       .deleteIfExists();
-        } catch (BlobStorageException e) {
-            throw new ExternalServiceException(SERVICE, "Could not delete blob " + key, e);
-        }
-    }
-
-    private BlobContainerClient container() {
-        return serviceClient.getBlobContainerClient(properties.containerName());
-    }
-
-    private BlobContainerClient ensureContainer() {
-        BlobContainerClient container = container();
-        if (!properties.autoCreateContainer() || containerEnsured.get()) {
-            return container;
-        }
-        try {
-            container.createIfNotExists();
-            containerEnsured.set(true);
-            return container;
-        } catch (BlobStorageException e) {
-            throw new ExternalServiceException(SERVICE,
-                                               "Could not create container " + properties.containerName(),
-                                               e);
-        }
+        container.deleteIfExists(key.value());
     }
 }

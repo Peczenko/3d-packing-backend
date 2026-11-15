@@ -2,25 +2,22 @@ package com.packing.backend.infra.sample;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.packing.backend.core.file.ContentDigest;
 import com.packing.backend.core.file.SampleModel;
 import com.packing.backend.core.file.port.out.SampleModelCatalog;
 import com.packing.backend.core.packing.port.out.PackingInputSchema;
-import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StoredFile;
 import com.packing.backend.domain.shared.DomainException;
+import com.packing.backend.domain.shared.DomainRuleViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +31,7 @@ public class ClasspathSampleModelCatalog implements SampleModelCatalog {
     static final String DIRECTORY = "samples";
     static final String MANIFEST  = "catalog.json";
 
-    private static final Pattern ID          = Pattern.compile("[a-z0-9]+(-[a-z0-9]+)*");
-    private static final int     BUFFER_SIZE = 8192;
+    private static final Pattern ID = Pattern.compile("[a-z0-9]+(-[a-z0-9]+)*");
 
     private final Map<String, SampleModel> samples;
 
@@ -87,12 +83,7 @@ public class ClasspathSampleModelCatalog implements SampleModelCatalog {
         FileName filename = filenameOf(entry, acceptedFormats);
 
         String path = directory + "/" + filename.value();
-        Content content = digest(entry.id(), path);
-        if (content.sizeBytes() == 0 || content.sizeBytes() > StoredFile.MAX_SIZE_BYTES) {
-            throw invalid(entry.id(),
-                          path + " must hold between 1 and " + StoredFile.MAX_SIZE_BYTES + " bytes, got "
-                                  + content.sizeBytes());
-        }
+        ContentDigest content = digest(entry.id(), path);
         return new SampleModel(entry.id(),
                                entry.name(),
                                entry.description(),
@@ -121,24 +112,21 @@ public class ClasspathSampleModelCatalog implements SampleModelCatalog {
         return filename;
     }
 
-    private static Content digest(String id, String path) {
-        MessageDigest digest = sha256();
-        long size = 0;
-        try (InputStream stream = open(path)) {
-            byte[] buffer = new byte[BUFFER_SIZE];
-            int read;
-            while ((read = stream.read(buffer)) != -1) {
-                digest.update(buffer, 0, read);
-                size += read;
-            }
-        } catch (FileNotFoundException e) {
+    private static ContentDigest digest(String id, String path) {
+        if (ClasspathSampleModelCatalog.class.getClassLoader()
+                                             .getResource(path) == null) {
             throw invalid(id, path + " is not on the classpath");
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot read sample model " + path, e);
         }
-        return new Content(size,
-                           Checksum.ofHex(HexFormat.of()
-                                                   .formatHex(digest.digest())));
+        String sizeRule = path + " must hold between 1 and " + StoredFile.MAX_SIZE_BYTES + " bytes";
+        try {
+            ContentDigest content = ContentDigest.of(() -> open(path));
+            if (content.sizeBytes() == 0) {
+                throw invalid(id, sizeRule + ", got 0");
+            }
+            return content;
+        } catch (DomainRuleViolationException e) {
+            throw invalid(id, sizeRule);
+        }
     }
 
     private static InputStream open(String path) throws IOException {
@@ -150,14 +138,6 @@ public class ClasspathSampleModelCatalog implements SampleModelCatalog {
         return stream;
     }
 
-    private static MessageDigest sha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is unavailable", e);
-        }
-    }
-
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
     }
@@ -167,8 +147,5 @@ public class ClasspathSampleModelCatalog implements SampleModelCatalog {
     }
 
     private record Entry(String id, String file, String name, String description) {
-    }
-
-    private record Content(long sizeBytes, Checksum checksum) {
     }
 }

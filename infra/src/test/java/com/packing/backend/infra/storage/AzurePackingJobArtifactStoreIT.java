@@ -7,7 +7,9 @@ import com.azure.storage.blob.models.BlobHttpHeaders;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.options.BlobParallelUploadOptions;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
+import com.packing.backend.core.packing.port.out.PackingArtifact;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.file.Checksum;
 import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
@@ -35,6 +37,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
@@ -73,9 +76,7 @@ class AzurePackingJobArtifactStoreIT {
                                                       .buildClient();
         container = serviceClient.getBlobContainerClient(CONTAINER);
         container.createIfNotExists();
-        artifacts = new AzurePackingJobArtifactStore(container,
-                                                     new AccountKeyBlobSasIssuer(),
-                                                     new PackingContractCodec(new ObjectMapper()));
+        artifacts = storeOver(container);
     }
 
     @Test
@@ -98,9 +99,7 @@ class AzurePackingJobArtifactStoreIT {
                                                                                   "packing-" + UUID.randomUUID()
                                                                                                    .toString()
                                                                                                    .replace("-", ""));
-        PackingJobArtifactStore freshArtifacts = new AzurePackingJobArtifactStore(freshContainer,
-                                                                                  new AccountKeyBlobSasIssuer(),
-                                                                                  new PackingContractCodec(new ObjectMapper()));
+        PackingJobArtifactStore freshArtifacts = storeOver(freshContainer);
 
         freshArtifacts.writeRequestIfAbsent(jobId(), envelope(60, "{}"));
 
@@ -169,7 +168,7 @@ class AzurePackingJobArtifactStoreIT {
                                                                                                     "packer 0.3.0",
                                                                                                     "b".repeat(64)));
 
-        PackingJobArtifactStore.TemporaryUrl url = artifacts.createResultDownloadUrl(jobId, Duration.ofMinutes(10));
+        TemporaryUrl url = artifacts.readUrl(new PackingArtifact.Result(jobId), Duration.ofMinutes(10), false);
         assertThat(url.url()
                       .getPath()).endsWith("/" + resultKey(jobId));
         assertThat(url.expiresAt()).isBetween(
@@ -252,7 +251,7 @@ class AzurePackingJobArtifactStoreIT {
         container.getBlobClient(resultKey(jobId))
                  .upload(new ByteArrayInputStream(output), output.length);
 
-        try (InputStream result = artifacts.openResult(jobId)) {
+        try (InputStream result = artifacts.open(new PackingArtifact.Result(jobId))) {
             assertThat(result.readAllBytes()).isEqualTo(output);
         }
     }
@@ -264,14 +263,14 @@ class AzurePackingJobArtifactStoreIT {
         Path file = Files.createTempFile("preview", ".glb");
         Files.write(file, glb);
 
-        artifacts.storePreview(jobId, PreviewQuality.MEDIUM, file);
-        artifacts.storePreview(jobId, PreviewQuality.MEDIUM, file);
+        artifacts.storePreview(new PackingArtifact.Preview(jobId, PreviewQuality.MEDIUM), file);
+        artifacts.storePreview(new PackingArtifact.Preview(jobId, PreviewQuality.MEDIUM), file);
 
         BlobProperties properties = container.getBlobClient("packing-jobs/" + jobId + "/preview/medium.glb")
                                              .getProperties();
         assertThat(properties.getContentType()).isEqualTo("model/gltf-binary");
         assertThat(properties.getCacheControl()).contains("immutable");
-        PackingJobArtifactStore.TemporaryUrl url = artifacts.createPreviewUrl(jobId, PreviewQuality.MEDIUM, Duration.ofMinutes(10), null);
+        TemporaryUrl url = artifacts.readUrl(new PackingArtifact.Preview(jobId, PreviewQuality.MEDIUM), Duration.ofMinutes(10), false);
         HttpResponse<byte[]> response = fetch(url.url());
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).isEqualTo(glb);
@@ -287,12 +286,9 @@ class AzurePackingJobArtifactStoreIT {
         PackingJobId jobId = jobId();
         Path file = Files.createTempFile("preview", ".glb");
         Files.write(file, new byte[] { 1, 2, 3 });
-        artifacts.storePreview(jobId, PreviewQuality.HIGH, file);
+        artifacts.storePreview(new PackingArtifact.Preview(jobId, PreviewQuality.HIGH), file);
 
-        PackingJobArtifactStore.TemporaryUrl url = artifacts.createPreviewUrl(jobId,
-                                                                              PreviewQuality.HIGH,
-                                                                              Duration.ofMinutes(10),
-                                                                              "packing-job-" + jobId + "-high.glb");
+        TemporaryUrl url = artifacts.readUrl(new PackingArtifact.Preview(jobId, PreviewQuality.HIGH), Duration.ofMinutes(10), true);
 
         assertThat(fetch(url.url()).headers()
                                    .firstValue("Content-Disposition")).hasValueSatisfying(disposition -> assertThat(disposition).startsWith("attachment;")
@@ -311,18 +307,8 @@ class AzurePackingJobArtifactStoreIT {
         container.getBlobClient("packing-jobs/" + jobId + "/result/bins/" + checksum + "/2")
                  .upload(new ByteArrayInputStream(second), second.length);
 
-        PackingJobArtifactStore.TemporaryUrl bin = artifacts.createResultBinUrl(jobId,
-                                                                                checksum,
-                                                                                2,
-                                                                                2,
-                                                                                Duration.ofMinutes(10),
-                                                                                "packing-job-" + jobId + "-bin-002.obj");
-        PackingJobArtifactStore.TemporaryUrl only = artifacts.createResultBinUrl(jobId,
-                                                                                 checksum,
-                                                                                 1,
-                                                                                 1,
-                                                                                 Duration.ofMinutes(10),
-                                                                                 "packing-job-" + jobId + "-bin-001.obj");
+        TemporaryUrl bin = artifacts.readUrl(new PackingArtifact.BinResult(jobId, checksum, 2, 2), Duration.ofMinutes(10), true);
+        TemporaryUrl only = artifacts.readUrl(new PackingArtifact.BinResult(jobId, checksum, 1, 1), Duration.ofMinutes(10), true);
 
         HttpResponse<byte[]> binResponse = fetch(bin.url());
         assertThat(binResponse.body()).isEqualTo(second);
@@ -344,7 +330,7 @@ class AzurePackingJobArtifactStoreIT {
         container.getBlobClient("packing-jobs/" + jobId + "/result/bins/" + checksum + "/2")
                  .upload(new ByteArrayInputStream(second), second.length);
 
-        try (InputStream bin = artifacts.openResultBin(jobId, checksum, 2)) {
+        try (InputStream bin = artifacts.open(new PackingArtifact.BinResult(jobId, checksum, 2, 2))) {
             assertThat(bin.readAllBytes()).isEqualTo(second);
         }
     }
@@ -358,21 +344,16 @@ class AzurePackingJobArtifactStoreIT {
         Path secondFile = Files.createTempFile("preview", ".glb");
         Files.write(wholeFile, whole);
         Files.write(secondFile, second);
-        artifacts.storePreview(jobId, PreviewQuality.LOW, wholeFile);
+        artifacts.storePreview(new PackingArtifact.Preview(jobId, PreviewQuality.LOW), wholeFile);
 
-        artifacts.storeBinPreview(jobId, 2, PreviewQuality.LOW, secondFile);
+        artifacts.storePreview(new PackingArtifact.BinPreview(jobId, 2, 2, PreviewQuality.LOW), secondFile);
 
         BlobProperties properties = container.getBlobClient("packing-jobs/" + jobId + "/preview/bins/2/low.glb")
                                              .getProperties();
         assertThat(properties.getContentType()).isEqualTo("model/gltf-binary");
         assertThat(properties.getCacheControl()).contains("immutable");
-        PackingJobArtifactStore.TemporaryUrl bin = artifacts.createBinPreviewUrl(jobId,
-                                                                                 2,
-                                                                                 2,
-                                                                                 PreviewQuality.LOW,
-                                                                                 Duration.ofMinutes(10),
-                                                                                 "packing-job-" + jobId + "-bin-002-low.glb");
-        PackingJobArtifactStore.TemporaryUrl only = artifacts.createBinPreviewUrl(jobId, 1, 1, PreviewQuality.LOW, Duration.ofMinutes(10), null);
+        TemporaryUrl bin = artifacts.readUrl(new PackingArtifact.BinPreview(jobId, 2, 2, PreviewQuality.LOW), Duration.ofMinutes(10), true);
+        TemporaryUrl only = artifacts.readUrl(new PackingArtifact.BinPreview(jobId, 1, 1, PreviewQuality.LOW), Duration.ofMinutes(10), false);
         HttpResponse<byte[]> binResponse = fetch(bin.url());
         assertThat(binResponse.body()).isEqualTo(second);
         assertThat(binResponse.headers()
@@ -381,6 +362,11 @@ class AzurePackingJobArtifactStoreIT {
         assertThat(fetch(only.url()).body()).isEqualTo(whole);
         Files.delete(wholeFile);
         Files.delete(secondFile);
+    }
+
+    private static PackingJobArtifactStore storeOver(BlobContainerClient client) {
+        return new AzurePackingJobArtifactStore(new BlobContainer(client, new AccountKeyBlobSasIssuer(), true, Clock.systemUTC()),
+                                                new PackingContractCodec(new ObjectMapper()));
     }
 
     private static PackingRequestEnvelope envelope(long runtime, String parameters) {

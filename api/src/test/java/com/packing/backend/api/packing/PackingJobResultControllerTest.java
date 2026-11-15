@@ -6,7 +6,7 @@ import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobR
 import com.packing.backend.core.packing.PackingJobApplicationService;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobPreviewQuery;
 import com.packing.backend.core.packing.PackingJobApplicationService.PackingJobResultQuery;
-import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PreviewQuality;
@@ -64,7 +64,7 @@ class PackingJobResultControllerTest {
     void resultRedirectsToTheTemporaryUrlAndForbidsCaching() throws Exception {
         authenticate();
         UUID jobId = UUID.randomUUID();
-        when(jobs.prepareResultDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+        when(jobs.prepareResultDownload(any())).thenReturn(new TemporaryUrl(
                                                                                                     URI.create("https://storage.example/packing-jobs/result?sig=secret"),
                                                                                                     Instant.parse("2026-08-01T10:25:30Z")));
 
@@ -114,7 +114,7 @@ class PackingJobResultControllerTest {
     void binRedirectsToTheTemporaryUrlOfTheRequestedContainer() throws Exception {
         authenticate();
         UUID jobId = UUID.randomUUID();
-        when(jobs.prepareResultBinDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+        when(jobs.prepareResultBinDownload(any())).thenReturn(new TemporaryUrl(
                                                                                                        URI.create("https://storage.example/packing-jobs/result/bins/2?sig=secret"),
                                                                                                        Instant.parse("2026-11-11T10:25:30Z")));
 
@@ -140,7 +140,7 @@ class PackingJobResultControllerTest {
     void binPreviewRedirectsToTheTemporaryUrlOfTheRequestedContainerAndQuality() throws Exception {
         authenticate();
         UUID jobId = UUID.randomUUID();
-        when(jobs.prepareResultBinPreviewDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+        when(jobs.prepareResultBinPreviewDownload(any())).thenReturn(new TemporaryUrl(
                                                                                                               URI.create("https://storage.example/packing-jobs/preview/bins/2/low.glb?sig=secret"),
                                                                                                               Instant.parse("2026-11-15T10:25:30Z")));
 
@@ -167,7 +167,7 @@ class PackingJobResultControllerTest {
     void previewRedirectsToTheTemporaryUrlOfTheRequestedQuality() throws Exception {
         authenticate();
         UUID jobId = UUID.randomUUID();
-        when(jobs.preparePreviewDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+        when(jobs.preparePreviewDownload(any())).thenReturn(new TemporaryUrl(
                                                                                                      URI.create("https://storage.example/packing-jobs/preview/medium.glb?sig=secret"),
                                                                                                      Instant.parse("2026-11-06T10:25:30Z")));
 
@@ -185,7 +185,7 @@ class PackingJobResultControllerTest {
     void previewPassesTheDownloadFlagThrough() throws Exception {
         authenticate();
         UUID jobId = UUID.randomUUID();
-        when(jobs.preparePreviewDownload(any())).thenReturn(new PackingJobArtifactStore.TemporaryUrl(
+        when(jobs.preparePreviewDownload(any())).thenReturn(new TemporaryUrl(
                                                                                                      URI.create("https://storage.example/high.glb?sig=secret"),
                                                                                                      Instant.parse("2026-11-06T10:25:30Z")));
 

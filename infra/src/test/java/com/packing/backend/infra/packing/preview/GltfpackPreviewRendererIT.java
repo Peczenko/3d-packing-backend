@@ -2,7 +2,10 @@ package com.packing.backend.infra.packing.preview;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
+import com.packing.backend.core.packing.port.out.PackingArtifact;
+import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
+import com.packing.backend.core.shared.TemporaryUrl;
 import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PreviewModel;
@@ -142,32 +145,24 @@ class GltfpackPreviewRendererIT {
         }
 
         @Override
-        public InputStream openResult(PackingJobId jobId) {
+        public InputStream open(PackingArtifact artifact) {
+            if (!(artifact instanceof PackingArtifact.Result)) {
+                throw new UnsupportedOperationException();
+            }
             return new ByteArrayInputStream(obj.getBytes(StandardCharsets.UTF_8));
         }
 
         @Override
-        public InputStream openResultBin(PackingJobId jobId, String resultChecksum, int number) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void storeBinPreview(PackingJobId jobId, int number, PreviewQuality quality, Path glb) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public TemporaryUrl createBinPreviewUrl(PackingJobId jobId, int number, int binCount, PreviewQuality quality, Duration validity,
-                                                String attachmentFileName) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void storePreview(PackingJobId jobId, PreviewQuality quality, Path glb) {
+        public void storePreview(PreviewArtifact preview, Path glb) {
+            if (!(preview instanceof PackingArtifact.Preview whole)) {
+                throw new UnsupportedOperationException();
+            }
             try {
-                Path copy = stored.resolve(quality.name() + ".glb");
+                Path copy = stored.resolve(whole.quality()
+                                                .name()
+                        + ".glb");
                 Files.copy(glb, copy);
-                previews.put(quality, copy);
+                previews.put(whole.quality(), copy);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -184,18 +179,7 @@ class GltfpackPreviewRendererIT {
         }
 
         @Override
-        public TemporaryUrl createResultDownloadUrl(PackingJobId jobId, Duration validity) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public TemporaryUrl createResultBinUrl(PackingJobId jobId, String resultChecksum, int number, int binCount, Duration validity,
-                                               String attachmentFileName) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public TemporaryUrl createPreviewUrl(PackingJobId jobId, PreviewQuality quality, Duration validity, String attachmentFileName) {
+        public TemporaryUrl readUrl(PackingArtifact artifact, Duration validity, boolean asAttachment) {
             throw new UnsupportedOperationException();
         }
     }
