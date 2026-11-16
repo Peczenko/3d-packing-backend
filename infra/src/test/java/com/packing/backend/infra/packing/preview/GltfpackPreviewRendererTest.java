@@ -190,13 +190,13 @@ class GltfpackPreviewRendererTest {
 
         double[][] tetra = { MATRICES[0], MATRICES[1], MATRICES[2] };
         assertThat(placedVertices(artifacts.previews.get(PreviewQuality.HIGH), 0)).containsExactly(expected(TETRAHEDRON_VERTICES,
-                                                                                                             tetra,
-                                                                                                             new double[] { 0, 1_000, 0 }),
-                                                                                                    within(1e-3));
+                                                                                                            tetra,
+                                                                                                            new double[] { 0, 1_000, 0 }),
+                                                                                                   within(1e-3));
         assertThat(placedVertices(artifacts.previews.get(PreviewQuality.HIGH), 1)).containsExactly(expected(CUBE_VERTICES,
-                                                                                                             new double[][] { MATRICES[3] },
-                                                                                                             new double[] { 1_000 }),
-                                                                                                    within(1e-3));
+                                                                                                            new double[][] { MATRICES[3] },
+                                                                                                            new double[] { 1_000 }),
+                                                                                                   within(1e-3));
         Path secondHigh = artifacts.binPreviews.get(2)
                                                .get(PreviewQuality.HIGH);
         assertThat(placedVertices(secondHigh, 0)).containsExactly(expected(TETRAHEDRON_VERTICES, new double[][] { MATRICES[1] }, new double[] { 0 }),
@@ -262,10 +262,14 @@ class GltfpackPreviewRendererTest {
             bin.flip();
         }
         JsonNode attributes = json.at("/nodes/" + node + "/extensions/EXT_mesh_gpu_instancing/attributes");
-        float[] translations = floats(json, bin, attributes.path("TRANSLATION")
-                                                           .asInt());
-        float[] rotations = floats(json, bin, attributes.path("ROTATION")
-                                                        .asInt());
+        float[] translations = floats(json,
+                                      bin,
+                                      attributes.path("TRANSLATION")
+                                                .asInt());
+        float[] rotations = floats(json,
+                                   bin,
+                                   attributes.path("ROTATION")
+                                             .asInt());
         float[] positions = floats(json,
                                    bin,
                                    json.at("/meshes/" + json.at("/nodes/" + node + "/mesh")
@@ -306,7 +310,8 @@ class GltfpackPreviewRendererTest {
         bin.asFloatBuffer()
            .get(view.path("byteOffset")
                     .asInt()
-                   / 4, values);
+                   / 4,
+                values);
         return values;
     }
 
@@ -379,12 +384,12 @@ class GltfpackPreviewRendererTest {
 
         private final String                                  obj;
         private final List<String>                            bins;
-        private final Map<PreviewQuality, Path>               previews    = new EnumMap<>(PreviewQuality.class);
-        private final Map<Integer, Map<PreviewQuality, Path>> binPreviews = new TreeMap<>();
-        private final List<Integer>                           openedBins  = new ArrayList<>();
+        private final Map<PreviewQuality, Path>               previews     = new EnumMap<>(PreviewQuality.class);
+        private final Map<Integer, Map<PreviewQuality, Path>> binPreviews  = new TreeMap<>();
+        private final List<Integer>                           openedBins   = new ArrayList<>();
         private final List<PackingItem>                       openedInputs = new ArrayList<>();
         private String                                        placements;
-        private Map<String, String>                           inputs      = Map.of();
+        private Map<String, String>                           inputs       = Map.of();
 
         private Artifacts(String obj, String... bins) {
             this.obj = obj;

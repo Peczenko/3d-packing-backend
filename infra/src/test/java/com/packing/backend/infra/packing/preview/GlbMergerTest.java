@@ -196,13 +196,22 @@ class GlbMergerTest {
         ByteBuffer bin = ByteBuffer.wrap(Files.readAllBytes(output), (int) container.binOffset(), (int) container.binLength())
                                    .slice()
                                    .order(ByteOrder.LITTLE_ENDIAN);
-        assertThat(floats(result, bin, attributes.path("TRANSLATION")
-                                                 .asInt(), 6)).containsExactly(new float[] { 11, 22, 33, -2, 1, 3 }, within(1e-5f));
-        assertThat(floats(result, bin, attributes.path("ROTATION")
-                                                 .asInt(), 8)).containsExactly(new float[] { 0, 0, 0, 1, 0, 0, (float) half, (float) half },
-                                                                               within(1e-6f));
-        assertThat(floats(result, bin, attributes.path("SCALE")
-                                                 .asInt(), 6)).containsOnly(0.5f);
+        assertThat(floats(result,
+                          bin,
+                          attributes.path("TRANSLATION")
+                                    .asInt(),
+                          6)).containsExactly(new float[] { 11, 22, 33, -2, 1, 3 }, within(1e-5f));
+        assertThat(floats(result,
+                          bin,
+                          attributes.path("ROTATION")
+                                    .asInt(),
+                          8)).containsExactly(new float[] { 0, 0, 0, 1, 0, 0, (float) half, (float) half },
+                                              within(1e-6f));
+        assertThat(floats(result,
+                          bin,
+                          attributes.path("SCALE")
+                                    .asInt(),
+                          6)).containsOnly(0.5f);
     }
 
     private static float[] floats(ObjectNode json, ByteBuffer bin, int accessor, int count) {
@@ -212,7 +221,8 @@ class GlbMergerTest {
                                               .asInt()
                    + "/byteOffset")
                     .asInt()
-                   / 4, values);
+                   / 4,
+                values);
         return values;
     }
 

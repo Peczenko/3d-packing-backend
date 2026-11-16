@@ -21,7 +21,8 @@ record PlacementLayout(List<double[]> binOffsets, List<Placement> placements) {
             throw new IllegalArgumentException("they are not JSON");
         }
         if (root == null || root.path("version")
-                                .asInt() != VERSION) {
+                                .asInt()
+                != VERSION) {
             throw new IllegalArgumentException("they are not version " + VERSION);
         }
         List<double[]> offsets = new ArrayList<>();
@@ -34,7 +35,8 @@ record PlacementLayout(List<double[]> binOffsets, List<Placement> placements) {
         List<Integer> expected = new ArrayList<>();
         for (int item = 0; item < items.size(); item++) {
             for (int copy = 0; copy < items.get(item)
-                                           .copies(); copy++) {
+                                           .copies();
+                    copy++) {
                 expected.add(item);
             }
         }
@@ -49,7 +51,8 @@ record PlacementLayout(List<double[]> binOffsets, List<Placement> placements) {
             int bin = entry.path("bin")
                            .asInt();
             if (entry.path("item")
-                     .asInt(-1) != expected.get(i) || bin < 1 || bin > binCount) {
+                     .asInt(-1)
+                    != expected.get(i) || bin < 1 || bin > binCount) {
                 throw new IllegalArgumentException("object " + (i + 1) + " is not the job's object " + (i + 1));
             }
             double[] matrix = numbers(entry.path("matrix"), 12);

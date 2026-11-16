@@ -91,7 +91,7 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
     }
 
     private Rendered renderPlaced(PackingJobId jobId, List<PackingItem> items, PlacementLayout placements, int binCount, Path work)
-                                                                                                                                   throws IOException {
+                                                                                                                                    throws IOException {
         List<Map<PreviewQuality, Path>> packed = new ArrayList<>();
         List<double[]> centroids = new ArrayList<>();
         for (int index = 0; index < items.size(); index++) {
@@ -149,7 +149,7 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
     }
 
     private Rendered renderResult(PackingJobId jobId, List<PackingItem> items, String resultChecksum, int binCount, Path work)
-                                                                                                                              throws IOException {
+                                                                                                                               throws IOException {
         List<InstanceExtractor.Item> layout = items.stream()
                                                    .map(item -> new InstanceExtractor.Item(item.fileName()
                                                                                                .value(),
