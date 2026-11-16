@@ -70,6 +70,13 @@ func TestEngineResultRoundTrip(t *testing.T) {
 	assertActivityRoundTrip[EngineResult](t, "run-engine-result.example.json")
 }
 
+func TestResultPlacementsRoundTrip(t *testing.T) {
+	placements := assertActivityRoundTrip[ResultPlacements](t, "result-placements.example.json")
+	if placements.Version != PlacementsVersion {
+		t.Fatalf("example carries placements version %d, want %d", placements.Version, PlacementsVersion)
+	}
+}
+
 func TestEngineFailureDetailsRoundTrip(t *testing.T) {
 	assertActivityRoundTrip[EngineFailureDetails](t, "engine-failure-details.example.json")
 }

@@ -15,6 +15,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 
 class GlbMergerTest {
 
@@ -146,6 +147,73 @@ class GlbMergerTest {
         assertThat(json.at("/nodes/1/extensions/EXT_mesh_gpu_instancing/attributes/ROTATION")
                        .asInt()).isEqualTo(3 + 2);
         assertThat(result.triangles()).isEqualTo(5 * 4 + 2 * 4);
+    }
+
+    @Test
+    void placesAPartOncePerCopyThroughTheNodeItsMeshAlreadyHas() throws IOException {
+        Path part = work.resolve("part.glb");
+        PreviewPartWriter.write(new PreviewPart(0,
+                                                "triangle.obj",
+                                                TRIANGLE_POSITIONS,
+                                                TRIANGLE_INDICES,
+                                                List.of(new PreviewPart.Instance(0, 0, 0, 1, 0, 0, 0))),
+                                part);
+        Glb.Container written = Glb.open(part);
+        ObjectNode json = written.json();
+        ObjectNode node = (ObjectNode) json.at("/nodes/0");
+        node.remove("rotation");
+        node.putArray("translation")
+            .add(1)
+            .add(2)
+            .add(3);
+        node.putArray("scale")
+            .add(0.5)
+            .add(0.5)
+            .add(0.5);
+        Path quantized = work.resolve("quantized.glb");
+        Glb.write(quantized, json, written.binLength(), written::copyBinTo);
+        double half = Math.sqrt(0.5);
+        Path output = work.resolve("merged.glb");
+
+        GlbMerger.Merged merged = GlbMerger.merge(List.of(new GlbMerger.Part(quantized,
+                                                                             "triangle.obj",
+                                                                             List.of(new PreviewPart.Instance(0, 0, 0, 1, 10, 20, 30),
+                                                                                     new PreviewPart.Instance(0, 0, half, half, 0, 0, 0)))),
+                                                  output);
+
+        assertThat(merged.triangles()).isEqualTo(2);
+        Glb.Container container = Glb.open(output);
+        ObjectNode result = container.json();
+        assertThat(result.at("/nodes/0")
+                         .has("translation")).isFalse();
+        assertThat(result.at("/nodes/0")
+                         .has("scale")).isFalse();
+        assertThat(result.path("extensionsUsed")
+                         .toString()).contains(GlbMerger.INSTANCING);
+        JsonNode attributes = result.at("/nodes/0/extensions/" + GlbMerger.INSTANCING + "/attributes");
+        assertThat(result.at("/buffers/0/byteLength")
+                         .asLong()).isEqualTo(written.binLength() + 2 * (12 + 16 + 12));
+        ByteBuffer bin = ByteBuffer.wrap(Files.readAllBytes(output), (int) container.binOffset(), (int) container.binLength())
+                                   .slice()
+                                   .order(ByteOrder.LITTLE_ENDIAN);
+        assertThat(floats(result, bin, attributes.path("TRANSLATION")
+                                                 .asInt(), 6)).containsExactly(new float[] { 11, 22, 33, -2, 1, 3 }, within(1e-5f));
+        assertThat(floats(result, bin, attributes.path("ROTATION")
+                                                 .asInt(), 8)).containsExactly(new float[] { 0, 0, 0, 1, 0, 0, (float) half, (float) half },
+                                                                               within(1e-6f));
+        assertThat(floats(result, bin, attributes.path("SCALE")
+                                                 .asInt(), 6)).containsOnly(0.5f);
+    }
+
+    private static float[] floats(ObjectNode json, ByteBuffer bin, int accessor, int count) {
+        float[] values = new float[count];
+        bin.asFloatBuffer()
+           .get(json.at("/bufferViews/" + json.at("/accessors/" + accessor + "/bufferView")
+                                              .asInt()
+                   + "/byteOffset")
+                    .asInt()
+                   / 4, values);
+        return values;
     }
 
     @Test

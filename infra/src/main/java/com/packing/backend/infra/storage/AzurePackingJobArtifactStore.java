@@ -12,6 +12,7 @@ import com.packing.backend.core.packing.port.out.PackingArtifact.Result;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.core.shared.TemporaryUrl;
+import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.shared.ResourceConflictException;
@@ -59,6 +60,19 @@ class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
     @Override
     public InputStream open(PackingArtifact artifact) {
         return container.open(keyOf(artifact));
+    }
+
+    @Override
+    public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
+        String key = "packing-jobs/" + jobId + "/result/placements/" + resultChecksum + ".json";
+        return container.findProperties(key)
+                        .map(properties -> container.download(key));
+    }
+
+    @Override
+    public InputStream openInput(PackingItem item) {
+        return container.open(item.storageKey()
+                                  .value());
     }
 
     @Override

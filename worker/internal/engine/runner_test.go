@@ -403,6 +403,67 @@ func TestRunDescribesEveryBinOfAMultiBinResult(t *testing.T) {
 	}
 }
 
+func TestRunReadsEachCopysPlacementFromTheManifest(t *testing.T) {
+	runner := testRunner(t)
+	request := testRequest(t, 60*time.Second)
+	request.Inputs = []pipeline.InputFile{
+		{Path: request.Inputs[0].Path, DisplayName: "bunny.obj", Copies: 2},
+		{Path: request.Inputs[0].Path, DisplayName: "cube.obj", Copies: 1},
+	}
+	t.Setenv(helperWriteOut, "1")
+	t.Setenv(helperOutput, "packed\n")
+	t.Setenv(helperManifest, `{"bin_count":1,"bins":[{"id":0,"display_offset":[0,0,0],"obj":null}],"placements":[`+
+		`{"input_index":0,"input":"a","bin":0,"matrix":[1,0,0,10,0,1,0,20,0,0,1,30]},`+
+		`{"input_index":1,"input":"a","bin":0,"matrix":[0,-1,0,5,1,0,0,0,0,0,1,2.5]},`+
+		`{"input_index":2,"input":"b","bin":0,"matrix":[1,0,0,100,0,1,0,0,0,0,1,0]}]}`)
+
+	result, err := runner.Run(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	want := &pipeline.Layout{
+		BinOffsets: [][3]float64{{0, 0, 0}},
+		Placements: []pipeline.Placement{
+			{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 10, 0, 1, 0, 20, 0, 0, 1, 30}},
+			{Item: 0, Bin: 1, Matrix: [12]float64{0, -1, 0, 5, 1, 0, 0, 0, 0, 0, 1, 2.5}},
+			{Item: 1, Bin: 1, Matrix: [12]float64{1, 0, 0, 100, 0, 1, 0, 0, 0, 0, 1, 0}},
+		},
+	}
+	if !reflect.DeepEqual(result.Layout, want) {
+		t.Fatalf("Layout = %+v, want %+v", result.Layout, want)
+	}
+}
+
+func TestRunReportsNoLayoutWhenTheManifestDoesNotPlaceEveryCopy(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		placements string
+	}{
+		{"no placements", ``},
+		{"fewer placements than copies", `,"placements":[]`},
+		{"out of argument order", `,"placements":[{"input_index":1,"bin":0,"matrix":[1,0,0,0,0,1,0,0,0,0,1,0]}]`},
+		{"a container the result does not have", `,"placements":[{"input_index":0,"bin":1,"matrix":[1,0,0,0,0,1,0,0,0,0,1,0]}]`},
+		{"a short matrix", `,"placements":[{"input_index":0,"bin":0,"matrix":[1,0,0]}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := testRunner(t)
+			request := testRequest(t, 60*time.Second)
+			t.Setenv(helperWriteOut, "1")
+			t.Setenv(helperOutput, "packed\n")
+			t.Setenv(helperManifest, `{"bin_count":1,"bins":[{"id":0,"display_offset":[0,0,0],"obj":null}]`+tc.placements+`}`)
+
+			result, err := runner.Run(context.Background(), request)
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if result.Layout != nil {
+				t.Fatalf("Layout = %+v, want none", result.Layout)
+			}
+		})
+	}
+}
+
 func TestRunManifestProblemsAreInfrastructureErrors(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "elsewhere.obj")
 	writeFile(t, outside, "stray\n")

@@ -15,6 +15,7 @@ import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StorageKey;
+import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingParameters;
@@ -332,6 +333,31 @@ class AzurePackingJobArtifactStoreIT {
 
         try (InputStream bin = artifacts.open(new PackingArtifact.BinResult(jobId, checksum, 2, 2))) {
             assertThat(bin.readAllBytes()).isEqualTo(second);
+        }
+    }
+
+    @Test
+    void readsThePlacementsTheWorkerStoredUnderTheResultChecksumAndNoneForAnOlderResult() {
+        PackingJobId jobId = PackingJobId.generate();
+        String checksum = "d".repeat(64);
+        byte[] placements = "{\"version\":1}".getBytes(StandardCharsets.UTF_8);
+        container.getBlobClient("packing-jobs/" + jobId + "/result/placements/" + checksum + ".json")
+                 .upload(new ByteArrayInputStream(placements), placements.length);
+
+        assertThat(artifacts.findPlacements(jobId, checksum)).contains(placements);
+        assertThat(artifacts.findPlacements(jobId, "e".repeat(64))).isEmpty();
+    }
+
+    @Test
+    void streamsAnItemsInputFromItsStorageKey() throws Exception {
+        PackingItem item = PackingInputs.item("bunny.obj", 2);
+        byte[] model = "v 0 0 0\n".getBytes(StandardCharsets.UTF_8);
+        container.getBlobClient(item.storageKey()
+                                    .value())
+                 .upload(new ByteArrayInputStream(model), model.length);
+
+        try (InputStream input = artifacts.openInput(item)) {
+            assertThat(input.readAllBytes()).isEqualTo(model);
         }
     }
 

@@ -12,6 +12,8 @@ const (
 	ActivityVersion = 4
 	RequestVersion  = 3
 
+	PlacementsVersion = 1
+
 	RunEngineActivity   = "RunEngine"
 	EngineStartedSignal = "engineStarted"
 	EngineFailureType   = "EngineFailure"
@@ -68,6 +70,18 @@ type EngineResult struct {
 type ResultBin struct {
 	SizeBytes int64  `json:"sizeBytes"`
 	Checksum  string `json:"checksum"`
+}
+
+type ResultPlacements struct {
+	Version    int               `json:"version"`
+	BinOffsets [][3]float64      `json:"binOffsets"`
+	Placements []ResultPlacement `json:"placements"`
+}
+
+type ResultPlacement struct {
+	Item   int         `json:"item"`
+	Bin    int         `json:"bin"`
+	Matrix [12]float64 `json:"matrix"`
 }
 
 type EngineFailureDetails struct {

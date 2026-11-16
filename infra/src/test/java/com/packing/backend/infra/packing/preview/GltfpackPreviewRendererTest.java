@@ -1,5 +1,6 @@
 package com.packing.backend.infra.packing.preview;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
 import com.packing.backend.core.packing.port.out.PackingArtifact;
@@ -19,11 +20,15 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +43,7 @@ import static com.packing.backend.infra.packing.preview.PackerOutput.TETRAHEDRON
 import static com.packing.backend.infra.packing.preview.PackerOutput.TETRAHEDRON_VERTICES;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.assertj.core.groups.Tuple.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -57,6 +63,24 @@ class GltfpackPreviewRendererTest {
                                                                                 .place(TETRAHEDRON_VERTICES, TETRAHEDRON_FACES, PLACEMENTS[2])
                                                                                 .place(CUBE_VERTICES, CUBE_FACES, PLACEMENTS[0])
                                                                                 .text();
+
+    private static final double[][]          MATRICES = {
+            { 1, 0, 0, 10, 0, 1, 0, 20, 0, 0, 1, 30 },
+            { 0, -1, 0, 5, 1, 0, 0, 0, 0, 0, 1, 2.5 },
+            { 0, 0, 1, -7, 1, 0, 0, 8, 0, 1, 0, 9 },
+            { -1, 0, 0, 100, 0, -1, 0, 50, 0, 0, 1, 0 } };
+    private static final String              PLACED   = "{\"version\":1,\"binOffsets\":[[0,0,0],[1000,0,0]],\"placements\":["
+            + "{\"item\":0,\"bin\":1,\"matrix\":" + Arrays.toString(MATRICES[0]) + "},"
+            + "{\"item\":0,\"bin\":2,\"matrix\":" + Arrays.toString(MATRICES[1]) + "},"
+            + "{\"item\":0,\"bin\":1,\"matrix\":" + Arrays.toString(MATRICES[2]) + "},"
+            + "{\"item\":1,\"bin\":2,\"matrix\":" + Arrays.toString(MATRICES[3]) + "}]}";
+    private static final double[]            IDENTITY = { 0, 0, 0, 1, 0, 0, 0 };
+    private static final Map<String, String> INPUTS   = Map.of("tetra.obj",
+                                                               new PackerOutput().place(TETRAHEDRON_VERTICES, TETRAHEDRON_FACES, IDENTITY)
+                                                                                 .text(),
+                                                               "cube.obj",
+                                                               new PackerOutput().place(CUBE_VERTICES, CUBE_FACES, IDENTITY)
+                                                                                 .text());
 
     @TempDir
     Path stored;
@@ -139,6 +163,154 @@ class GltfpackPreviewRendererTest {
     }
 
     @Test
+    void placementsBuildEveryPreviewFromTheInputsWithoutReadingTheResult() throws IOException {
+        pretendToPackEverything();
+        Artifacts artifacts = new Artifacts(null);
+        artifacts.inputs = INPUTS;
+        artifacts.placements = PLACED;
+
+        PackingPreviewRenderer.Rendered rendered = new GltfpackPreviewRenderer(artifacts, gltfpack).render(JOB_ID, ITEMS, CHECKSUM, 2);
+
+        assertThat(rendered.models()).extracting(PreviewModel::quality, PreviewModel::triangles)
+                                     .containsExactly(tuple(PreviewQuality.HIGH, 4L * 3 + 12),
+                                                      tuple(PreviewQuality.LOW, 3L + 1));
+        assertThat(rendered.bins()).hasSize(2);
+        assertThat(rendered.bins()
+                           .get(0)).extracting(PreviewModel::quality, PreviewModel::triangles)
+                                   .containsExactly(tuple(PreviewQuality.HIGH, 4L * 2),
+                                                    tuple(PreviewQuality.LOW, 2L));
+        assertThat(rendered.bins()
+                           .get(1)).extracting(PreviewModel::quality, PreviewModel::triangles)
+                                   .containsExactly(tuple(PreviewQuality.HIGH, 4L + 12),
+                                                    tuple(PreviewQuality.LOW, 1L + 1));
+        assertThat(artifacts.openedInputs).containsExactlyElementsOf(ITEMS);
+        assertThat(artifacts.openedBins).isEmpty();
+        verify(gltfpack, times(2 * PreviewQuality.values().length)).pack(any(), any(), any());
+        assertThat(leftoverWorkspaces()).isEmpty();
+
+        double[][] tetra = { MATRICES[0], MATRICES[1], MATRICES[2] };
+        assertThat(placedVertices(artifacts.previews.get(PreviewQuality.HIGH), 0)).containsExactly(expected(TETRAHEDRON_VERTICES,
+                                                                                                             tetra,
+                                                                                                             new double[] { 0, 1_000, 0 }),
+                                                                                                    within(1e-3));
+        assertThat(placedVertices(artifacts.previews.get(PreviewQuality.HIGH), 1)).containsExactly(expected(CUBE_VERTICES,
+                                                                                                             new double[][] { MATRICES[3] },
+                                                                                                             new double[] { 1_000 }),
+                                                                                                    within(1e-3));
+        Path secondHigh = artifacts.binPreviews.get(2)
+                                               .get(PreviewQuality.HIGH);
+        assertThat(placedVertices(secondHigh, 0)).containsExactly(expected(TETRAHEDRON_VERTICES, new double[][] { MATRICES[1] }, new double[] { 0 }),
+                                                                  within(1e-3));
+        assertThat(placedVertices(secondHigh, 1)).containsExactly(expected(CUBE_VERTICES, new double[][] { MATRICES[3] }, new double[] { 0 }),
+                                                                  within(1e-3));
+        assertThat(Glb.open(secondHigh)
+                      .json()
+                      .at("/nodes/0/name")
+                      .asText()).isEqualTo("tetra.obj");
+    }
+
+    @Test
+    void placementsThatDoNotMatchTheJobFallBackToTheResult() throws IOException {
+        pretendToPackEverything();
+        Artifacts artifacts = new Artifacts(OBJ);
+        artifacts.placements = "{\"version\":1,\"binOffsets\":[[0,0,0]],\"placements\":[]}";
+
+        PackingPreviewRenderer.Rendered rendered = new GltfpackPreviewRenderer(artifacts, gltfpack).render(JOB_ID, ITEMS, CHECKSUM, 1);
+
+        assertThat(rendered.models()).extracting(PreviewModel::quality, PreviewModel::triangles)
+                                     .containsExactly(tuple(PreviewQuality.HIGH, 4L * 3 + 12),
+                                                      tuple(PreviewQuality.LOW, 3L + 1));
+        assertThat(artifacts.openedInputs).isEmpty();
+    }
+
+    @Test
+    void aMalformedInputStoresNothing() {
+        Artifacts artifacts = new Artifacts(null);
+        artifacts.inputs = Map.of("tetra.obj", "v 0 0 0\nf 1 2 3\n", "cube.obj", INPUTS.get("cube.obj"));
+        artifacts.placements = PLACED;
+
+        assertThatThrownBy(() -> new GltfpackPreviewRenderer(artifacts, gltfpack).render(JOB_ID, ITEMS, CHECKSUM, 2))
+                                                                                                                     .isInstanceOf(UnrecognizedPackerOutputException.class)
+                                                                                                                     .hasMessageContaining("'tetra.obj' is malformed");
+        assertThat(artifacts.previews).isEmpty();
+        assertThat(leftoverWorkspaces()).isEmpty();
+    }
+
+    private static double[] expected(double[] vertices, double[][] matrices, double[] offsets) {
+        double[] expected = new double[matrices.length * vertices.length];
+        int at = 0;
+        for (int copy = 0; copy < matrices.length; copy++) {
+            double[] m = matrices[copy];
+            for (int v = 0; v < vertices.length; v += 3) {
+                for (int row = 0; row < 3; row++) {
+                    expected[at++] = m[4 * row] * vertices[v] + m[4 * row + 1] * vertices[v + 1] + m[4 * row + 2] * vertices[v + 2]
+                            + m[4 * row + 3] + (row == 0 ? offsets[copy] : 0);
+                }
+            }
+        }
+        return expected;
+    }
+
+    private static double[] placedVertices(Path glb, int node) throws IOException {
+        Glb.Container container = Glb.open(glb);
+        ObjectNode json = container.json();
+        ByteBuffer bin;
+        try (FileChannel channel = FileChannel.open(glb)) {
+            bin = ByteBuffer.allocate((int) container.binLength())
+                            .order(ByteOrder.LITTLE_ENDIAN);
+            channel.read(bin, container.binOffset());
+            bin.flip();
+        }
+        JsonNode attributes = json.at("/nodes/" + node + "/extensions/EXT_mesh_gpu_instancing/attributes");
+        float[] translations = floats(json, bin, attributes.path("TRANSLATION")
+                                                           .asInt());
+        float[] rotations = floats(json, bin, attributes.path("ROTATION")
+                                                        .asInt());
+        float[] positions = floats(json,
+                                   bin,
+                                   json.at("/meshes/" + json.at("/nodes/" + node + "/mesh")
+                                                            .asInt()
+                                           + "/primitives/0/attributes/POSITION")
+                                       .asInt());
+        double[] placed = new double[translations.length / 3 * positions.length];
+        int at = 0;
+        for (int i = 0; i < translations.length / 3; i++) {
+            for (int v = 0; v < positions.length; v += 3) {
+                double[] rotated = RigidFit.rotate(rotations[4 * i],
+                                                   rotations[4 * i + 1],
+                                                   rotations[4 * i + 2],
+                                                   rotations[4 * i + 3],
+                                                   positions[v],
+                                                   positions[v + 1],
+                                                   positions[v + 2]);
+                placed[at++] = rotated[0] + translations[3 * i];
+                placed[at++] = rotated[1] + translations[3 * i + 1];
+                placed[at++] = rotated[2] + translations[3 * i + 2];
+            }
+        }
+        return placed;
+    }
+
+    private static float[] floats(ObjectNode json, ByteBuffer bin, int accessor) {
+        JsonNode described = json.at("/accessors/" + accessor);
+        JsonNode view = json.at("/bufferViews/" + described.path("bufferView")
+                                                           .asInt());
+        int width = switch (described.path("type")
+                                     .asText()) {
+            case "VEC3" -> 3;
+            case "VEC4" -> 4;
+            default -> throw new IllegalStateException();
+        };
+        float[] values = new float[width * described.path("count")
+                                                    .asInt()];
+        bin.asFloatBuffer()
+           .get(view.path("byteOffset")
+                    .asInt()
+                   / 4, values);
+        return values;
+    }
+
+    @Test
     void aMultiContainerResultWhoseObjectsDoNotNameTheirContainerStoresNothing() {
         Artifacts artifacts = new Artifacts(OBJ, OBJ, OBJ);
 
@@ -210,6 +382,9 @@ class GltfpackPreviewRendererTest {
         private final Map<PreviewQuality, Path>               previews    = new EnumMap<>(PreviewQuality.class);
         private final Map<Integer, Map<PreviewQuality, Path>> binPreviews = new TreeMap<>();
         private final List<Integer>                           openedBins  = new ArrayList<>();
+        private final List<PackingItem>                       openedInputs = new ArrayList<>();
+        private String                                        placements;
+        private Map<String, String>                           inputs      = Map.of();
 
         private Artifacts(String obj, String... bins) {
             this.obj = obj;
@@ -230,6 +405,22 @@ class GltfpackPreviewRendererTest {
                 }
                 default -> throw new UnsupportedOperationException();
             };
+        }
+
+        @Override
+        public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
+            assertThat(jobId).isEqualTo(JOB_ID);
+            assertThat(resultChecksum).isEqualTo(CHECKSUM);
+            return Optional.ofNullable(placements)
+                           .map(json -> json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public InputStream openInput(PackingItem item) {
+            openedInputs.add(item);
+            return new ByteArrayInputStream(inputs.get(item.fileName()
+                                                           .value())
+                                                  .getBytes(StandardCharsets.UTF_8));
         }
 
         @Override
