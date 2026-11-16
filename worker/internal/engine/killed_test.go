@@ -24,9 +24,9 @@ func TestRunReportsAnExternalKillAsLikelyOutOfMemory(t *testing.T) {
 	}
 
 	_, err := NewRunner(packer, "v0.0.3", time.Second).Run(context.Background(), pipeline.RunRequest{
-		Inputs:     []pipeline.InputFile{{Path: filepath.Join(dir, "0.obj"), DisplayName: "cube.obj", Copies: 1}},
-		OutputPath: filepath.Join(dir, "packed.obj"),
-		Runtime:    5 * time.Second,
+		Inputs:  []pipeline.InputFile{{Path: filepath.Join(dir, "0.obj"), DisplayName: "cube.obj", Copies: 1}},
+		WorkDir: dir,
+		Runtime: 5 * time.Second,
 	})
 
 	var failure *pipeline.EngineFailure

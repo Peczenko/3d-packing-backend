@@ -116,7 +116,6 @@ type fakeArtifacts struct {
 	downloadJobID string
 	inputKeys     []string
 	createJobID   string
-	createPath    string
 	createOffered StoredResult
 }
 
@@ -157,11 +156,10 @@ func (a *fakeArtifacts) DownloadInput(_ context.Context, storageKey, path string
 	return os.WriteFile(path, body, 0o600)
 }
 
-func (a *fakeArtifacts) CreateResult(_ context.Context, jobID, path string, offered StoredResult) (*StoredResult, error) {
+func (a *fakeArtifacts) CreateResult(_ context.Context, jobID string, offered StoredResult) (*StoredResult, error) {
 	a.rec.record("createResult")
 	a.mu.Lock()
 	a.createJobID = jobID
-	a.createPath = path
 	a.createOffered = offered
 	a.mu.Unlock()
 	if a.createErr != nil {
@@ -176,7 +174,7 @@ type fakeEngine struct {
 	provenance    EngineProvenance
 	provenanceErr error
 	provenanceFn  func(context.Context) (EngineProvenance, error)
-	run           func(context.Context, RunRequest) (EngineResult, error)
+	run           func(context.Context, RunRequest) (Packing, error)
 
 	mu          sync.Mutex
 	lastRequest RunRequest
@@ -194,7 +192,7 @@ func (e *fakeEngine) Provenance(ctx context.Context) (EngineProvenance, error) {
 	return e.provenance, nil
 }
 
-func (e *fakeEngine) Run(ctx context.Context, request RunRequest) (EngineResult, error) {
+func (e *fakeEngine) Run(ctx context.Context, request RunRequest) (Packing, error) {
 	e.rec.record("run")
 	seen := make([]string, 0, len(request.Inputs))
 	for _, in := range request.Inputs {
@@ -208,13 +206,43 @@ func (e *fakeEngine) Run(ctx context.Context, request RunRequest) (EngineResult,
 	return e.run(ctx, request)
 }
 
+type fakeWriter struct {
+	rec   *recorder
+	write func(context.Context, []InputFile, Layout, string) (EngineResult, error)
+
+	mu         sync.Mutex
+	lastInputs []InputFile
+	lastLayout Layout
+	lastDir    string
+}
+
+func (w *fakeWriter) Write(ctx context.Context, inputs []InputFile, layout Layout, dir string) (EngineResult, error) {
+	w.rec.record("write")
+	w.mu.Lock()
+	w.lastInputs = inputs
+	w.lastLayout = layout
+	w.lastDir = dir
+	w.mu.Unlock()
+	return w.write(ctx, inputs, layout, dir)
+}
+
 var (
+	packed = Packing{
+		Layout: Layout{
+			BinOffsets: [][3]float64{{0, 0, 0}},
+			Placements: []Placement{{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, 0}}},
+		},
+		PreparationSeconds: 1,
+		SearchSeconds:      2,
+	}
 	engineResult = EngineResult{
-		FileName:    "packed.obj",
-		ContentType: "model/obj",
-		SizeBytes:   13,
-		Checksum:    strings.Repeat("c", 64),
-		Bins:        []ResultBin{{Path: "packed.obj", SizeBytes: 13, Checksum: strings.Repeat("c", 64)}},
+		FileName:        "packed.obj",
+		ContentType:     "model/obj",
+		ContentEncoding: "gzip",
+		SizeBytes:       13,
+		Checksum:        strings.Repeat("c", 64),
+		StoredBytes:     7,
+		Bins:            []ResultBin{{Path: "packed.obj.gz", SizeBytes: 13, Checksum: strings.Repeat("c", 64)}},
 	}
 	createdResult = StoredResult{
 		Engine: EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("b", 64)},
@@ -241,17 +269,26 @@ var (
 	}
 )
 
-func writeOutput(_ context.Context, request RunRequest) (EngineResult, error) {
-	if err := os.WriteFile(request.OutputPath, []byte("packed bytes\n"), 0o600); err != nil {
+func pack(context.Context, RunRequest) (Packing, error) {
+	return packed, nil
+}
+
+func writeOutput(_ context.Context, _ []InputFile, layout Layout, dir string) (EngineResult, error) {
+	path := filepath.Join(dir, "packed.obj.gz")
+	if err := os.WriteFile(path, []byte("packed\n"), 0o600); err != nil {
 		return EngineResult{}, err
 	}
-	return engineResult, nil
+	result := engineResult
+	result.Path = path
+	result.Layout = &layout
+	return result, nil
 }
 
 type harness struct {
 	rec       *recorder
 	artifacts *fakeArtifacts
 	engine    *fakeEngine
+	writer    *fakeWriter
 	signaler  *fakeSignaler
 	workRoot  string
 	interval  time.Duration
@@ -276,8 +313,9 @@ func newHarness(t *testing.T) *harness {
 		engine: &fakeEngine{
 			rec:        rec,
 			provenance: EngineProvenance{Version: testEngineVer, Checksum: testEngineSum},
-			run:        writeOutput,
+			run:        pack,
 		},
+		writer:   &fakeWriter{rec: rec, write: writeOutput},
 		signaler: &fakeSignaler{rec: rec},
 		workRoot: t.TempDir(),
 		interval: time.Hour,
@@ -295,7 +333,7 @@ func cloneResult(result StoredResult) *StoredResult {
 }
 
 func (h *harness) run(in contracts.RunEngineInput) (contracts.EngineResult, error) {
-	act := NewActivity(h.artifacts, h.engine, h.signaler, h.workRoot, h.interval)
+	act := NewActivity(h.artifacts, h.engine, h.writer, h.signaler, h.workRoot, h.interval)
 	h.env.RegisterActivityWithOptions(act.RunEngine, activity.RegisterOptions{Name: contracts.RunEngineActivity})
 	value, err := h.env.ExecuteActivity(contracts.RunEngineActivity, in)
 	if err != nil {
@@ -380,7 +418,7 @@ func TestRunEngineSuccessCallsPortsInOrderAndReturnsTheStoredWinner(t *testing.T
 	}
 
 	assertCalls(t, h.rec.snapshot(), []string{
-		"findResult", "download", "provenance", "downloadInput", "signal:engineStarted", "run", "createResult",
+		"findResult", "download", "provenance", "downloadInput", "signal:engineStarted", "run", "write", "createResult",
 	})
 	assertWorkspaceRemoved(t, h.workRoot)
 	want := contracts.EngineResult{
@@ -492,17 +530,25 @@ func TestRunEngineBuildsRunRequestFromEnvelope(t *testing.T) {
 	if len(request.ParameterArgs) != 0 {
 		t.Fatalf("parameter args = %q, want none", request.ParameterArgs)
 	}
-	workspace := filepath.Dir(request.OutputPath)
-	if filepath.Base(request.OutputPath) != "packed.obj" {
-		t.Fatalf("output %s is not packed.obj", request.OutputPath)
-	}
+	workspace := request.WorkDir
 	if filepath.Dir(workspace) != h.workRoot || !strings.HasPrefix(filepath.Base(workspace), "packing-"+testJobID+"-") {
 		t.Fatalf("workspace %s is not a job-named directory under %s", workspace, h.workRoot)
 	}
+
+	h.writer.mu.Lock()
+	if h.writer.lastDir != workspace || !reflect.DeepEqual(h.writer.lastInputs, request.Inputs) || !reflect.DeepEqual(h.writer.lastLayout, packed.Layout) {
+		t.Fatalf("writer got %s, %+v, %+v; want the packer's workspace %s, inputs %+v and layout %+v",
+			h.writer.lastDir, h.writer.lastInputs, h.writer.lastLayout, workspace, request.Inputs, packed.Layout)
+	}
+	h.writer.mu.Unlock()
+
 	h.artifacts.mu.Lock()
 	defer h.artifacts.mu.Unlock()
-	if h.artifacts.createPath != request.OutputPath || !reflect.DeepEqual(h.artifacts.createOffered.Result, engineResult) {
-		t.Fatalf("uploaded %s with %+v, want the packer output %s with %+v", h.artifacts.createPath, h.artifacts.createOffered.Result, request.OutputPath, engineResult)
+	want := engineResult
+	want.Path = filepath.Join(workspace, "packed.obj.gz")
+	want.Layout = &packed.Layout
+	if !reflect.DeepEqual(h.artifacts.createOffered.Result, want) {
+		t.Fatalf("uploaded %+v, want the written result %+v", h.artifacts.createOffered.Result, want)
 	}
 }
 
@@ -569,17 +615,30 @@ func TestRunEngineReportsAnEngineFailureAsNonRetryableWithItsDetails(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
-			h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
-				return EngineResult{}, &EngineFailure{Reason: tc.reason}
+			h.engine.run = func(context.Context, RunRequest) (Packing, error) {
+				return Packing{}, &EngineFailure{Reason: tc.reason}
 			}
 
 			_, err := h.run(input())
 
 			assertEngineFailure(t, err, tc.want)
-			assertNoCalls(t, h.rec.snapshot(), "createResult")
+			assertNoCalls(t, h.rec.snapshot(), "write", "createResult")
 			assertWorkspaceRemoved(t, h.workRoot)
 		})
 	}
+}
+
+func TestRunEngineReportsAnInputTheWriterCannotReadAsAnEngineFailure(t *testing.T) {
+	h := newHarness(t)
+	h.writer.write = func(context.Context, []InputFile, Layout, string) (EngineResult, error) {
+		return EngineResult{}, &EngineFailure{Reason: "Input file 'bunny.obj' could not be read back to write the result: line 2: \"x\" is not a coordinate"}
+	}
+
+	_, err := h.run(input())
+
+	assertEngineFailure(t, err, `Input file 'bunny.obj' could not be read back to write the result: line 2: "x" is not a coordinate`)
+	assertNoCalls(t, h.rec.snapshot(), "createResult")
+	assertWorkspaceRemoved(t, h.workRoot)
 }
 
 func TestRunEngineReportsUnusableInputsAsEngineFailures(t *testing.T) {
@@ -626,8 +685,13 @@ func TestRunEngineTreatsInfrastructureFailuresAsRetryable(t *testing.T) {
 		{name: "signal", arrange: func(h *harness) { h.signaler.err = errors.New("temporal down") }, absent: []string{"run"}},
 		{name: "upload", arrange: func(h *harness) { h.artifacts.createErr = errors.New("storage down") }},
 		{name: "packer infrastructure", arrange: func(h *harness) {
-			h.engine.run = func(context.Context, RunRequest) (EngineResult, error) {
-				return EngineResult{}, errors.New("exec format error")
+			h.engine.run = func(context.Context, RunRequest) (Packing, error) {
+				return Packing{}, errors.New("exec format error")
+			}
+		}, absent: []string{"write", "createResult"}},
+		{name: "writing the result", arrange: func(h *harness) {
+			h.writer.write = func(context.Context, []InputFile, Layout, string) (EngineResult, error) {
+				return EngineResult{}, errors.New("disk full")
 			}
 		}, absent: []string{"createResult"}},
 	} {
@@ -690,13 +754,13 @@ func TestRunEngineRejectsAnInvalidInputWithoutTouchingAnyPort(t *testing.T) {
 func TestRunEngineHeartbeatsWhileThePackerRuns(t *testing.T) {
 	h := newHarness(t)
 	h.interval = 10 * time.Millisecond
-	h.engine.run = func(ctx context.Context, request RunRequest) (EngineResult, error) {
+	h.engine.run = func(ctx context.Context, request RunRequest) (Packing, error) {
 		select {
 		case <-time.After(200 * time.Millisecond):
 		case <-ctx.Done():
-			return EngineResult{}, ctx.Err()
+			return Packing{}, ctx.Err()
 		}
-		return writeOutput(ctx, request)
+		return pack(ctx, request)
 	}
 
 	if _, err := h.run(input()); err != nil {

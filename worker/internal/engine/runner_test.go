@@ -29,7 +29,6 @@ const (
 	helperArgvFile   = "GO_HELPER_ARGV_FILE"
 	helperEchoArgs   = "GO_HELPER_ECHO_ARGS"
 	helperWriteOut   = "GO_HELPER_WRITE_OUTPUT"
-	helperOutput     = "GO_HELPER_OUTPUT"
 	helperBins       = "GO_HELPER_BINS"
 	helperManifest   = "GO_HELPER_MANIFEST"
 	helperStderrSize = "GO_HELPER_STDERR_BYTES"
@@ -56,10 +55,20 @@ func runHelper() int {
 		}
 	}
 
-	output := ""
-	for i := 0; i+1 < len(args); i++ {
-		if args[i] == "-o" {
-			output = args[i+1]
+	manifest := ""
+	inputs := 0
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "-o":
+			fmt.Fprintln(os.Stderr, "helper: the worker must not ask packer for an OBJ")
+			return 91
+		case args[i] == "--manifest" && i+1 < len(args):
+			manifest = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "-") && i+1 < len(args):
+			i++
+		default:
+			inputs++
 		}
 	}
 
@@ -96,11 +105,7 @@ func runHelper() int {
 	}
 
 	if os.Getenv(helperWriteOut) == "1" {
-		if err := os.WriteFile(output, []byte(os.Getenv(helperOutput)), 0o600); err != nil {
-			fmt.Fprintln(os.Stderr, "helper: write output:", err)
-			return 90
-		}
-		if err := writeHelperManifest(output); err != nil {
+		if err := writeHelperManifest(manifest, inputs); err != nil {
 			fmt.Fprintln(os.Stderr, "helper: write manifest:", err)
 			return 90
 		}
@@ -108,48 +113,42 @@ func runHelper() int {
 	return helperExitCodeValue()
 }
 
-func writeHelperManifest(output string) error {
+func writeHelperManifest(path string, inputs int) error {
 	manifest, override := os.LookupEnv(helperManifest)
 	if override {
 		if manifest == "" {
 			return nil
 		}
-		return os.WriteFile(output+".json", []byte(manifest), 0o600)
+		return os.WriteFile(path, []byte(manifest), 0o600)
 	}
 	count, _ := strconv.Atoi(os.Getenv(helperBins))
 	count = max(count, 1)
 	type bin struct {
-		ID  int    `json:"id"`
-		Obj string `json:"obj"`
+		ID            int        `json:"id"`
+		DisplayOffset [3]float64 `json:"display_offset"`
+		Obj           *string    `json:"obj"`
+	}
+	type placement struct {
+		InputIndex int         `json:"input_index"`
+		Bin        int         `json:"bin"`
+		Matrix     [12]float64 `json:"matrix"`
 	}
 	bins := make([]bin, count)
 	for i := range bins {
-		path := output
-		if count > 1 {
-			path = helperBinPath(output, i)
-			if err := os.WriteFile(path, []byte(helperBinContent(i)), 0o600); err != nil {
-				return err
-			}
-		}
-		absolute, err := filepath.Abs(path)
-		if err != nil {
-			return err
-		}
-		bins[i] = bin{ID: i, Obj: absolute}
+		bins[i] = bin{ID: i, DisplayOffset: [3]float64{float64(i) * 210, 0, 0}}
 	}
-	data, err := json.Marshal(map[string]any{"schema_version": 1, "bin_count": count, "bins": bins})
+	placements := make([]placement, inputs)
+	for i := range placements {
+		placements[i] = placement{InputIndex: i, Bin: i % count, Matrix: [12]float64{1, 0, 0, float64(i), 0, 1, 0, 0, 0, 0, 1, 0}}
+	}
+	data, err := json.Marshal(map[string]any{
+		"schema_version": 1, "bin_count": count, "bins": bins, "placements": placements,
+		"preparation_seconds": 1.25, "search_seconds": 59.5,
+	})
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(output+".json", data, 0o600)
-}
-
-func helperBinContent(index int) string {
-	return fmt.Sprintf("bin %d\n", index+1)
-}
-
-func helperBinPath(output string, index int) string {
-	return strings.TrimSuffix(output, ".obj") + fmt.Sprintf("-bin-%03d.obj", index+1)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func helperExitCodeValue() int {
@@ -194,9 +193,9 @@ func testRequest(t *testing.T, runtime time.Duration) pipeline.RunRequest {
 	input := filepath.Join(inputs, "0.obj")
 	writeFile(t, input, "v 0 0 0\n")
 	return pipeline.RunRequest{
-		Inputs:     []pipeline.InputFile{{Path: input, DisplayName: "bunny.obj", Copies: 1}},
-		OutputPath: filepath.Join(dir, "packed.obj"),
-		Runtime:    runtime,
+		Inputs:  []pipeline.InputFile{{Path: input, DisplayName: "bunny.obj", Copies: 1}},
+		WorkDir: dir,
+		Runtime: runtime,
 	}
 }
 
@@ -303,7 +302,7 @@ func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
 
 	dir := t.TempDir()
 	shim := filepath.Join(dir, "packer")
-	script := "#!/bin/sh\necho packed > \"$4\"\necho '{\"bin_count\":1,\"bins\":[{\"id\":0,\"obj\":null}]}' > \"$4.json\"\n"
+	script := "#!/bin/sh\necho '{\"bin_count\":1,\"bins\":[{\"id\":0,\"display_offset\":[0,0,0],\"obj\":null}],\"placements\":[{\"input_index\":0,\"bin\":0,\"matrix\":[1,0,0,0,0,1,0,0,0,0,1,0]}]}' > \"$6\"\n"
 	if err := os.WriteFile(shim, []byte(script), 0o700); err != nil {
 		t.Fatalf("write shim: %v", err)
 	}
@@ -321,7 +320,7 @@ func TestRunExecutesThePathProvenanceResolved(t *testing.T) {
 	}
 }
 
-func TestRunPassesTheBudgetOutputParametersAndOnePathPerCopy(t *testing.T) {
+func TestRunPassesTheBudgetManifestParametersAndOnePathPerCopy(t *testing.T) {
 	runner := testRunner(t)
 	request := testRequest(t, 60*time.Second)
 	second := filepath.Join(filepath.Dir(request.Inputs[0].Path), "1.obj")
@@ -332,7 +331,6 @@ func TestRunPassesTheBudgetOutputParametersAndOnePathPerCopy(t *testing.T) {
 	argvPath := filepath.Join(t.TempDir(), "argv")
 	t.Setenv(helperArgvFile, argvPath)
 	t.Setenv(helperWriteOut, "1")
-	t.Setenv(helperOutput, "packed")
 
 	if _, err := runner.Run(context.Background(), request); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -341,7 +339,8 @@ func TestRunPassesTheBudgetOutputParametersAndOnePathPerCopy(t *testing.T) {
 	got := strings.Split(readFile(t, argvPath), "\x00")
 	want := []string{
 		"-t", "60",
-		"-o", request.OutputPath,
+		"-m", filepath.Join(request.WorkDir, "transforms.txt"),
+		"--manifest", filepath.Join(request.WorkDir, "packed.json"),
 		"-x", "1",
 		request.Inputs[0].Path, request.Inputs[0].Path, second,
 	}
@@ -350,55 +349,40 @@ func TestRunPassesTheBudgetOutputParametersAndOnePathPerCopy(t *testing.T) {
 	}
 }
 
-func TestRunDescribesTheOutputFile(t *testing.T) {
-	const content = "o Object_1\nv 0 0 0\n"
+func TestRunReportsPackersTimingsAndPlacesEveryCopyInItsBin(t *testing.T) {
 	runner := testRunner(t)
 	request := testRequest(t, 60*time.Second)
+	request.Inputs[0].Copies = 3
 	t.Setenv(helperWriteOut, "1")
-	t.Setenv(helperOutput, content)
+	t.Setenv(helperBins, "2")
 
-	result, err := runner.Run(context.Background(), request)
+	packing, err := runner.Run(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
-	digest := sha256.Sum256([]byte(content))
-	checksum := hex.EncodeToString(digest[:])
-	want := pipeline.EngineResult{
-		FileName:    "packed.obj",
-		ContentType: "model/obj",
-		SizeBytes:   int64(len(content)),
-		Checksum:    checksum,
-		Bins:        []pipeline.ResultBin{{Path: request.OutputPath, SizeBytes: int64(len(content)), Checksum: checksum}},
+	want := pipeline.Packing{
+		Layout: pipeline.Layout{
+			BinOffsets: [][3]float64{{0, 0, 0}, {210, 0, 0}},
+			Placements: []pipeline.Placement{
+				{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}},
+				{Item: 0, Bin: 2, Matrix: [12]float64{1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0}},
+				{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 2, 0, 1, 0, 0, 0, 0, 1, 0}},
+			},
+		},
+		PreparationSeconds: 1.25,
+		SearchSeconds:      59.5,
 	}
-	if !reflect.DeepEqual(result, want) {
-		t.Fatalf("EngineResult = %+v, want %+v", result, want)
+	if !reflect.DeepEqual(packing, want) {
+		t.Fatalf("Packing = %+v, want %+v", packing, want)
 	}
-}
-
-func TestRunDescribesEveryBinOfAMultiBinResult(t *testing.T) {
-	runner := testRunner(t)
-	request := testRequest(t, 60*time.Second)
-	t.Setenv(helperWriteOut, "1")
-	t.Setenv(helperOutput, "all three bins\n")
-	t.Setenv(helperBins, "3")
-
-	result, err := runner.Run(context.Background(), request)
+	entries, err := os.ReadDir(request.WorkDir)
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("read workspace: %v", err)
 	}
-
-	if result.Checksum != sha256File(t, request.OutputPath) {
-		t.Fatalf("combined checksum = %s, want the digest of %s", result.Checksum, request.OutputPath)
-	}
-	if len(result.Bins) != 3 {
-		t.Fatalf("bins = %+v, want 3", result.Bins)
-	}
-	for i, bin := range result.Bins {
-		path := helperBinPath(request.OutputPath, i)
-		want := pipeline.ResultBin{Path: path, SizeBytes: int64(len(helperBinContent(i))), Checksum: sha256File(t, path)}
-		if bin != want {
-			t.Fatalf("bin %d = %+v, want %+v", i+1, bin, want)
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".obj") {
+			t.Fatalf("workspace holds %s; packer must not write an OBJ", entry.Name())
 		}
 	}
 }
@@ -411,18 +395,17 @@ func TestRunReadsEachCopysPlacementFromTheManifest(t *testing.T) {
 		{Path: request.Inputs[0].Path, DisplayName: "cube.obj", Copies: 1},
 	}
 	t.Setenv(helperWriteOut, "1")
-	t.Setenv(helperOutput, "packed\n")
 	t.Setenv(helperManifest, `{"bin_count":1,"bins":[{"id":0,"display_offset":[0,0,0],"obj":null}],"placements":[`+
 		`{"input_index":0,"input":"a","bin":0,"matrix":[1,0,0,10,0,1,0,20,0,0,1,30]},`+
 		`{"input_index":1,"input":"a","bin":0,"matrix":[0,-1,0,5,1,0,0,0,0,0,1,2.5]},`+
 		`{"input_index":2,"input":"b","bin":0,"matrix":[1,0,0,100,0,1,0,0,0,0,1,0]}]}`)
 
-	result, err := runner.Run(context.Background(), request)
+	packing, err := runner.Run(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
-	want := &pipeline.Layout{
+	want := pipeline.Layout{
 		BinOffsets: [][3]float64{{0, 0, 0}},
 		Placements: []pipeline.Placement{
 			{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 10, 0, 1, 0, 20, 0, 0, 1, 30}},
@@ -430,79 +413,40 @@ func TestRunReadsEachCopysPlacementFromTheManifest(t *testing.T) {
 			{Item: 1, Bin: 1, Matrix: [12]float64{1, 0, 0, 100, 0, 1, 0, 0, 0, 0, 1, 0}},
 		},
 	}
-	if !reflect.DeepEqual(result.Layout, want) {
-		t.Fatalf("Layout = %+v, want %+v", result.Layout, want)
-	}
-}
-
-func TestRunReportsNoLayoutWhenTheManifestDoesNotPlaceEveryCopy(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		placements string
-	}{
-		{"no placements", ``},
-		{"fewer placements than copies", `,"placements":[]`},
-		{"out of argument order", `,"placements":[{"input_index":1,"bin":0,"matrix":[1,0,0,0,0,1,0,0,0,0,1,0]}]`},
-		{"a container the result does not have", `,"placements":[{"input_index":0,"bin":1,"matrix":[1,0,0,0,0,1,0,0,0,0,1,0]}]`},
-		{"a short matrix", `,"placements":[{"input_index":0,"bin":0,"matrix":[1,0,0]}]`},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			runner := testRunner(t)
-			request := testRequest(t, 60*time.Second)
-			t.Setenv(helperWriteOut, "1")
-			t.Setenv(helperOutput, "packed\n")
-			t.Setenv(helperManifest, `{"bin_count":1,"bins":[{"id":0,"display_offset":[0,0,0],"obj":null}]`+tc.placements+`}`)
-
-			result, err := runner.Run(context.Background(), request)
-			if err != nil {
-				t.Fatalf("Run: %v", err)
-			}
-			if result.Layout != nil {
-				t.Fatalf("Layout = %+v, want none", result.Layout)
-			}
-		})
+	if !reflect.DeepEqual(packing.Layout, want) {
+		t.Fatalf("Layout = %+v, want %+v", packing.Layout, want)
 	}
 }
 
 func TestRunManifestProblemsAreInfrastructureErrors(t *testing.T) {
-	outside := filepath.Join(t.TempDir(), "elsewhere.obj")
-	writeFile(t, outside, "stray\n")
-	outsideJSON, _ := json.Marshal(outside)
+	const bin = `{"id":0,"display_offset":[0,0,0],"obj":null}`
+	const placed = `,"placements":[{"input_index":0,"bin":0,"matrix":[1,0,0,0,0,1,0,0,0,0,1,0]}]`
 	for _, tc := range []struct {
 		name     string
 		manifest string
 	}{
 		{"no manifest", ""},
 		{"not JSON", "{"},
-		{"no bins", `{"bin_count":0,"bins":[]}`},
-		{"fewer bins than counted", `{"bin_count":2,"bins":[{"id":0,"obj":null}]}`},
-		{"a bin without an OBJ", `{"bin_count":2,"bins":[{"id":0,"obj":null},{"id":1,"obj":null}]}`},
-		{"a bin outside the workspace", `{"bin_count":2,"bins":[{"id":0,"obj":` + string(outsideJSON) + `},{"id":1,"obj":` + string(outsideJSON) + `}]}`},
+		{"no bins", `{"bin_count":0,"bins":[]` + placed + `}`},
+		{"fewer bins than counted", `{"bin_count":2,"bins":[` + bin + `]` + placed + `}`},
+		{"a bin without a display offset", `{"bin_count":1,"bins":[{"id":0,"obj":null}]` + placed + `}`},
+		{"bins out of order", `{"bin_count":1,"bins":[{"id":1,"display_offset":[0,0,0]}]` + placed + `}`},
+		{"no placements", `{"bin_count":1,"bins":[` + bin + `]}`},
+		{"fewer placements than copies", `{"bin_count":1,"bins":[` + bin + `],"placements":[]}`},
+		{"out of argument order", `{"bin_count":1,"bins":[` + bin + `],"placements":[{"input_index":1,"bin":0,"matrix":[1,0,0,0,0,1,0,0,0,0,1,0]}]}`},
+		{"a container the result does not have", `{"bin_count":1,"bins":[` + bin + `],"placements":[{"input_index":0,"bin":1,"matrix":[1,0,0,0,0,1,0,0,0,0,1,0]}]}`},
+		{"a short matrix", `{"bin_count":1,"bins":[` + bin + `],"placements":[{"input_index":0,"bin":0,"matrix":[1,0,0]}]}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			runner := testRunner(t)
 			request := testRequest(t, 60*time.Second)
 			t.Setenv(helperWriteOut, "1")
-			t.Setenv(helperOutput, "packed\n")
 			t.Setenv(helperManifest, tc.manifest)
 
 			_, err := runner.Run(context.Background(), request)
 			requireInfrastructureError(t, err)
 		})
 	}
-
-	t.Run("a listed bin that was never written", func(t *testing.T) {
-		runner := testRunner(t)
-		request := testRequest(t, 60*time.Second)
-		missing, _ := json.Marshal(filepath.Join(filepath.Dir(request.OutputPath), "packed-bin-002.obj"))
-		self, _ := json.Marshal(request.OutputPath)
-		t.Setenv(helperWriteOut, "1")
-		t.Setenv(helperOutput, "packed\n")
-		t.Setenv(helperManifest, `{"bin_count":2,"bins":[{"id":0,"obj":`+string(self)+`},{"id":1,"obj":`+string(missing)+`}]}`)
-
-		_, err := runner.Run(context.Background(), request)
-		requireInfrastructureError(t, err)
-	})
 }
 
 func TestRunTimeoutIsAnEngineFailure(t *testing.T) {
@@ -529,7 +473,6 @@ func TestRunGivesThePackerItsGraceBeyondTheBudget(t *testing.T) {
 	request := testRequest(t, time.Second)
 	t.Setenv(helperSleep, "1500ms")
 	t.Setenv(helperWriteOut, "1")
-	t.Setenv(helperOutput, "packed")
 
 	if _, err := runner.Run(context.Background(), request); err != nil {
 		t.Fatalf("Run killed a packer still inside its grace period: %v", err)
@@ -626,7 +569,7 @@ func TestRunNamesInputsByTheirFileNamesInAFailure(t *testing.T) {
 	_, err := runner.Run(context.Background(), request)
 
 	failure := requireEngineFailure(t, err)
-	if got, want := failure.Error(), "packer exited with code 3: -t 60 -o packed.obj bunny.obj bracket.obj"; got != want {
+	if got, want := failure.Error(), "packer exited with code 3: -t 60 -m transforms.txt --manifest packed.json bunny.obj bracket.obj"; got != want {
 		t.Fatalf("reason = %q, want %q", got, want)
 	}
 }
@@ -640,49 +583,12 @@ func TestExitReasonDescribesASignaledPacker(t *testing.T) {
 	}
 }
 
-func TestRunOutputProblemsAreInfrastructureErrors(t *testing.T) {
-	t.Run("no output file", func(t *testing.T) {
-		runner := testRunner(t)
-		request := testRequest(t, 60*time.Second)
-
-		_, err := runner.Run(context.Background(), request)
-		requireInfrastructureError(t, err)
-	})
-
-	t.Run("empty output file", func(t *testing.T) {
-		runner := testRunner(t)
-		request := testRequest(t, 60*time.Second)
-		t.Setenv(helperWriteOut, "1")
-		t.Setenv(helperOutput, "")
-
-		_, err := runner.Run(context.Background(), request)
-		requireInfrastructureError(t, err)
-		if !strings.Contains(err.Error(), "empty") {
-			t.Fatalf("error %q does not mention the empty output", err)
-		}
-	})
-
-	t.Run("output path is a directory", func(t *testing.T) {
-		runner := testRunner(t)
-		request := testRequest(t, 60*time.Second)
-		if err := os.Mkdir(request.OutputPath, 0o700); err != nil {
-			t.Fatalf("mkdir: %v", err)
-		}
-
-		_, err := runner.Run(context.Background(), request)
-		requireInfrastructureError(t, err)
-		if !strings.Contains(err.Error(), "regular file") {
-			t.Fatalf("error %q does not mention the file type", err)
-		}
-	})
-}
-
 func TestRunMissingExecutableIsInfrastructureError(t *testing.T) {
 	runner := NewRunner(filepath.Join(t.TempDir(), "packer-does-not-exist"), testVersion, 0)
 	_, err := runner.Run(context.Background(), pipeline.RunRequest{
-		Inputs:     []pipeline.InputFile{{Path: "0.obj", DisplayName: "bunny.obj", Copies: 1}},
-		OutputPath: "packed.obj",
-		Runtime:    time.Second,
+		Inputs:  []pipeline.InputFile{{Path: "0.obj", DisplayName: "bunny.obj", Copies: 1}},
+		WorkDir: t.TempDir(),
+		Runtime: time.Second,
 	})
 	requireInfrastructureError(t, err)
 }

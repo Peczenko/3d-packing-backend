@@ -276,6 +276,47 @@ func TestBinDirectivesSplitTheResultIntoOneFilePerBin(t *testing.T) {
 	}
 }
 
+func TestTransformsWithoutAnOutputWriteOnlyTheManifestAndTheMatrices(t *testing.T) {
+	dir := t.TempDir()
+	transformsPath := filepath.Join(dir, "transforms.txt")
+	manifestPath := filepath.Join(dir, "packed.json")
+	args := append([]string{"-t", "10", "-m", transformsPath, "--manifest", manifestPath}, container...)
+
+	var stderr bytes.Buffer
+	if code := run(append(args, objWith(t, "# fake-packer: bin=2"), objWith(t, "")), &stderr); code != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	}
+
+	var manifest struct {
+		BinCount int `json:"bin_count"`
+		Bins     []struct {
+			Obj *string `json:"obj"`
+		} `json:"bins"`
+		Placements []struct {
+			InputIndex int `json:"input_index"`
+			Bin        int `json:"bin"`
+		} `json:"placements"`
+	}
+	if err := json.Unmarshal([]byte(readText(t, manifestPath)), &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	if manifest.BinCount != 2 || len(manifest.Bins) != 2 || manifest.Bins[0].Obj != nil || manifest.Bins[1].Obj != nil {
+		t.Fatalf("manifest bins = %+v, want two without an OBJ", manifest.Bins)
+	}
+	if len(manifest.Placements) != 2 || manifest.Placements[0].Bin != 1 || manifest.Placements[1].Bin != 0 {
+		t.Fatalf("manifest placements = %+v", manifest.Placements)
+	}
+	if got := readText(t, transformsPath); got != "1 0 0 0 0 1 0 0 0 0 1 0\n1 0 0 0 0 1 0 0 0 0 1 0\n" {
+		t.Fatalf("transforms = %q", got)
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "packed") && strings.HasSuffix(entry.Name(), ".obj") {
+			t.Fatalf("wrote %s without -o", entry.Name())
+		}
+	}
+}
+
 func TestAnEmptyBinExitsOne(t *testing.T) {
 	outputPath := filepath.Join(t.TempDir(), "packed.obj")
 
