@@ -32,6 +32,18 @@ type EngineResult struct {
 	SizeBytes   int64
 	Checksum    string
 	Bins        []ResultBin
+	Layout      *Layout
+}
+
+type Placement struct {
+	Item   int
+	Bin    int
+	Matrix [12]float64
+}
+
+type Layout struct {
+	BinOffsets [][3]float64
+	Placements []Placement
 }
 
 type ResultBin struct {

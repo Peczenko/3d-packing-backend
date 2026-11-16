@@ -381,6 +381,45 @@ func TestBlobArtifacts(t *testing.T) {
 		}
 	})
 
+	t.Run("stores the placements under the combined checksum", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		jobID := newJobID(t)
+		checksum := strings.Repeat("e", 64)
+		body := []byte("packed")
+		result := pipeline.StoredResult{
+			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("c", 64)},
+			Result: pipeline.EngineResult{
+				FileName:    "packed.obj",
+				ContentType: "model/obj",
+				SizeBytes:   int64(len(body)),
+				Checksum:    checksum,
+				Bins:        []pipeline.ResultBin{{SizeBytes: int64(len(body)), Checksum: checksum}},
+				Layout: &pipeline.Layout{
+					BinOffsets: [][3]float64{{0, 0, 0}},
+					Placements: []pipeline.Placement{{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 10, 0, 1, 0, 20, 0, 0, 1, 30}}},
+				},
+			},
+		}
+
+		created, err := artifacts.CreateResult(ctx, jobID, writeTempFile(t, body), result)
+		if err != nil {
+			t.Fatalf("CreateResult: %v", err)
+		}
+		if created.Result.Layout != nil {
+			t.Fatalf("stored form carries a layout: %+v", created.Result.Layout)
+		}
+
+		properties, downloaded := readBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/placements/"+checksum+".json")
+		want := `{"version":1,"binOffsets":[[0,0,0]],"placements":[{"item":0,"bin":1,"matrix":[1,0,0,10,0,1,0,20,0,0,1,30]}]}`
+		if string(downloaded) != want {
+			t.Errorf("placements = %s, want %s", downloaded, want)
+		}
+		if properties.ContentType == nil || *properties.ContentType != "application/json" {
+			t.Errorf("placements content type = %s, want application/json", showString(properties.ContentType))
+		}
+	})
+
 	t.Run("concurrent creates agree on one winner", func(t *testing.T) {
 		ctx, client, cfg := newAzuriteContainer(t, connectionString)
 		artifacts := NewBlobArtifacts(client, cfg)

@@ -3,6 +3,7 @@ package com.packing.backend.core.packing.port.out;
 import com.packing.backend.core.packing.message.PackingRequestEnvelope;
 import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
 import com.packing.backend.core.shared.TemporaryUrl;
+import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 
 import java.io.InputStream;
@@ -17,6 +18,10 @@ public interface PackingJobArtifactStore {
     Optional<ResultArtifact> findResult(PackingJobId jobId);
 
     InputStream open(PackingArtifact artifact);
+
+    Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum);
+
+    InputStream openInput(PackingItem item);
 
     void storePreview(PreviewArtifact preview, Path glb);
 

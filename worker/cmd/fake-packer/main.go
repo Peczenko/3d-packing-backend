@@ -37,8 +37,15 @@ type object struct {
 }
 
 type manifestBin struct {
-	ID  int    `json:"id"`
-	Obj string `json:"obj"`
+	ID            int        `json:"id"`
+	DisplayOffset [3]float64 `json:"display_offset"`
+	Obj           string     `json:"obj"`
+}
+
+type manifestPlacement struct {
+	InputIndex int         `json:"input_index"`
+	Bin        int         `json:"bin"`
+	Matrix     [12]float64 `json:"matrix"`
 }
 
 func main() {
@@ -139,11 +146,16 @@ func writeResult(outputPath string, objects []object, binCount int) error {
 		}
 		bins[i] = manifestBin{ID: i, Obj: absolute}
 	}
+	placements := make([]manifestPlacement, len(objects))
+	for i, obj := range objects {
+		placements[i] = manifestPlacement{InputIndex: i, Bin: obj.bin - 1, Matrix: [12]float64{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}}
+	}
 	manifest, err := json.Marshal(struct {
-		SchemaVersion int           `json:"schema_version"`
-		BinCount      int           `json:"bin_count"`
-		Bins          []manifestBin `json:"bins"`
-	}{1, binCount, bins})
+		SchemaVersion int                 `json:"schema_version"`
+		BinCount      int                 `json:"bin_count"`
+		Bins          []manifestBin       `json:"bins"`
+		Placements    []manifestPlacement `json:"placements"`
+	}{1, binCount, bins, placements})
 	if err != nil {
 		return err
 	}

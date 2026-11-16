@@ -6,7 +6,9 @@ import com.packing.backend.core.packing.port.out.PackingArtifact;
 import com.packing.backend.core.packing.port.out.PackingArtifact.PreviewArtifact;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.shared.TemporaryUrl;
+import com.packing.backend.core.packing.port.out.PackingPreviewRenderer;
 import com.packing.backend.domain.packing.PackingInputs;
+import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
@@ -84,6 +86,80 @@ class GltfpackPreviewRendererIT {
                          .sizeBytes()).isLessThan(obj.getBytes(StandardCharsets.UTF_8).length / 4);
     }
 
+    @Test
+    void buildsTheSameInstancedPreviewFromPlacementsWithOneGltfpackPassPerInput() throws IOException {
+        double[] torus = torusVertices(48, 96);
+        int[] faces = torusFaces(48, 96);
+        StringBuilder placements = new StringBuilder("{\"version\":1,\"binOffsets\":[[0,0,0],[50,0,0]],\"placements\":[");
+        for (int copy = 0; copy < COPIES; copy++) {
+            double angle = copy * 0.7;
+            placements.append("{\"item\":0,\"bin\":")
+                      .append(1 + copy % 2)
+                      .append(",\"matrix\":[1,0,0,")
+                      .append(3 * copy)
+                      .append(",0,")
+                      .append(Math.cos(angle))
+                      .append(',')
+                      .append(-Math.sin(angle))
+                      .append(',')
+                      .append(copy)
+                      .append(",0,")
+                      .append(Math.sin(angle))
+                      .append(',')
+                      .append(Math.cos(angle))
+                      .append(',')
+                      .append(-copy)
+                      .append("]},");
+        }
+        placements.append("{\"item\":1,\"bin\":2,\"matrix\":[1,0,0,5,0,1,0,6,0,0,1,7]}]}");
+        Artifacts artifacts = new Artifacts(null);
+        artifacts.placements = placements.toString();
+        artifacts.inputs = List.of(new PackerOutput().place(torus, faces, PackerOutput.PLACEMENTS[0])
+                                                     .text(),
+                                   new PackerOutput().place(PackerOutput.CUBE_VERTICES, PackerOutput.CUBE_FACES, PackerOutput.PLACEMENTS[0])
+                                                     .text());
+        List<PackingItem> items = List.of(PackingInputs.item("torus.obj", COPIES), PackingInputs.item("cube.obj", 1));
+        artifacts.items = items;
+        GltfpackPreviewRenderer renderer = new GltfpackPreviewRenderer(artifacts, new Gltfpack(GLTFPACK, Duration.ofMinutes(2)));
+
+        PackingPreviewRenderer.Rendered rendered = renderer.render(PackingJobId.generate(), items, "c".repeat(64), 2);
+
+        long torusTriangles = faces.length / 3;
+        List<PreviewModel> models = rendered.models();
+        assertThat(models.getFirst()
+                         .quality()).isEqualTo(PreviewQuality.HIGH);
+        assertThat(models.getFirst()
+                         .triangles()).isEqualTo(COPIES * torusTriangles + 12);
+        assertThat(models).hasSizeGreaterThan(1);
+        for (int i = 1; i < models.size(); i++) {
+            assertThat(models.get(i)
+                             .triangles()).isLessThan(models.get(i - 1)
+                                                            .triangles());
+        }
+        assertThat(rendered.bins()).hasSize(2);
+        assertThat(rendered.bins()
+                           .get(0)
+                           .getFirst()
+                           .triangles()).isEqualTo(COPIES / 2 * torusTriangles);
+        assertThat(rendered.bins()
+                           .get(1)
+                           .getFirst()
+                           .triangles()).isEqualTo(COPIES / 2 * torusTriangles + 12);
+        for (PreviewQuality quality : artifacts.previews.keySet()) {
+            ObjectNode json = Glb.open(artifacts.previews.get(quality))
+                                 .json();
+            assertThat(json.path("extensionsUsed")
+                           .toString()).contains("EXT_meshopt_compression", "EXT_mesh_gpu_instancing");
+            assertThat(json.path("nodes")).hasSize(2);
+            assertThat(json.at("/nodes/0/name")
+                           .asText()).isEqualTo("torus.obj");
+            assertThat(json.at("/accessors/" + json.at("/nodes/0/extensions/EXT_mesh_gpu_instancing/attributes/TRANSLATION")
+                                                   .asInt()
+                    + "/count")
+                           .asInt()).isEqualTo(COPIES);
+        }
+    }
+
     private static boolean runs(String executable) {
         try {
             Process process = new ProcessBuilder(executable, "-v").redirectErrorStream(true)
@@ -139,6 +215,9 @@ class GltfpackPreviewRendererIT {
 
         private final String                    obj;
         private final Map<PreviewQuality, Path> previews = new EnumMap<>(PreviewQuality.class);
+        private String                          placements;
+        private List<String>                    inputs   = List.of();
+        private List<PackingItem>               items    = List.of();
 
         private Artifacts(String obj) {
             this.obj = obj;
@@ -153,9 +232,21 @@ class GltfpackPreviewRendererIT {
         }
 
         @Override
+        public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
+            return Optional.ofNullable(placements)
+                           .map(json -> json.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public InputStream openInput(PackingItem item) {
+            return new ByteArrayInputStream(inputs.get(items.indexOf(item))
+                                                  .getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
         public void storePreview(PreviewArtifact preview, Path glb) {
             if (!(preview instanceof PackingArtifact.Preview whole)) {
-                throw new UnsupportedOperationException();
+                return;
             }
             try {
                 Path copy = stored.resolve(whole.quality()

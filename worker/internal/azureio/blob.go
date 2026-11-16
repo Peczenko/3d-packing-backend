@@ -2,6 +2,7 @@ package azureio
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -37,6 +38,10 @@ var ErrResultVanished = errors.New("azureio: result conflicted on create but is 
 func requestKey(jobID string) string { return "packing-jobs/" + jobID + "/request.json" }
 
 func resultKey(jobID string) string { return "packing-jobs/" + jobID + "/result/output" }
+
+func placementsKey(jobID, resultChecksum string) string {
+	return "packing-jobs/" + jobID + "/result/placements/" + resultChecksum + ".json"
+}
 
 func binKey(jobID, resultChecksum string, number int) string {
 	return "packing-jobs/" + jobID + "/result/bins/" + resultChecksum + "/" + strconv.Itoa(number)
@@ -174,6 +179,10 @@ func (a *BlobArtifacts) CreateResult(ctx context.Context, jobID, path string, re
 		}
 	}
 
+	if err := a.uploadPlacements(ctx, jobID, result.Result); err != nil {
+		return nil, err
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("azureio: open result file for job %s: %w", jobID, err)
@@ -210,7 +219,33 @@ func storedForm(result pipeline.StoredResult) *pipeline.StoredResult {
 		bins[i] = pipeline.ResultBin{SizeBytes: bin.SizeBytes, Checksum: bin.Checksum}
 	}
 	result.Result.Bins = bins
+	result.Result.Layout = nil
 	return &result
+}
+
+func (a *BlobArtifacts) uploadPlacements(ctx context.Context, jobID string, result pipeline.EngineResult) error {
+	if result.Layout == nil {
+		return nil
+	}
+	wire := contracts.ResultPlacements{
+		Version:    contracts.PlacementsVersion,
+		BinOffsets: result.Layout.BinOffsets,
+		Placements: make([]contracts.ResultPlacement, 0, len(result.Layout.Placements)),
+	}
+	for _, placement := range result.Layout.Placements {
+		wire.Placements = append(wire.Placements, contracts.ResultPlacement{Item: placement.Item, Bin: placement.Bin, Matrix: placement.Matrix})
+	}
+	body, err := json.Marshal(wire)
+	if err != nil {
+		return fmt.Errorf("azureio: encode placements for job %s: %w", jobID, err)
+	}
+	_, err = a.container.NewBlockBlobClient(placementsKey(jobID, result.Checksum)).UploadBuffer(ctx, body, &blockblob.UploadBufferOptions{
+		HTTPHeaders: &blob.HTTPHeaders{BlobContentType: to.Ptr("application/json")},
+	})
+	if err != nil {
+		return fmt.Errorf("azureio: upload placements for job %s: %w", jobID, err)
+	}
+	return nil
 }
 
 func (a *BlobArtifacts) uploadBin(ctx context.Context, jobID string, result pipeline.EngineResult, number int, bin pipeline.ResultBin) error {

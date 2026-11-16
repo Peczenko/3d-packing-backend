@@ -118,7 +118,11 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 	if err != nil {
 		return pipeline.EngineResult{}, err
 	}
-	bins, err := readBins(request.OutputPath, combined)
+	manifest, err := readManifest(request.OutputPath)
+	if err != nil {
+		return pipeline.EngineResult{}, err
+	}
+	bins, err := readBins(manifest, request.OutputPath, combined)
 	if err != nil {
 		return pipeline.EngineResult{}, err
 	}
@@ -129,6 +133,7 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 		SizeBytes:   combined.SizeBytes,
 		Checksum:    combined.Checksum,
 		Bins:        bins,
+		Layout:      readLayout(manifest, request.Inputs),
 	}, nil
 }
 
@@ -150,25 +155,70 @@ func describeOutput(path string) (pipeline.ResultBin, error) {
 	return pipeline.ResultBin{Path: path, SizeBytes: info.Size(), Checksum: checksum}, nil
 }
 
-func readBins(outputPath string, combined pipeline.ResultBin) ([]pipeline.ResultBin, error) {
+type packerManifest struct {
+	BinCount int `json:"bin_count"`
+	Bins     []struct {
+		ID            int       `json:"id"`
+		DisplayOffset []float64 `json:"display_offset"`
+		Obj           *string   `json:"obj"`
+	} `json:"bins"`
+	Placements []struct {
+		InputIndex int       `json:"input_index"`
+		Bin        int       `json:"bin"`
+		Matrix     []float64 `json:"matrix"`
+	} `json:"placements"`
+}
+
+func readManifest(outputPath string) (packerManifest, error) {
 	manifestPath := outputPath + manifestSuffix
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
-		return nil, fmt.Errorf("engine: read packer manifest: %w", err)
+		return packerManifest{}, fmt.Errorf("engine: read packer manifest: %w", err)
 	}
-	var manifest struct {
-		BinCount int `json:"bin_count"`
-		Bins     []struct {
-			ID  int     `json:"id"`
-			Obj *string `json:"obj"`
-		} `json:"bins"`
-	}
+	var manifest packerManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return nil, fmt.Errorf("engine: parse packer manifest %q: %w", manifestPath, err)
+		return packerManifest{}, fmt.Errorf("engine: parse packer manifest %q: %w", manifestPath, err)
 	}
 	if manifest.BinCount < 1 || len(manifest.Bins) != manifest.BinCount {
-		return nil, fmt.Errorf("engine: packer manifest lists %d bins for a bin count of %d", len(manifest.Bins), manifest.BinCount)
+		return packerManifest{}, fmt.Errorf("engine: packer manifest lists %d bins for a bin count of %d", len(manifest.Bins), manifest.BinCount)
 	}
+	return manifest, nil
+}
+
+func readLayout(manifest packerManifest, inputs []pipeline.InputFile) *pipeline.Layout {
+	items := make([]int, 0, len(manifest.Placements))
+	for item, input := range inputs {
+		for range input.Copies {
+			items = append(items, item)
+		}
+	}
+	if len(items) == 0 || len(manifest.Placements) != len(items) {
+		return nil
+	}
+	layout := &pipeline.Layout{
+		BinOffsets: make([][3]float64, 0, manifest.BinCount),
+		Placements: make([]pipeline.Placement, 0, len(items)),
+	}
+	for _, bin := range manifest.Bins {
+		if len(bin.DisplayOffset) != 3 {
+			return nil
+		}
+		layout.BinOffsets = append(layout.BinOffsets, [3]float64(bin.DisplayOffset))
+	}
+	for i, placement := range manifest.Placements {
+		if placement.InputIndex != i || placement.Bin < 0 || placement.Bin >= manifest.BinCount || len(placement.Matrix) != 12 {
+			return nil
+		}
+		layout.Placements = append(layout.Placements, pipeline.Placement{
+			Item:   items[i],
+			Bin:    placement.Bin + 1,
+			Matrix: [12]float64(placement.Matrix),
+		})
+	}
+	return layout
+}
+
+func readBins(manifest packerManifest, outputPath string, combined pipeline.ResultBin) ([]pipeline.ResultBin, error) {
 	if manifest.BinCount == 1 {
 		return []pipeline.ResultBin{combined}, nil
 	}

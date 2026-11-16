@@ -4,7 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -62,6 +65,8 @@ final class GlbMerger {
         Set<String> used = new LinkedHashSet<>();
         Set<String> required = new LinkedHashSet<>();
 
+        List<Pending> pending = new ArrayList<>();
+        ByteArrayOutputStream instanceData = new ByteArrayOutputStream();
         long binLength = 0;
         long fallbackLength = 0;
         ObjectNode fallbackExtensions = null;
@@ -168,6 +173,13 @@ final class GlbMerger {
                 if (instancing instanceof ObjectNode attributes) {
                     shiftAll(attributes, accessorOffset);
                 }
+                List<PreviewPart.Instance> instances = parts.get(p)
+                                                            .instances();
+                if (instances != null) {
+                    instance(node, instances, accessors, views, pending, instanceData, container);
+                    used.add(INSTANCING);
+                    required.add(INSTANCING);
+                }
                 nodes.add(node);
             }
             JsonNode scenes = json.path("scenes");
@@ -190,9 +202,15 @@ final class GlbMerger {
             }
         }
 
+        for (Pending view : pending) {
+            view.view()
+                .put(BYTE_OFFSET, binLength + view.offset());
+        }
+        byte[] instanceBytes = instanceData.toByteArray();
+        long totalLength = binLength + instanceBytes.length;
         ArrayNode buffers = merged.putArray("buffers");
         buffers.addObject()
-               .put(BYTE_LENGTH, binLength);
+               .put(BYTE_LENGTH, totalLength);
         if (fallbackExtensions != null) {
             ObjectNode fallback = buffers.addObject();
             fallback.put(BYTE_LENGTH, fallbackLength);
@@ -209,10 +227,11 @@ final class GlbMerger {
         dropEmpty(merged);
 
         long triangles = triangles(merged);
-        Glb.write(output, merged, binLength, channel -> {
+        Glb.write(output, merged, totalLength, channel -> {
             for (Glb.Container container : containers) {
                 container.copyBinTo(channel);
             }
+            Glb.writeFully(channel, ByteBuffer.wrap(instanceBytes));
         });
         return new Merged(triangles, Files.size(output));
     }
@@ -258,6 +277,94 @@ final class GlbMerger {
             total += perInstance * instances;
         }
         return total;
+    }
+
+    private static void instance(ObjectNode node,
+                                 List<PreviewPart.Instance> instances,
+                                 ArrayNode accessors,
+                                 ArrayNode views,
+                                 List<Pending> pending,
+                                 ByteArrayOutputStream data,
+                                 Glb.Container container) throws IOException {
+        if (!node.has("mesh") || node.has("children") || node.has("matrix") || node.has(EXTENSIONS)) {
+            throw new IOException(container.path() + " is not a single mesh that can be placed once per copy");
+        }
+        double[] offset = vector(node.remove("translation"), 0);
+        JsonNode turned = node.remove("rotation");
+        double[] turn = turned == null ? new double[] { 0, 0, 0, 1 }
+                                       : new double[] { turned.path(0)
+                                                              .asDouble(),
+                                               turned.path(1)
+                                                     .asDouble(),
+                                               turned.path(2)
+                                                     .asDouble(),
+                                               turned.path(3)
+                                                     .asDouble(1) };
+        JsonNode scaled = node.remove("scale");
+        double[] scale = vector(scaled, 1);
+        int count = instances.size();
+        ByteBuffer translations = floats(3 * count);
+        ByteBuffer rotations = floats(4 * count);
+        ByteBuffer scales = floats(3 * count);
+        for (PreviewPart.Instance instance : instances) {
+            double[] moved = RigidFit.rotate(instance.qx(), instance.qy(), instance.qz(), instance.qw(), offset[0], offset[1], offset[2]);
+            translations.putFloat((float) (moved[0] + instance.tx()))
+                        .putFloat((float) (moved[1] + instance.ty()))
+                        .putFloat((float) (moved[2] + instance.tz()));
+            double qx = instance.qx();
+            double qy = instance.qy();
+            double qz = instance.qz();
+            double qw = instance.qw();
+            rotations.putFloat((float) (qw * turn[0] + qx * turn[3] + qy * turn[2] - qz * turn[1]))
+                     .putFloat((float) (qw * turn[1] - qx * turn[2] + qy * turn[3] + qz * turn[0]))
+                     .putFloat((float) (qw * turn[2] + qx * turn[1] - qy * turn[0] + qz * turn[3]))
+                     .putFloat((float) (qw * turn[3] - qx * turn[0] - qy * turn[1] - qz * turn[2]));
+            scales.putFloat((float) scale[0])
+                  .putFloat((float) scale[1])
+                  .putFloat((float) scale[2]);
+        }
+        ObjectNode attributes = node.putObject(EXTENSIONS)
+                                    .putObject(INSTANCING)
+                                    .putObject(ATTRIBUTES);
+        attributes.put("TRANSLATION", append(translations, "VEC3", count, accessors, views, pending, data));
+        attributes.put("ROTATION", append(rotations, "VEC4", count, accessors, views, pending, data));
+        if (scaled != null) {
+            attributes.put("SCALE", append(scales, "VEC3", count, accessors, views, pending, data));
+        }
+    }
+
+    private static int append(ByteBuffer values,
+                              String type,
+                              int count,
+                              ArrayNode accessors,
+                              ArrayNode views,
+                              List<Pending> pending,
+                              ByteArrayOutputStream data) {
+        ObjectNode view = views.addObject();
+        view.put(BUFFER, 0);
+        view.put(BYTE_LENGTH, values.capacity());
+        pending.add(new Pending(view, data.size()));
+        data.writeBytes(values.array());
+        accessors.addObject()
+                 .put("bufferView", views.size() - 1)
+                 .put("componentType", PreviewPartWriter.FLOAT)
+                 .put("count", count)
+                 .put("type", type);
+        return accessors.size() - 1;
+    }
+
+    private static ByteBuffer floats(int count) {
+        return ByteBuffer.allocate(4 * count)
+                         .order(ByteOrder.LITTLE_ENDIAN);
+    }
+
+    private static double[] vector(JsonNode values, double fallback) {
+        double[] vector = { fallback, fallback, fallback };
+        for (int i = 0; values != null && i < 3; i++) {
+            vector[i] = values.path(i)
+                              .asDouble(fallback);
+        }
+        return vector;
     }
 
     private static void relocate(ObjectNode view,
@@ -323,7 +430,14 @@ final class GlbMerger {
         }
     }
 
-    record Part(Path glb, String name) {
+    record Part(Path glb, String name, List<PreviewPart.Instance> instances) {
+
+        Part(Path glb, String name) {
+            this(glb, name, null);
+        }
+    }
+
+    private record Pending(ObjectNode view, long offset) {
     }
 
     record Merged(long triangles, long sizeBytes) {

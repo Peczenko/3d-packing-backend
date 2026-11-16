@@ -136,7 +136,7 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 		OutputPath:    outputPath,
 		Runtime:       time.Duration(envelope.MaxRuntimeSeconds) * time.Second,
 	})
-	log.Info("packer finished", "jobId", jobID, "limitSeconds", envelope.MaxRuntimeSeconds, "elapsed", time.Since(phase).String(), "resultBytes", result.SizeBytes, "error", err)
+	log.Info("packer finished", "jobId", jobID, "limitSeconds", envelope.MaxRuntimeSeconds, "elapsed", time.Since(phase).String(), "resultBytes", result.SizeBytes, "placements", placementCount(result), "error", err)
 	if err != nil {
 		var failure *EngineFailure
 		if errors.As(err, &failure) && ctx.Err() == nil {
@@ -158,6 +158,13 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 		return StoredResult{}, fmt.Errorf("pipeline: stored result for job %s is unusable: %w", jobID, err)
 	}
 	return *created, nil
+}
+
+func placementCount(result EngineResult) int {
+	if result.Layout == nil {
+		return 0
+	}
+	return len(result.Layout.Placements)
 }
 
 func (a *Activity) signalStarted(ctx context.Context, engine EngineProvenance) error {
