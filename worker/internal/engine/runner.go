@@ -20,11 +20,11 @@ import (
 )
 
 const (
-	resultContentType = "model/obj"
-	manifestSuffix    = ".json"
-	terminateGrace    = 5 * time.Second
-	maxStderrBytes    = 8 << 10
-	killedReason      = "packer was killed, most likely for exceeding the worker's memory limit"
+	transformsFileName = "transforms.txt"
+	manifestFileName   = "packed.json"
+	terminateGrace     = 5 * time.Second
+	maxStderrBytes     = 8 << 10
+	killedReason       = "packer was killed, most likely for exceeding the worker's memory limit"
 )
 
 var (
@@ -73,16 +73,16 @@ func (r *Runner) Provenance(context.Context) (pipeline.EngineProvenance, error) 
 	return pipeline.EngineProvenance{Version: r.version, Checksum: checksum}, nil
 }
 
-func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline.EngineResult, error) {
+func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline.Packing, error) {
 	if request.Runtime <= 0 {
-		return pipeline.EngineResult{}, fmt.Errorf("engine: runtime limit must be positive, got %s", request.Runtime)
+		return pipeline.Packing{}, fmt.Errorf("engine: runtime limit must be positive, got %s", request.Runtime)
 	}
 	if len(request.Inputs) == 0 {
-		return pipeline.EngineResult{}, errNoInputs
+		return pipeline.Packing{}, errNoInputs
 	}
 	executable, err := r.resolve()
 	if err != nil {
-		return pipeline.EngineResult{}, err
+		return pipeline.Packing{}, err
 	}
 	seconds := limitSeconds(request.Runtime)
 
@@ -98,9 +98,9 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 	if err := cmd.Run(); err != nil {
 		switch {
 		case ctx.Err() != nil:
-			return pipeline.EngineResult{}, fmt.Errorf("engine: packing canceled: %w", ctx.Err())
+			return pipeline.Packing{}, fmt.Errorf("engine: packing canceled: %w", ctx.Err())
 		case errors.Is(runCtx.Err(), context.DeadlineExceeded):
-			return pipeline.EngineResult{}, &pipeline.EngineFailure{Reason: timeoutReason(seconds)}
+			return pipeline.Packing{}, &pipeline.EngineFailure{Reason: timeoutReason(seconds)}
 		default:
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) {
@@ -108,95 +108,100 @@ func (r *Runner) Run(ctx context.Context, request pipeline.RunRequest) (pipeline
 				if killedBySystem(exitErr.ProcessState) {
 					reason = withStderr(killedReason, stderr.String())
 				}
-				return pipeline.EngineResult{}, &pipeline.EngineFailure{Reason: describePaths(reason, request)}
+				return pipeline.Packing{}, &pipeline.EngineFailure{Reason: describePaths(reason, request)}
 			}
-			return pipeline.EngineResult{}, fmt.Errorf("engine: run packer: %w", err)
+			return pipeline.Packing{}, fmt.Errorf("engine: run packer: %w", err)
 		}
 	}
 
-	combined, err := describeOutput(request.OutputPath)
+	manifest, err := readManifest(manifestPath(request))
 	if err != nil {
-		return pipeline.EngineResult{}, err
+		return pipeline.Packing{}, err
 	}
-	bins, err := readBins(request.OutputPath, combined)
+	layout, err := readLayout(manifest, request.Inputs)
 	if err != nil {
-		return pipeline.EngineResult{}, err
+		return pipeline.Packing{}, err
 	}
-
-	return pipeline.EngineResult{
-		FileName:    filepath.Base(request.OutputPath),
-		ContentType: resultContentType,
-		SizeBytes:   combined.SizeBytes,
-		Checksum:    combined.Checksum,
-		Bins:        bins,
+	return pipeline.Packing{
+		Layout:             layout,
+		PreparationSeconds: manifest.PreparationSeconds,
+		SearchSeconds:      manifest.SearchSeconds,
 	}, nil
 }
 
-func describeOutput(path string) (pipeline.ResultBin, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return pipeline.ResultBin{}, fmt.Errorf("engine: stat packer output %q: %w", path, err)
-	}
-	if !info.Mode().IsRegular() {
-		return pipeline.ResultBin{}, fmt.Errorf("engine: packer output %q is not a regular file", path)
-	}
-	if info.Size() == 0 {
-		return pipeline.ResultBin{}, fmt.Errorf("engine: packer output %q is empty", path)
-	}
-	checksum, err := digest.File(path)
-	if err != nil {
-		return pipeline.ResultBin{}, fmt.Errorf("engine: checksum packer output %q: %w", path, err)
-	}
-	return pipeline.ResultBin{Path: path, SizeBytes: info.Size(), Checksum: checksum}, nil
+type packerManifest struct {
+	BinCount int `json:"bin_count"`
+	Bins     []struct {
+		ID            int       `json:"id"`
+		DisplayOffset []float64 `json:"display_offset"`
+	} `json:"bins"`
+	Placements []struct {
+		InputIndex int       `json:"input_index"`
+		Bin        int       `json:"bin"`
+		Matrix     []float64 `json:"matrix"`
+	} `json:"placements"`
+	PreparationSeconds float64 `json:"preparation_seconds"`
+	SearchSeconds      float64 `json:"search_seconds"`
 }
 
-func readBins(outputPath string, combined pipeline.ResultBin) ([]pipeline.ResultBin, error) {
-	manifestPath := outputPath + manifestSuffix
-	data, err := os.ReadFile(manifestPath)
+func manifestPath(request pipeline.RunRequest) string {
+	return filepath.Join(request.WorkDir, manifestFileName)
+}
+
+func readManifest(path string) (packerManifest, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("engine: read packer manifest: %w", err)
+		return packerManifest{}, fmt.Errorf("engine: read packer manifest: %w", err)
 	}
-	var manifest struct {
-		BinCount int `json:"bin_count"`
-		Bins     []struct {
-			ID  int     `json:"id"`
-			Obj *string `json:"obj"`
-		} `json:"bins"`
-	}
+	var manifest packerManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return nil, fmt.Errorf("engine: parse packer manifest %q: %w", manifestPath, err)
+		return packerManifest{}, fmt.Errorf("engine: parse packer manifest %q: %w", path, err)
 	}
 	if manifest.BinCount < 1 || len(manifest.Bins) != manifest.BinCount {
-		return nil, fmt.Errorf("engine: packer manifest lists %d bins for a bin count of %d", len(manifest.Bins), manifest.BinCount)
+		return packerManifest{}, fmt.Errorf("engine: packer manifest lists %d bins for a bin count of %d", len(manifest.Bins), manifest.BinCount)
 	}
-	if manifest.BinCount == 1 {
-		return []pipeline.ResultBin{combined}, nil
-	}
+	return manifest, nil
+}
 
-	workspace, err := filepath.Abs(filepath.Dir(outputPath))
-	if err != nil {
-		return nil, fmt.Errorf("engine: resolve packer workspace: %w", err)
+func readLayout(manifest packerManifest, inputs []pipeline.InputFile) (pipeline.Layout, error) {
+	items := make([]int, 0, len(manifest.Placements))
+	for item, input := range inputs {
+		for range input.Copies {
+			items = append(items, item)
+		}
 	}
-	bins := make([]pipeline.ResultBin, 0, manifest.BinCount)
-	for i, entry := range manifest.Bins {
-		if entry.ID != i || entry.Obj == nil {
-			return nil, fmt.Errorf("engine: packer manifest entry %d does not name bin %d's OBJ", i, i)
-		}
-		path := filepath.Clean(*entry.Obj)
-		if filepath.Dir(path) != workspace {
-			return nil, fmt.Errorf("engine: packer wrote bin %d outside its workspace: %q", i, path)
-		}
-		bin, err := describeOutput(path)
-		if err != nil {
-			return nil, err
-		}
-		bins = append(bins, bin)
+	if len(manifest.Placements) != len(items) {
+		return pipeline.Layout{}, fmt.Errorf("engine: packer manifest places %d copies of the %d requested", len(manifest.Placements), len(items))
 	}
-	return bins, nil
+	layout := pipeline.Layout{
+		BinOffsets: make([][3]float64, 0, manifest.BinCount),
+		Placements: make([]pipeline.Placement, 0, len(items)),
+	}
+	for i, bin := range manifest.Bins {
+		if bin.ID != i || len(bin.DisplayOffset) != 3 {
+			return pipeline.Layout{}, fmt.Errorf("engine: packer manifest entry %d does not describe bin %d's display offset", i, i)
+		}
+		layout.BinOffsets = append(layout.BinOffsets, [3]float64(bin.DisplayOffset))
+	}
+	for i, placement := range manifest.Placements {
+		if placement.InputIndex != i || placement.Bin < 0 || placement.Bin >= manifest.BinCount || len(placement.Matrix) != 12 {
+			return pipeline.Layout{}, fmt.Errorf("engine: packer manifest placement %d is not copy %d placed in one of %d bins by a 3x4 matrix", i, i, manifest.BinCount)
+		}
+		layout.Placements = append(layout.Placements, pipeline.Placement{
+			Item:   items[i],
+			Bin:    placement.Bin + 1,
+			Matrix: [12]float64(placement.Matrix),
+		})
+	}
+	return layout, nil
 }
 
 func arguments(seconds int64, request pipeline.RunRequest) []string {
-	args := []string{"-t", strconv.FormatInt(seconds, 10), "-o", request.OutputPath}
+	args := []string{
+		"-t", strconv.FormatInt(seconds, 10),
+		"-m", filepath.Join(request.WorkDir, transformsFileName),
+		"--manifest", manifestPath(request),
+	}
 	args = append(args, request.ParameterArgs...)
 	for _, input := range request.Inputs {
 		for range input.Copies {
@@ -212,7 +217,10 @@ func describePaths(reason string, request pipeline.RunRequest) string {
 	for _, input := range inputs {
 		reason = strings.ReplaceAll(reason, input.Path, input.DisplayName)
 	}
-	return strings.ReplaceAll(reason, request.OutputPath, filepath.Base(request.OutputPath))
+	if request.WorkDir == "" {
+		return reason
+	}
+	return strings.ReplaceAll(reason, request.WorkDir+string(filepath.Separator), "")
 }
 
 func limitSeconds(runtime time.Duration) int64 {

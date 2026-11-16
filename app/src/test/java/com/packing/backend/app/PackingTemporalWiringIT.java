@@ -11,6 +11,7 @@ import com.packing.backend.core.project.port.out.ProjectRepository;
 import com.packing.backend.core.user.port.out.UserRepository;
 import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingJob;
+import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PreviewStatus;
@@ -222,6 +223,16 @@ class PackingTemporalWiringIT {
             }
             resultsOpened.add(result.jobId());
             return new ByteArrayInputStream("o Object_0\nv 0 0 0\n".getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
+            return Optional.empty();
+        }
+
+        @Override
+        public InputStream openInput(PackingItem item) {
+            throw new UnsupportedOperationException();
         }
 
         @Override

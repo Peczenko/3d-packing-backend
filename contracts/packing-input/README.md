@@ -11,7 +11,7 @@ Validators ignore these; the frontend and, where stated, the platform read them.
 | Keyword | On | Meaning |
 |---|---|---|
 | `x-widget: "project-files"` | `items` | Render the project-file picker instead of a generic array editor. The only widget value. |
-| `x-acceptedFormats` | `items` | `ModelFormat` names the pinned engine reads. The API rejects other formats; the worker's `contracts.AcceptedFormats` is pinned to it by a test. |
+| `x-acceptedFormats` | `items` | `ModelFormat` names the pinned engine reads. Match it against a file's `packingFormat`, not its `format`: an STL, PLY, 3MF, glTF or GLB upload is packed through the OBJ converted from it, and `packingFormat` is null for a file that cannot be packed. The API rejects any other file; the worker's `contracts.AcceptedFormats` is pinned to it by a test. |
 | `x-maxTotalCopies` | `items` | The total-copies cap JSON Schema cannot express. Enforced by `PackingInput`. |
 | `x-unit` | any number | Unit label to display. |
 

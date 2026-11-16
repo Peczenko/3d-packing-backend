@@ -15,6 +15,7 @@ import com.packing.backend.domain.file.FileId;
 import com.packing.backend.domain.file.FileName;
 import com.packing.backend.domain.file.ModelFormat;
 import com.packing.backend.domain.file.StorageKey;
+import com.packing.backend.domain.packing.PackingInputs;
 import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingParameters;
@@ -29,6 +30,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -43,6 +45,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -257,6 +261,51 @@ class AzurePackingJobArtifactStoreIT {
     }
 
     @Test
+    void decodesAGzipEncodedResultWhenStreamingItAndServesItEncoded() throws Exception {
+        PackingJobId jobId = jobId();
+        byte[] output = "o bin_1_mesh_1\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n".getBytes(StandardCharsets.UTF_8);
+        container.getBlobClient(resultKey(jobId))
+                 .uploadWithResponse(new BlobParallelUploadOptions(new ByteArrayInputStream(gzip(output)))
+                                                                                                          .setHeaders(new BlobHttpHeaders().setContentType("model/obj")
+                                                                                                                                           .setContentEncoding("gzip")),
+                                     null,
+                                     null);
+
+        try (InputStream result = artifacts.open(new PackingArtifact.Result(jobId))) {
+            assertThat(result.readAllBytes()).isEqualTo(output);
+        }
+        HttpResponse<byte[]> download = fetch(artifacts.readUrl(new PackingArtifact.Result(jobId), Duration.ofMinutes(10), false)
+                                                       .url());
+        assertThat(download.headers()
+                           .firstValue("Content-Encoding")).contains("gzip");
+        try (InputStream decoded = new GZIPInputStream(new ByteArrayInputStream(download.body()))) {
+            assertThat(decoded.readAllBytes()).isEqualTo(output);
+        }
+    }
+
+    @Test
+    void reportsTheDecodedSizeTheWorkerRecordedRatherThanTheStoredBytes() {
+        PackingJobId jobId = jobId();
+        uploadResult(jobId,
+                     Map.of("fileName",
+                            "packed.obj",
+                            "contentType",
+                            "model/obj",
+                            "checksumSha256",
+                            "a".repeat(64),
+                            "engineVersion",
+                            "v0.0.5",
+                            "engineChecksumSha256",
+                            "b".repeat(64),
+                            "sizeBytes",
+                            "123456789"),
+                     "compressed".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(artifacts.findResult(jobId)).map(PackingJobArtifactStore.ResultArtifact::sizeBytes)
+                                               .contains(123456789L);
+    }
+
+    @Test
     void storesAPreviewAsACacheableGltfBinaryAndSignsAnInlineUrlForIt() throws Exception {
         PackingJobId jobId = jobId();
         byte[] glb = "glTF preview bytes".getBytes(StandardCharsets.UTF_8);
@@ -336,6 +385,31 @@ class AzurePackingJobArtifactStoreIT {
     }
 
     @Test
+    void readsThePlacementsTheWorkerStoredUnderTheResultChecksumAndNoneForAnOlderResult() {
+        PackingJobId jobId = PackingJobId.generate();
+        String checksum = "d".repeat(64);
+        byte[] placements = "{\"version\":1}".getBytes(StandardCharsets.UTF_8);
+        container.getBlobClient("packing-jobs/" + jobId + "/result/placements/" + checksum + ".json")
+                 .upload(new ByteArrayInputStream(placements), placements.length);
+
+        assertThat(artifacts.findPlacements(jobId, checksum)).contains(placements);
+        assertThat(artifacts.findPlacements(jobId, "e".repeat(64))).isEmpty();
+    }
+
+    @Test
+    void streamsAnItemsInputFromItsStorageKey() throws Exception {
+        PackingItem item = PackingInputs.item("bunny.obj", 2);
+        byte[] model = "v 0 0 0\n".getBytes(StandardCharsets.UTF_8);
+        container.getBlobClient(item.storageKey()
+                                    .value())
+                 .upload(new ByteArrayInputStream(model), model.length);
+
+        try (InputStream input = artifacts.openInput(item)) {
+            assertThat(input.readAllBytes()).isEqualTo(model);
+        }
+    }
+
+    @Test
     void storesAContainerPreviewApartFromTheWholePreviewAndSignsTheWholeOneForTheOnlyContainer() throws Exception {
         PackingJobId jobId = jobId();
         byte[] whole = "whole preview".getBytes(StandardCharsets.UTF_8);
@@ -402,6 +476,14 @@ class AzurePackingJobArtifactStoreIT {
                                                                                                     .setMetadata(metadata),
                                      null,
                                      null);
+    }
+
+    private static byte[] gzip(byte[] content) throws Exception {
+        ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        try (GZIPOutputStream out = new GZIPOutputStream(encoded)) {
+            out.write(content);
+        }
+        return encoded.toByteArray();
     }
 
     private static HttpResponse<byte[]> fetch(URI url) throws Exception {

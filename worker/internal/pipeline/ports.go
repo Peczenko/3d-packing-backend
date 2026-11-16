@@ -22,16 +22,37 @@ type InputFile struct {
 type RunRequest struct {
 	Inputs        []InputFile
 	ParameterArgs []string
-	OutputPath    string
+	WorkDir       string
 	Runtime       time.Duration
 }
 
+type Packing struct {
+	Layout             Layout
+	PreparationSeconds float64
+	SearchSeconds      float64
+}
+
 type EngineResult struct {
-	FileName    string
-	ContentType string
-	SizeBytes   int64
-	Checksum    string
-	Bins        []ResultBin
+	FileName        string
+	ContentType     string
+	ContentEncoding string
+	Path            string
+	SizeBytes       int64
+	Checksum        string
+	StoredBytes     int64
+	Bins            []ResultBin
+	Layout          *Layout
+}
+
+type Placement struct {
+	Item   int
+	Bin    int
+	Matrix [12]float64
+}
+
+type Layout struct {
+	BinOffsets [][3]float64
+	Placements []Placement
 }
 
 type ResultBin struct {
@@ -42,7 +63,11 @@ type ResultBin struct {
 
 type Engine interface {
 	Provenance(context.Context) (EngineProvenance, error)
-	Run(context.Context, RunRequest) (EngineResult, error)
+	Run(context.Context, RunRequest) (Packing, error)
+}
+
+type ResultWriter interface {
+	Write(ctx context.Context, inputs []InputFile, layout Layout, dir string) (EngineResult, error)
 }
 
 type EngineFailure struct {
@@ -61,7 +86,7 @@ type Artifacts interface {
 	DownloadRequest(context.Context, string, string) error
 	DownloadInput(ctx context.Context, storageKey, path string) error
 	FindResult(context.Context, string) (*StoredResult, error)
-	CreateResult(context.Context, string, string, StoredResult) (*StoredResult, error)
+	CreateResult(context.Context, string, StoredResult) (*StoredResult, error)
 }
 
 type StoredResult struct {

@@ -11,10 +11,12 @@ import com.azure.storage.blob.options.BlobParallelUploadOptions;
 import com.azure.storage.blob.options.BlobUploadFromFileOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
+import com.azure.storage.blob.specialized.BlobInputStream;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.core.shared.TemporaryUrl;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -24,10 +26,13 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.zip.GZIPInputStream;
 
 class BlobContainer {
 
     static final String SERVICE = "azure-blob-storage";
+
+    private static final int DECODE_BUFFER_BYTES = 1 << 16;
 
     private static final String UNAVAILABLE = "Object storage is not configured. Set app.storage.enabled=true and provide "
             + "spring.cloud.azure.storage.blob.connection-string (or .endpoint).";
@@ -93,7 +98,7 @@ class BlobContainer {
 
     InputStream open(String key) {
         BlobClient blob = client().getBlobClient(key);
-        return translating("open", key, blob::openInputStream);
+        return translating("open", key, () -> decoded(blob.openInputStream()));
     }
 
     Optional<BlobProperties> findProperties(String key) {
@@ -130,6 +135,19 @@ class BlobContainer {
         return translating("sign a read URL for",
                            key,
                            () -> new TemporaryUrl(URI.create(blob.getBlobUrl() + "?" + sasIssuer.sasToken(blob, values)), window.expiry()));
+    }
+
+    private static InputStream decoded(BlobInputStream stream) {
+        if (!"gzip".equalsIgnoreCase(stream.getProperties()
+                                           .getContentEncoding())) {
+            return stream;
+        }
+        try {
+            return new GZIPInputStream(stream, DECODE_BUFFER_BYTES);
+        } catch (IOException e) {
+            stream.close();
+            throw new UncheckedIOException(e);
+        }
     }
 
     private BlobContainerClient client() {

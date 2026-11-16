@@ -21,7 +21,6 @@ import (
 const (
 	requestFileName       = "request.json"
 	inputsDirName         = "inputs"
-	outputFileName        = "packed.obj"
 	unreportedFailure     = "packer failed without reporting a reason"
 	maxEngineVersionBytes = 255
 )
@@ -44,15 +43,17 @@ var sha256Hex = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 type Activity struct {
 	artifacts         Artifacts
 	engine            Engine
+	writer            ResultWriter
 	signaler          Signaler
 	workRoot          string
 	heartbeatInterval time.Duration
 }
 
-func NewActivity(artifacts Artifacts, engine Engine, signaler Signaler, workRoot string, heartbeatInterval time.Duration) *Activity {
+func NewActivity(artifacts Artifacts, engine Engine, writer ResultWriter, signaler Signaler, workRoot string, heartbeatInterval time.Duration) *Activity {
 	return &Activity{
 		artifacts:         artifacts,
 		engine:            engine,
+		writer:            writer,
 		signaler:          signaler,
 		workRoot:          workRoot,
 		heartbeatInterval: heartbeatInterval,
@@ -128,15 +129,16 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 		return StoredResult{}, fmt.Errorf("pipeline: signal started for job %s: %w", jobID, err)
 	}
 
-	outputPath := filepath.Join(workspace, outputFileName)
 	phase = time.Now()
-	result, err := a.engine.Run(ctx, RunRequest{
+	packing, err := a.engine.Run(ctx, RunRequest{
 		Inputs:        inputs,
 		ParameterArgs: envelope.ParameterArgs,
-		OutputPath:    outputPath,
+		WorkDir:       workspace,
 		Runtime:       time.Duration(envelope.MaxRuntimeSeconds) * time.Second,
 	})
-	log.Info("packer finished", "jobId", jobID, "limitSeconds", envelope.MaxRuntimeSeconds, "elapsed", time.Since(phase).String(), "resultBytes", result.SizeBytes, "error", err)
+	log.Info("packer finished", "jobId", jobID, "limitSeconds", envelope.MaxRuntimeSeconds, "elapsed", time.Since(phase).String(),
+		"preparationSeconds", packing.PreparationSeconds, "searchSeconds", packing.SearchSeconds,
+		"placements", len(packing.Layout.Placements), "bins", len(packing.Layout.BinOffsets), "error", err)
 	if err != nil {
 		var failure *EngineFailure
 		if errors.As(err, &failure) && ctx.Err() == nil {
@@ -146,8 +148,19 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 	}
 
 	phase = time.Now()
-	created, err := a.artifacts.CreateResult(ctx, jobID, outputPath, StoredResult{Engine: engine, Result: result})
-	log.Info("result uploaded", "jobId", jobID, "resultBytes", result.SizeBytes, "elapsed", time.Since(phase).String(), "error", err)
+	result, err := a.writer.Write(ctx, inputs, packing.Layout, workspace)
+	log.Info("result written", "jobId", jobID, "elapsed", time.Since(phase).String(), "resultBytes", result.SizeBytes, "storedBytes", result.StoredBytes, "error", err)
+	if err != nil {
+		var failure *EngineFailure
+		if errors.As(err, &failure) && ctx.Err() == nil {
+			return StoredResult{}, engineFailure(engine, failure.Reason)
+		}
+		return StoredResult{}, fmt.Errorf("pipeline: write result for job %s: %w", jobID, err)
+	}
+
+	phase = time.Now()
+	created, err := a.artifacts.CreateResult(ctx, jobID, StoredResult{Engine: engine, Result: result})
+	log.Info("result uploaded", "jobId", jobID, "storedBytes", result.StoredBytes, "elapsed", time.Since(phase).String(), "error", err)
 	if err != nil {
 		return StoredResult{}, fmt.Errorf("pipeline: upload result for job %s: %w", jobID, err)
 	}

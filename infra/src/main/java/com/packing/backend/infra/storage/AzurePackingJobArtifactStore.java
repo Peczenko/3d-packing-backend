@@ -12,6 +12,7 @@ import com.packing.backend.core.packing.port.out.PackingArtifact.Result;
 import com.packing.backend.core.packing.port.out.PackingJobArtifactStore;
 import com.packing.backend.core.shared.ExternalServiceException;
 import com.packing.backend.core.shared.TemporaryUrl;
+import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.shared.ResourceConflictException;
@@ -62,6 +63,19 @@ class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
     }
 
     @Override
+    public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
+        String key = "packing-jobs/" + jobId + "/result/placements/" + resultChecksum + ".json";
+        return container.findProperties(key)
+                        .map(properties -> container.download(key));
+    }
+
+    @Override
+    public InputStream openInput(PackingItem item) {
+        return container.open(item.storageKey()
+                                  .value());
+    }
+
+    @Override
     public void storePreview(PreviewArtifact preview, Path glb) {
         container.upload(keyOf(preview),
                          glb,
@@ -107,25 +121,43 @@ class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
         Map<String, String> metadata = properties.getMetadata();
         return new ResultArtifact(requiredMetadata(metadata, "fileName", jobId),
                                   requiredMetadata(metadata, "contentType", jobId),
-                                  properties.getBlobSize(),
+                                  decodedSize(metadata, properties.getBlobSize()),
                                   requiredMetadata(metadata, "checksumSha256", jobId),
                                   requiredMetadata(metadata, "engineVersion", jobId),
                                   requiredMetadata(metadata, "engineChecksumSha256", jobId));
     }
 
+    private static long decodedSize(Map<String, String> metadata, long storedSize) {
+        String recorded = metadataValue(metadata, "sizeBytes");
+        if (recorded != null) {
+            try {
+                long size = Long.parseLong(recorded.strip());
+                if (size > 0) {
+                    return size;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return storedSize;
+    }
+
     private static String requiredMetadata(Map<String, String> metadata, String name, PackingJobId jobId) {
-        String value = metadata == null ? null
-                                        : metadata.entrySet()
-                                                  .stream()
-                                                  .filter(entry -> entry.getKey()
-                                                                        .equalsIgnoreCase(name))
-                                                  .map(Map.Entry::getValue)
-                                                  .findFirst()
-                                                  .orElse(null);
+        String value = metadataValue(metadata, name);
         if (value == null || value.isBlank()) {
             throw invalidResult(jobId, "required metadata " + name);
         }
         return value;
+    }
+
+    private static String metadataValue(Map<String, String> metadata, String name) {
+        return metadata == null ? null
+                                : metadata.entrySet()
+                                          .stream()
+                                          .filter(entry -> entry.getKey()
+                                                                .equalsIgnoreCase(name))
+                                          .map(Map.Entry::getValue)
+                                          .findFirst()
+                                          .orElse(null);
     }
 
     private static ExternalServiceException invalidResult(PackingJobId jobId, String problem) {
