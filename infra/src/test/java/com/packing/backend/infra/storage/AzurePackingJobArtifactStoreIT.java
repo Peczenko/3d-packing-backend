@@ -266,8 +266,8 @@ class AzurePackingJobArtifactStoreIT {
         byte[] output = "o bin_1_mesh_1\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n".getBytes(StandardCharsets.UTF_8);
         container.getBlobClient(resultKey(jobId))
                  .uploadWithResponse(new BlobParallelUploadOptions(new ByteArrayInputStream(gzip(output)))
-                                                                                                         .setHeaders(new BlobHttpHeaders().setContentType("model/obj")
-                                                                                                                                          .setContentEncoding("gzip")),
+                                                                                                          .setHeaders(new BlobHttpHeaders().setContentType("model/obj")
+                                                                                                                                           .setContentEncoding("gzip")),
                                      null,
                                      null);
 
