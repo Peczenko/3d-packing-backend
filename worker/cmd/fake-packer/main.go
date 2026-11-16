@@ -39,7 +39,7 @@ type object struct {
 type manifestBin struct {
 	ID            int        `json:"id"`
 	DisplayOffset [3]float64 `json:"display_offset"`
-	Obj           string     `json:"obj"`
+	Obj           *string    `json:"obj"`
 }
 
 type manifestPlacement struct {
@@ -57,6 +57,8 @@ func run(args []string, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	seconds := fs.Int64("t", 0, "time budget in seconds")
 	outputPath := fs.String("o", "", "path of the packed OBJ")
+	transformsPath := fs.String("m", "", "path of the placement matrices")
+	manifestPath := fs.String("manifest", "", "path of the JSON manifest")
 	width := fs.Float64("width", 0, "container width (X)")
 	length := fs.Float64("length", 0, "container length (Y)")
 	height := fs.Float64("height", 0, "container height (Z)")
@@ -67,9 +69,15 @@ func run(args []string, stderr io.Writer) int {
 		return exitUsage
 	}
 	inputs := fs.Args()
-	if *seconds <= 0 || *outputPath == "" || len(inputs) == 0 {
-		fmt.Fprintln(stderr, "fake-packer: -t <seconds>, -o <output.obj> and at least one input OBJ are required")
+	if *seconds <= 0 || (*outputPath == "" && *transformsPath == "") || len(inputs) == 0 {
+		fmt.Fprintln(stderr, "fake-packer: -t <seconds>, -o <output.obj> or -m <transforms.txt>, and at least one input OBJ are required")
 		return exitUsage
+	}
+	if *manifestPath == "" {
+		*manifestPath = *outputPath + ".json"
+		if *transformsPath != "" {
+			*manifestPath = *transformsPath + ".json"
+		}
 	}
 	if !(*width > 0) || !(*length > 0) || !(*height > 0) {
 		fmt.Fprintln(stderr, "fake-packer: specify positive --width, --height and --length")
@@ -120,19 +128,26 @@ func run(args []string, stderr io.Writer) int {
 		return injected.exitCode
 	}
 
-	if err := writeResult(*outputPath, objects, binCount); err != nil {
+	if err := writeResult(*outputPath, *transformsPath, *manifestPath, objects, binCount); err != nil {
 		fmt.Fprintln(stderr, "fake-packer: write output:", err)
 		return exitInput
 	}
 	return exitOK
 }
 
-func writeResult(outputPath string, objects []object, binCount int) error {
-	if err := writeAtomically(outputPath, pack(objects, 0)); err != nil {
-		return err
+func writeResult(outputPath, transformsPath, manifestPath string, objects []object, binCount int) error {
+	identity := [12]float64{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}
+	if outputPath != "" {
+		if err := writeAtomically(outputPath, pack(objects, 0)); err != nil {
+			return err
+		}
 	}
 	bins := make([]manifestBin, binCount)
 	for i := range bins {
+		bins[i] = manifestBin{ID: i}
+		if outputPath == "" {
+			continue
+		}
 		path := outputPath
 		if binCount > 1 {
 			path = binPath(outputPath, i+1)
@@ -144,11 +159,18 @@ func writeResult(outputPath string, objects []object, binCount int) error {
 		if err != nil {
 			return err
 		}
-		bins[i] = manifestBin{ID: i, Obj: absolute}
+		bins[i].Obj = &absolute
 	}
 	placements := make([]manifestPlacement, len(objects))
+	var transforms bytes.Buffer
 	for i, obj := range objects {
-		placements[i] = manifestPlacement{InputIndex: i, Bin: obj.bin - 1, Matrix: [12]float64{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}}
+		placements[i] = manifestPlacement{InputIndex: i, Bin: obj.bin - 1, Matrix: identity}
+		transforms.WriteString("1 0 0 0 0 1 0 0 0 0 1 0\n")
+	}
+	if transformsPath != "" {
+		if err := writeAtomically(transformsPath, transforms.Bytes()); err != nil {
+			return err
+		}
 	}
 	manifest, err := json.Marshal(struct {
 		SchemaVersion int                 `json:"schema_version"`
@@ -159,7 +181,7 @@ func writeResult(outputPath string, objects []object, binCount int) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomically(outputPath+".json", manifest)
+	return writeAtomically(manifestPath, manifest)
 }
 
 func pack(objects []object, onlyBin int) []byte {

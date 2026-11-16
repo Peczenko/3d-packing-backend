@@ -20,6 +20,7 @@ import (
 	"github.com/Peczenko/3d-packing-backend/worker/internal/contracts"
 	"github.com/Peczenko/3d-packing-backend/worker/internal/engine"
 	"github.com/Peczenko/3d-packing-backend/worker/internal/pipeline"
+	"github.com/Peczenko/3d-packing-backend/worker/internal/resultobj"
 )
 
 const (
@@ -100,6 +101,7 @@ func connectTemporal(ctx context.Context, cfg config.Config, log *slog.Logger) (
 	act := pipeline.NewActivity(
 		azureio.NewBlobArtifacts(blobClient, cfg),
 		engine.NewRunner(cfg.PackerPath, cfg.PackerVersion, cfg.OverrunGrace),
+		resultobj.Writer{},
 		c,
 		cfg.WorkRoot,
 		cfg.HeartbeatInterval,

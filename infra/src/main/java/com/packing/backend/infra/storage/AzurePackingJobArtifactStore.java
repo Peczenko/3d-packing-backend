@@ -121,25 +121,43 @@ class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
         Map<String, String> metadata = properties.getMetadata();
         return new ResultArtifact(requiredMetadata(metadata, "fileName", jobId),
                                   requiredMetadata(metadata, "contentType", jobId),
-                                  properties.getBlobSize(),
+                                  decodedSize(metadata, properties.getBlobSize()),
                                   requiredMetadata(metadata, "checksumSha256", jobId),
                                   requiredMetadata(metadata, "engineVersion", jobId),
                                   requiredMetadata(metadata, "engineChecksumSha256", jobId));
     }
 
+    private static long decodedSize(Map<String, String> metadata, long storedSize) {
+        String recorded = metadataValue(metadata, "sizeBytes");
+        if (recorded != null) {
+            try {
+                long size = Long.parseLong(recorded.strip());
+                if (size > 0) {
+                    return size;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return storedSize;
+    }
+
     private static String requiredMetadata(Map<String, String> metadata, String name, PackingJobId jobId) {
-        String value = metadata == null ? null
-                                        : metadata.entrySet()
-                                                  .stream()
-                                                  .filter(entry -> entry.getKey()
-                                                                        .equalsIgnoreCase(name))
-                                                  .map(Map.Entry::getValue)
-                                                  .findFirst()
-                                                  .orElse(null);
+        String value = metadataValue(metadata, name);
         if (value == null || value.isBlank()) {
             throw invalidResult(jobId, "required metadata " + name);
         }
         return value;
+    }
+
+    private static String metadataValue(Map<String, String> metadata, String name) {
+        return metadata == null ? null
+                                : metadata.entrySet()
+                                          .stream()
+                                          .filter(entry -> entry.getKey()
+                                                                .equalsIgnoreCase(name))
+                                          .map(Map.Entry::getValue)
+                                          .findFirst()
+                                          .orElse(null);
     }
 
     private static ExternalServiceException invalidResult(PackingJobId jobId, String problem) {
