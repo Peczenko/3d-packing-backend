@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.8.0...v1.9.0) (2026-11-16)
+
+
+### Features
+
+* build previews from packer's placements, not from the result OBJ ([#104](https://github.com/Peczenko/3d-packing-backend/issues/104)) ([b383255](https://github.com/Peczenko/3d-packing-backend/commit/b3832558f0ae86f8d303ba96c283b5235ff2c0ed))
+* worker writes gzipped result OBJs, uploads in blocks ([#105](https://github.com/Peczenko/3d-packing-backend/issues/105)) ([35cc10b](https://github.com/Peczenko/3d-packing-backend/commit/35cc10bfb67176767d9c8989b416b9b566f105e9))
+
+
+### Chores & Dependencies
+
+* merge master into dev ([6797aaf](https://github.com/Peczenko/3d-packing-backend/commit/6797aaf405ae0fd696d84f7120818c86dbafd3ce))
+
 ## [1.8.0](https://github.com/Peczenko/3d-packing-backend/compare/v1.7.0...v1.8.0) (2026-11-15)
 
 
