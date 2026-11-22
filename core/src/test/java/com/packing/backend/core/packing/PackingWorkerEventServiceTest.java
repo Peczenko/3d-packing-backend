@@ -9,6 +9,7 @@ import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.ResultBin;
+import com.packing.backend.domain.packing.ResultStatus;
 import com.packing.backend.domain.packing.event.PackingJobFinished;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.shared.DomainEvent;
@@ -33,6 +34,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -98,12 +100,46 @@ class PackingWorkerEventServiceTest {
         assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
         assertThat(job.engineVersion()).isEqualTo(FINAL_VERSION);
         assertThat(job.engineChecksum()).isEqualTo(FINAL_CHECKSUM);
+        assertThat(job.binCount()).isEqualTo(1);
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.PENDING);
+        assertThat(job.finishedAt()).isEqualTo(NOW);
+        verify(jobs).save(job);
+    }
+
+    @Test
+    void resultWrittenCompletesThePendingResultOnceWithoutNotifyingAnyone() {
+        PackingJob job = succeededJob();
+        when(jobs.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.apply(resultWritten(job.id()));
+        service.apply(resultWritten(job.id()));
+
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.READY);
         assertThat(job.resultFileName()).isEqualTo("result.bin");
         assertThat(job.resultContentType()).isEqualTo("application/octet-stream");
         assertThat(job.resultSizeBytes()).isEqualTo(1234L);
         assertThat(job.resultChecksum()).isEqualTo(RESULT_CHECKSUM);
-        assertThat(job.finishedAt()).isEqualTo(NOW);
-        verify(jobs).save(job);
+        assertThat(job.resultBins()).containsExactly(new ResultBin(1234, RESULT_CHECKSUM));
+        verify(jobs, times(1)).save(job);
+        verify(events).publishAll(published.capture());
+        assertThat(published.getValue()).isEmpty();
+    }
+
+    @Test
+    void resultFailedSettlesOnlyAPendingResult() {
+        PackingJob pending = succeededJob();
+        PackingJob written = succeededJob();
+        written.completeResult("result.bin", "application/octet-stream", 1234, RESULT_CHECKSUM, List.of(new ResultBin(1234, RESULT_CHECKSUM)));
+        when(jobs.findById(pending.id())).thenReturn(Optional.of(pending));
+        when(jobs.findById(written.id())).thenReturn(Optional.of(written));
+
+        service.apply(new PackingWorkerEvent.ResultFailed(1, pending.id()));
+        service.apply(new PackingWorkerEvent.ResultFailed(1, written.id()));
+
+        assertThat(pending.resultStatus()).isEqualTo(ResultStatus.FAILED);
+        assertThat(written.resultStatus()).isEqualTo(ResultStatus.READY);
+        verify(jobs).save(pending);
+        verify(jobs, never()).save(written);
     }
 
     @Test
@@ -148,20 +184,13 @@ class PackingWorkerEventServiceTest {
     @Test
     void anyWorkerEventAfterTerminalSuccessIsANoOp() {
         PackingJob job = runningJob();
-        job.succeed("earlier.bin",
-                    "application/octet-stream",
-                    1,
-                    "d".repeat(64),
-                    List.of(),
-                    STARTED_VERSION,
-                    STARTED_CHECKSUM,
-                    NOW.minusSeconds(1));
+        job.succeed(STARTED_VERSION, STARTED_CHECKSUM, 3, NOW.minusSeconds(1));
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
         service.apply(failed(job.id()));
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
-        assertThat(job.resultFileName()).isEqualTo("earlier.bin");
+        assertThat(job.binCount()).isEqualTo(3);
         verify(jobs, never()).save(job);
     }
 
@@ -216,8 +245,6 @@ class PackingWorkerEventServiceTest {
                                                                           job.requestedBy(),
                                                                           PackingJobStatus.SUCCEEDED,
                                                                           null,
-                                                                          "result.bin",
-                                                                          1234L,
                                                                           NOW.minusSeconds(1),
                                                                           NOW));
     }
@@ -236,8 +263,6 @@ class PackingWorkerEventServiceTest {
                                                                           job.requestedBy(),
                                                                           PackingJobStatus.FAILED,
                                                                           "engine exited 1",
-                                                                          null,
-                                                                          null,
                                                                           NOW.minusSeconds(1),
                                                                           NOW));
     }
@@ -245,14 +270,7 @@ class PackingWorkerEventServiceTest {
     @Test
     void aRedeliveredTerminalEventNotifiesNobodyASecondTime() {
         PackingJob job = runningJob();
-        job.succeed("result.bin",
-                    "application/octet-stream",
-                    1234,
-                    RESULT_CHECKSUM,
-                    List.of(),
-                    FINAL_VERSION,
-                    FINAL_CHECKSUM,
-                    NOW.minusSeconds(1));
+        job.succeed(FINAL_VERSION, FINAL_CHECKSUM, 1, NOW.minusSeconds(1));
         job.pullDomainEvents();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
@@ -295,20 +313,29 @@ class PackingWorkerEventServiceTest {
         return job;
     }
 
+    private static PackingJob succeededJob() {
+        PackingJob job = runningJob();
+        job.succeed(FINAL_VERSION, FINAL_CHECKSUM, 1, NOW.minusSeconds(1));
+        job.pullDomainEvents();
+        return job;
+    }
+
     private static PackingWorkerEvent.Started started(PackingJobId jobId) {
         return new PackingWorkerEvent.Started(1, jobId, STARTED_VERSION, STARTED_CHECKSUM);
     }
 
     private static PackingWorkerEvent.Succeeded succeeded(PackingJobId jobId) {
-        return new PackingWorkerEvent.Succeeded(1,
-                                                jobId,
-                                                FINAL_VERSION,
-                                                FINAL_CHECKSUM,
-                                                "result.bin",
-                                                "application/octet-stream",
-                                                1234,
-                                                RESULT_CHECKSUM,
-                                                List.of(new ResultBin(1234, RESULT_CHECKSUM)));
+        return new PackingWorkerEvent.Succeeded(1, jobId, FINAL_VERSION, FINAL_CHECKSUM, 1);
+    }
+
+    private static PackingWorkerEvent.ResultWritten resultWritten(PackingJobId jobId) {
+        return new PackingWorkerEvent.ResultWritten(1,
+                                                    jobId,
+                                                    "result.bin",
+                                                    "application/octet-stream",
+                                                    1234,
+                                                    RESULT_CHECKSUM,
+                                                    List.of(new ResultBin(1234, RESULT_CHECKSUM)));
     }
 
     private static PackingWorkerEvent.Failed failed(PackingJobId jobId) {

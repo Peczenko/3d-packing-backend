@@ -129,6 +129,12 @@ tasks.named('generateJooqClasses') {
                                 .withTo('com.packing.backend.domain.packing.PreviewStatus::name'))
                         .withIncludeExpression('packing_jobs\\.preview_status'),
                 new ForcedType()
+                        .withUserType('com.packing.backend.domain.packing.ResultStatus')
+                        .withLambdaConverter(new LambdaConverter()
+                                .withFrom('com.packing.backend.domain.packing.ResultStatus::valueOf')
+                                .withTo('com.packing.backend.domain.packing.ResultStatus::name'))
+                        .withIncludeExpression('packing_jobs\\.result_status'),
+                new ForcedType()
                         .withUserType('com.packing.backend.domain.user.UserId')
                         .withLambdaConverter(new LambdaConverter()
                                 .withFrom('com.packing.backend.domain.user.UserId::new')

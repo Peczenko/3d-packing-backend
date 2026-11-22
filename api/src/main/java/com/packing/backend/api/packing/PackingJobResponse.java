@@ -2,6 +2,7 @@ package com.packing.backend.api.packing;
 
 import com.packing.backend.core.packing.PackingJobView;
 import com.packing.backend.domain.packing.PackingJobStatus;
+import com.packing.backend.domain.packing.ResultStatus;
 
 import java.time.Instant;
 import java.util.List;
@@ -17,6 +18,7 @@ public record PackingJobResponse(
         Instant startedAt,
         Instant finishedAt,
         String failureReason,
+        ResultStatus resultStatus,
         String resultFileName,
         String resultContentType,
         Long resultSizeBytes,
@@ -36,11 +38,12 @@ public record PackingJobResponse(
                                       view.startedAt(),
                                       view.finishedAt(),
                                       view.failureReason(),
+                                      view.resultStatus(),
                                       view.resultFileName(),
                                       view.resultContentType(),
                                       view.resultSizeBytes(),
                                       view.resultChecksum(),
-                                      PackingJobResultBinResponse.listFrom(view.resultBins(), view.preview()),
+                                      PackingJobResultBinResponse.listFrom(view.binCount(), view.resultBins(), view.preview()),
                                       view.input() == null ? null : PackingJobInputResponse.from(view.input()),
                                       PackingJobPreviewResponse.from(view.preview()));
     }

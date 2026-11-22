@@ -163,13 +163,13 @@ class GltfpackPreviewRendererTest {
     }
 
     @Test
-    void placementsBuildEveryPreviewFromTheInputsWithoutReadingTheResult() throws IOException {
+    void placementsBuildEveryPreviewFromTheInputsBeforeTheResultIsWritten() throws IOException {
         pretendToPackEverything();
         Artifacts artifacts = new Artifacts(null);
         artifacts.inputs = INPUTS;
         artifacts.placements = PLACED;
 
-        PackingPreviewRenderer.Rendered rendered = new GltfpackPreviewRenderer(artifacts, gltfpack).render(JOB_ID, ITEMS, CHECKSUM, 2);
+        PackingPreviewRenderer.Rendered rendered = new GltfpackPreviewRenderer(artifacts, gltfpack).render(JOB_ID, ITEMS, null, 2);
 
         assertThat(rendered.models()).extracting(PreviewModel::quality, PreviewModel::triangles)
                                      .containsExactly(tuple(PreviewQuality.HIGH, 4L * 3 + 12),
@@ -210,17 +210,26 @@ class GltfpackPreviewRendererTest {
     }
 
     @Test
-    void placementsThatDoNotMatchTheJobFallBackToTheResult() throws IOException {
-        pretendToPackEverything();
+    void placementsThatDoNotMatchTheJobFailThePreviewInsteadOfFallingBackToTheResult() {
         Artifacts artifacts = new Artifacts(OBJ);
         artifacts.placements = "{\"version\":1,\"binOffsets\":[[0,0,0]],\"placements\":[]}";
 
-        PackingPreviewRenderer.Rendered rendered = new GltfpackPreviewRenderer(artifacts, gltfpack).render(JOB_ID, ITEMS, CHECKSUM, 1);
-
-        assertThat(rendered.models()).extracting(PreviewModel::quality, PreviewModel::triangles)
-                                     .containsExactly(tuple(PreviewQuality.HIGH, 4L * 3 + 12),
-                                                      tuple(PreviewQuality.LOW, 3L + 1));
+        assertThatThrownBy(() -> new GltfpackPreviewRenderer(artifacts, gltfpack).render(JOB_ID, ITEMS, CHECKSUM, 1))
+                                                                                                                     .isInstanceOf(UnrecognizedPackerOutputException.class)
+                                                                                                                     .hasMessageContaining("placements");
         assertThat(artifacts.openedInputs).isEmpty();
+        assertThat(artifacts.previews).isEmpty();
+        assertThat(leftoverWorkspaces()).isEmpty();
+    }
+
+    @Test
+    void aJobWithNeitherPlacementsNorAResultHasNothingToPreview() {
+        Artifacts artifacts = new Artifacts(null);
+
+        assertThatThrownBy(() -> new GltfpackPreviewRenderer(artifacts, gltfpack).render(JOB_ID, ITEMS, null, 1))
+                                                                                                                 .isInstanceOf(IllegalStateException.class);
+        assertThat(artifacts.previews).isEmpty();
+        assertThat(leftoverWorkspaces()).isEmpty();
     }
 
     @Test
@@ -413,9 +422,8 @@ class GltfpackPreviewRendererTest {
         }
 
         @Override
-        public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
+        public Optional<byte[]> findPlacements(PackingJobId jobId) {
             assertThat(jobId).isEqualTo(JOB_ID);
-            assertThat(resultChecksum).isEqualTo(CHECKSUM);
             return Optional.ofNullable(placements)
                            .map(json -> json.getBytes(StandardCharsets.UTF_8));
         }

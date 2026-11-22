@@ -29,8 +29,7 @@ public class PackingPreviewService {
                                                                    job.input()
                                                                       .items(),
                                                                    job.resultChecksum(),
-                                                                   job.resultBins()
-                                                                      .size());
+                                                                   job.binCount());
         PackingJob current = require(id);
         if (current.completePreview(rendered.models(), rendered.bins())) {
             jobs.save(current);

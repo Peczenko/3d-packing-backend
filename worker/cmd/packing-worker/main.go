@@ -75,7 +75,8 @@ func runWith(ctx context.Context, args []string, out io.Writer, connect connecto
 		return exitConfiguration
 	}
 
-	log.Info("worker polling", "address", cfg.TemporalAddress, "namespace", cfg.TemporalNamespace, "taskQueue", cfg.TaskQueue)
+	log.Info("worker polling", "address", cfg.TemporalAddress, "namespace", cfg.TemporalNamespace, "taskQueue", cfg.TaskQueue,
+		"resultTaskQueue", cfg.ResultTaskQueue)
 	if err := w.Run(ctx); err != nil {
 		log.Error("worker stopped", "error", err.Error())
 		return exitInfrastructure
@@ -94,10 +95,12 @@ func connectTemporal(ctx context.Context, cfg config.Config, log *slog.Logger) (
 		return nil, err
 	}
 
-	w := worker.New(c, cfg.TaskQueue, worker.Options{
+	options := worker.Options{
 		MaxConcurrentActivityExecutionSize: 1,
 		WorkerStopTimeout:                  workerStopTimeout,
-	})
+	}
+	engineWorker := worker.New(c, cfg.TaskQueue, options)
+	resultWorker := worker.New(c, cfg.ResultTaskQueue, options)
 	act := pipeline.NewActivity(
 		azureio.NewBlobArtifacts(blobClient, cfg),
 		engine.NewRunner(cfg.PackerPath, cfg.PackerVersion, cfg.OverrunGrace),
@@ -106,8 +109,9 @@ func connectTemporal(ctx context.Context, cfg config.Config, log *slog.Logger) (
 		cfg.WorkRoot,
 		cfg.HeartbeatInterval,
 	)
-	w.RegisterActivityWithOptions(act.RunEngine, activity.RegisterOptions{Name: contracts.RunEngineActivity})
-	return &temporalWorker{client: c, worker: w}, nil
+	engineWorker.RegisterActivityWithOptions(act.RunEngine, activity.RegisterOptions{Name: contracts.RunEngineActivity})
+	resultWorker.RegisterActivityWithOptions(act.WriteResult, activity.RegisterOptions{Name: contracts.WriteResultActivity})
+	return &temporalWorker{client: c, engine: engineWorker, result: resultWorker}, nil
 }
 
 func dial(ctx context.Context, cfg config.Config, log *slog.Logger) (client.Client, error) {
@@ -131,15 +135,20 @@ func dial(ctx context.Context, cfg config.Config, log *slog.Logger) (client.Clie
 
 type temporalWorker struct {
 	client client.Client
-	worker worker.Worker
+	engine worker.Worker
+	result worker.Worker
 }
 
 func (t *temporalWorker) Run(ctx context.Context) error {
 	defer t.client.Close()
+	if err := t.result.Start(); err != nil {
+		return err
+	}
+	defer t.result.Stop()
 	interrupt := make(chan any)
 	go func() {
 		<-ctx.Done()
 		close(interrupt)
 	}()
-	return t.worker.Run(interrupt)
+	return t.engine.Run(interrupt)
 }

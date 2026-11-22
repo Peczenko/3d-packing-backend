@@ -385,15 +385,17 @@ class AzurePackingJobArtifactStoreIT {
     }
 
     @Test
-    void readsThePlacementsTheWorkerStoredUnderTheResultChecksumAndNoneForAnOlderResult() {
+    void readsThePlacementsTheWorkerStoredAndNoneForAJobFromBeforeThem() {
         PackingJobId jobId = PackingJobId.generate();
-        String checksum = "d".repeat(64);
+        PackingJobId older = PackingJobId.generate();
         byte[] placements = "{\"version\":1}".getBytes(StandardCharsets.UTF_8);
-        container.getBlobClient("packing-jobs/" + jobId + "/result/placements/" + checksum + ".json")
+        container.getBlobClient("packing-jobs/" + jobId + "/result/placements.json")
+                 .upload(new ByteArrayInputStream(placements), placements.length);
+        container.getBlobClient("packing-jobs/" + older + "/result/placements/" + "d".repeat(64) + ".json")
                  .upload(new ByteArrayInputStream(placements), placements.length);
 
-        assertThat(artifacts.findPlacements(jobId, checksum)).contains(placements);
-        assertThat(artifacts.findPlacements(jobId, "e".repeat(64))).isEmpty();
+        assertThat(artifacts.findPlacements(jobId)).contains(placements);
+        assertThat(artifacts.findPlacements(older)).isEmpty();
     }
 
     @Test

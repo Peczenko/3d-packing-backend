@@ -19,7 +19,7 @@ public interface PackingJobArtifactStore {
 
     InputStream open(PackingArtifact artifact);
 
-    Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum);
+    Optional<byte[]> findPlacements(PackingJobId jobId);
 
     InputStream openInput(PackingItem item);
 

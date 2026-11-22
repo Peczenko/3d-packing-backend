@@ -13,8 +13,6 @@ public record PackingJobFinished(PackingJobId jobId,
         UserId requestedBy,
         PackingJobStatus status,
         String failureReason,
-        String resultFileName,
-        Long resultSizeBytes,
         Instant startedAt,
         Instant occurredAt) implements DomainEvent {
 }

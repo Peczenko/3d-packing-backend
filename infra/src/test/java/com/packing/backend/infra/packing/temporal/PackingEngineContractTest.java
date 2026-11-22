@@ -6,7 +6,9 @@ import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFa
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultBin;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultFiles;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.RunEngineInput;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.WriteResultInput;
 import io.temporal.api.common.v1.Payload;
 import io.temporal.common.converter.JacksonJsonPayloadConverter;
 import org.junit.jupiter.api.Test;
@@ -44,14 +46,36 @@ class PackingEngineContractTest {
     void engineResultMatchesItsExample() throws IOException {
         assertRoundTrip("run-engine-result.example.json",
                         EngineResult.class,
-                        new EngineResult(PackingEngineContract.VERSION,
-                                         "v0.0.5",
-                                         CHECKSUM,
-                                         "packed.obj",
-                                         "model/obj",
-                                         30,
-                                         "b".repeat(64),
-                                         List.of(new ResultBin(18, "c".repeat(64)), new ResultBin(12, "d".repeat(64)))));
+                        new EngineResult(PackingEngineContract.VERSION, "v0.0.5", CHECKSUM, 2));
+    }
+
+    @Test
+    void aV4EngineResultStillInTheHistoryOfAWorkflowRunningAcrossTheDeployStillReadsBack() throws IOException {
+        Payload payload = Payload.newBuilder()
+                                 .putMetadata("encoding", ByteString.copyFromUtf8("json/plain"))
+                                 .setData(ByteString.copyFrom(Files.readAllBytes(Path.of("..", "contracts", "packing", "v4", "run-engine-result.example.json"))))
+                                 .build();
+
+        assertThat(converter.fromData(payload, EngineResult.class, EngineResult.class)).isEqualTo(new EngineResult(4, "v0.0.5", CHECKSUM, 0));
+    }
+
+    @Test
+    void writeResultInputMatchesItsExample() throws IOException {
+        assertRoundTrip("write-result-input.example.json",
+                        WriteResultInput.class,
+                        new WriteResultInput(PackingEngineContract.VERSION, "00000000-0000-0000-0000-000000000001"));
+    }
+
+    @Test
+    void resultFilesMatchTheirExample() throws IOException {
+        assertRoundTrip("write-result-result.example.json",
+                        ResultFiles.class,
+                        new ResultFiles(PackingEngineContract.VERSION,
+                                        "packed.obj",
+                                        "model/obj",
+                                        30,
+                                        "b".repeat(64),
+                                        List.of(new ResultBin(18, "c".repeat(64)), new ResultBin(12, "d".repeat(64)))));
     }
 
     @Test

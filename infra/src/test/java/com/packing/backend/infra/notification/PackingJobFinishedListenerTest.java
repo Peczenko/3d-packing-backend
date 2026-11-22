@@ -114,8 +114,6 @@ class PackingJobFinishedListenerTest {
                                       USER,
                                       PackingJobStatus.SUCCEEDED,
                                       null,
-                                      "result.bin",
-                                      2048L,
                                       STARTED,
                                       FINISHED);
     }

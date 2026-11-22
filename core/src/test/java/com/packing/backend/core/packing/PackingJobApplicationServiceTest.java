@@ -52,6 +52,7 @@ import com.packing.backend.domain.packing.PackingPreview;
 import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.packing.ResultBin;
+import com.packing.backend.domain.packing.ResultStatus;
 import com.packing.backend.domain.packing.event.PackingJobCancelled;
 import com.packing.backend.domain.packing.event.PackingJobQueued;
 import com.packing.backend.domain.project.ProjectId;
@@ -627,6 +628,36 @@ class PackingJobApplicationServiceTest {
     }
 
     @Test
+    void prepareResultDownloadRejectsAResultStillBeingWrittenWithoutLookingUpArtifacts() {
+        UUID jobId = UUID.randomUUID();
+        givenReadAccess();
+        when(repository.findById(new com.packing.backend.domain.packing.PackingJobId(jobId)))
+                                                                                             .thenReturn(Optional.of(pendingResultJob(jobId, 1, PackingPreview.PENDING)));
+
+        assertThatThrownBy(() -> service.prepareResultDownload(new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
+                                                                                                                                   .isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> service.prepareResultBinDownload(new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, 1)))
+                                                                                                                                            .isInstanceOf(ResourceConflictException.class);
+
+        verify(artifacts, never()).findResult(any());
+        verify(artifacts, never()).readUrl(any(), any(), anyBoolean());
+    }
+
+    @Test
+    void prepareResultBinPreviewDownloadServesAContainerWhileTheResultIsStillBeingWritten() {
+        UUID jobId = UUID.randomUUID();
+        PackingPreview preview = PackingPreview.ready(readyPreview().models(),
+                                                      List.of(readyPreview().models(), List.of(new PreviewModel(PreviewQuality.HIGH, 4, 128))));
+        PackingJob job = pendingResultJob(jobId, 2, preview);
+        givenReadAccess();
+        when(repository.findById(job.id())).thenReturn(Optional.of(job));
+
+        service.prepareResultBinPreviewDownload(binPreviewQuery(jobId, 2, PreviewQuality.HIGH, false));
+
+        verify(artifacts).readUrl(new PackingArtifact.BinPreview(job.id(), 2, 2, PreviewQuality.HIGH), Duration.ofMinutes(10), false);
+    }
+
+    @Test
     void prepareResultDownloadRejectsASucceededJobWhoseResultBlobIsMissing() {
         UUID jobId = UUID.randomUUID();
         PackingJob job = job(jobId, PROJECT_ID, PackingJobStatus.SUCCEEDED);
@@ -896,10 +927,12 @@ class PackingJobApplicationServiceTest {
                                   NOW,
                                   NOW,
                                   null,
+                                  ResultStatus.READY,
                                   "packed.obj",
                                   "model/obj",
                                   12L,
                                   "b".repeat(64),
+                                  0,
                                   List.of(),
                                   new PackingJobInputView(1, 120, PARAMETERS.json(), List.of(items)),
                                   PackingPreview.PENDING);
@@ -975,10 +1008,12 @@ class PackingJobApplicationServiceTest {
                                   null,
                                   null,
                                   null,
+                                  ResultStatus.NONE,
                                   null,
                                   null,
                                   null,
                                   null,
+                                  0,
                                   List.of(),
                                   null,
                                   PackingPreview.NONE);
@@ -993,6 +1028,22 @@ class PackingJobApplicationServiceTest {
     }
 
     private static PackingJob job(UUID id, ProjectId projectId, PackingJobStatus status, PackingPreview preview, List<ResultBin> bins) {
+        ResultStatus result = status == PackingJobStatus.SUCCEEDED ? ResultStatus.READY : ResultStatus.NONE;
+        return job(id, projectId, status, bins.size(), result, preview, bins);
+    }
+
+    private static PackingJob pendingResultJob(UUID id, int containers, PackingPreview preview) {
+        return job(id, PROJECT_ID, PackingJobStatus.SUCCEEDED, containers, ResultStatus.PENDING, preview, List.of());
+    }
+
+    private static PackingJob job(UUID id,
+                                  ProjectId projectId,
+                                  PackingJobStatus status,
+                                  int containers,
+                                  ResultStatus result,
+                                  PackingPreview preview,
+                                  List<ResultBin> bins) {
+        boolean ready = result == ResultStatus.READY;
         return PackingJob.rehydrate(new com.packing.backend.domain.packing.PackingJobId(id),
                                     projectId,
                                     USER_ID,
@@ -1004,10 +1055,12 @@ class PackingJobApplicationServiceTest {
                                     null,
                                     null,
                                     NOW,
-                                    "result.bin",
-                                    "application/octet-stream",
-                                    "b".repeat(64),
-                                    12L,
+                                    containers,
+                                    result,
+                                    ready ? "result.bin" : null,
+                                    ready ? "application/octet-stream" : null,
+                                    ready ? "b".repeat(64) : null,
+                                    ready ? 12L : null,
                                     bins,
                                     status == PackingJobStatus.FAILED ? "packing failed" : null,
                                     preview,

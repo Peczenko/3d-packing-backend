@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -210,7 +211,7 @@ func TestBlobArtifacts(t *testing.T) {
 		}
 		want := pipeline.StoredResult{
 			Engine: pipeline.EngineProvenance{Version: "packer 0.3.0", Checksum: strings.Repeat("b", 64)},
-			Result: pipeline.EngineResult{
+			Result: pipeline.ResultFiles{
 				FileName:    "output",
 				ContentType: "application/octet-stream",
 				SizeBytes:   int64(len(body)),
@@ -283,7 +284,7 @@ func TestBlobArtifacts(t *testing.T) {
 		path := writeTempFile(t, body)
 		result := pipeline.StoredResult{
 			Engine: pipeline.EngineProvenance{Version: "packer 0.3.0", Checksum: strings.Repeat("c", 64)},
-			Result: pipeline.EngineResult{
+			Result: pipeline.ResultFiles{
 				FileName:    "output",
 				ContentType: contentType,
 				Path:        path,
@@ -352,7 +353,7 @@ func TestBlobArtifacts(t *testing.T) {
 		bodies := [][]byte{[]byte("bin one"), []byte("bin two!")}
 		result := pipeline.StoredResult{
 			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("c", 64)},
-			Result: pipeline.EngineResult{
+			Result: pipeline.ResultFiles{
 				FileName:    "packed.obj",
 				ContentType: "model/obj",
 				Path:        writeTempFile(t, []byte("both bins")),
@@ -390,43 +391,218 @@ func TestBlobArtifacts(t *testing.T) {
 		}
 	})
 
-	t.Run("stores the placements under the combined checksum", func(t *testing.T) {
+	t.Run("reports no placements before they exist", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+
+		stored, err := artifacts.FindPlacements(ctx, newJobID(t))
+		if err != nil {
+			t.Fatalf("FindPlacements: %v", err)
+		}
+		if stored != nil {
+			t.Fatalf("FindPlacements = %+v, want nil for a job with no placements", *stored)
+		}
+	})
+
+	t.Run("creates the placements at the derived key and reads them back exactly", func(t *testing.T) {
 		ctx, client, cfg := newAzuriteContainer(t, connectionString)
 		artifacts := NewBlobArtifacts(client, cfg)
 		jobID := newJobID(t)
-		checksum := strings.Repeat("e", 64)
-		body := []byte("packed")
-		result := pipeline.StoredResult{
+		placements := pipeline.StoredPlacements{
 			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("c", 64)},
-			Result: pipeline.EngineResult{
-				FileName:    "packed.obj",
-				ContentType: "model/obj",
-				Path:        writeTempFile(t, body),
-				SizeBytes:   int64(len(body)),
-				Checksum:    checksum,
-				Bins:        []pipeline.ResultBin{{SizeBytes: int64(len(body)), Checksum: checksum}},
-				Layout: &pipeline.Layout{
-					BinOffsets: [][3]float64{{0, 0, 0}},
-					Placements: []pipeline.Placement{{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 10, 0, 1, 0, 20, 0, 0, 1, 30}}},
+			Layout: pipeline.Layout{
+				BinOffsets: [][3]float64{{0, 0, 0}, {1650.0000000000002, 0, 0}},
+				Placements: []pipeline.Placement{
+					{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 10, 0, 1, 0, 20, 0, 0, 1, 30}},
+					{Item: 1, Bin: 2, Matrix: [12]float64{0.1, -0.9949874371066199, 0, 1e-17, 0.9949874371066199, 0.1, 0, -2.5, 0, 0, 1, 123.456789012345}},
 				},
 			},
 		}
 
-		created, err := artifacts.CreateResult(ctx, jobID, result)
+		created, err := artifacts.CreatePlacements(ctx, jobID, placements)
 		if err != nil {
-			t.Fatalf("CreateResult: %v", err)
+			t.Fatalf("CreatePlacements: %v", err)
 		}
-		if created.Result.Layout != nil {
-			t.Fatalf("stored form carries a layout: %+v", created.Result.Layout)
+		if created == nil || !reflect.DeepEqual(*created, placements) {
+			t.Fatalf("CreatePlacements = %+v, want the offered placements %+v", created, placements)
+		}
+		found, err := artifacts.FindPlacements(ctx, jobID)
+		if err != nil {
+			t.Fatalf("FindPlacements: %v", err)
+		}
+		if found == nil || !reflect.DeepEqual(*found, placements) {
+			t.Fatalf("FindPlacements = %+v, want exactly what was stored %+v", found, placements)
 		}
 
-		properties, downloaded := readBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/placements/"+checksum+".json")
-		want := `{"version":1,"binOffsets":[[0,0,0]],"placements":[{"item":0,"bin":1,"matrix":[1,0,0,10,0,1,0,20,0,0,1,30]}]}`
-		if string(downloaded) != want {
-			t.Errorf("placements = %s, want %s", downloaded, want)
+		if blobs := listBlobs(t, ctx, client, cfg, "packing-jobs/"+jobID+"/"); !reflect.DeepEqual(blobs, []string{"packing-jobs/" + jobID + "/result/placements.json"}) {
+			t.Errorf("stored blobs %v, want only result/placements.json", blobs)
+		}
+		properties, downloaded := readBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/placements.json")
+		var wire contracts.ResultPlacements
+		if err := json.Unmarshal(downloaded, &wire); err != nil || wire.Version != contracts.PlacementsVersion || len(wire.Placements) != 2 {
+			t.Errorf("stored body %s does not decode as version %d placements: %v", downloaded, contracts.PlacementsVersion, err)
 		}
 		if properties.ContentType == nil || *properties.ContentType != "application/json" {
 			t.Errorf("placements content type = %s, want application/json", showString(properties.ContentType))
+		}
+		wantMetadata := map[string]string{
+			"engineVersion":        "v0.0.5",
+			"engineChecksumSha256": strings.Repeat("c", 64),
+			"contractVersion":      strconv.Itoa(contracts.ActivityVersion),
+			"binCount":             "2",
+		}
+		if len(properties.Metadata) != len(wantMetadata) {
+			t.Errorf("stored %d metadata entries, want %d: %v", len(properties.Metadata), len(wantMetadata), metadataNames(properties.Metadata))
+		}
+		for name, want := range wantMetadata {
+			if got := resultMetadataValue(properties.Metadata, name); got != want {
+				t.Errorf("stored metadata %s = %q, want %q", name, got, want)
+			}
+		}
+	})
+
+	t.Run("a placements create after a winner returns the winner and leaves it alone", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		jobID := newJobID(t)
+		winner := pipeline.StoredPlacements{
+			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("1", 64)},
+			Layout: pipeline.Layout{
+				BinOffsets: [][3]float64{{0, 0, 0}},
+				Placements: []pipeline.Placement{{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0}}},
+			},
+		}
+		late := pipeline.StoredPlacements{
+			Engine: pipeline.EngineProvenance{Version: "v0.0.6", Checksum: strings.Repeat("2", 64)},
+			Layout: pipeline.Layout{
+				BinOffsets: [][3]float64{{0, 0, 0}},
+				Placements: []pipeline.Placement{{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 7, 0, 1, 0, 0, 0, 0, 1, 0}}},
+			},
+		}
+
+		if _, err := artifacts.CreatePlacements(ctx, jobID, winner); err != nil {
+			t.Fatalf("CreatePlacements (winner): %v", err)
+		}
+		reported, err := artifacts.CreatePlacements(ctx, jobID, late)
+		if err != nil {
+			t.Fatalf("CreatePlacements (late): %v", err)
+		}
+		if reported == nil || !reflect.DeepEqual(*reported, winner) {
+			t.Fatalf("late CreatePlacements = %+v, want the winner %+v", reported, winner)
+		}
+		found, err := artifacts.FindPlacements(ctx, jobID)
+		if err != nil || found == nil || !reflect.DeepEqual(*found, winner) {
+			t.Fatalf("FindPlacements = %+v, %v; want the winner untouched", found, err)
+		}
+	})
+
+	t.Run("concurrent placements creates agree on one winner", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		jobID := newJobID(t)
+		candidates := make([]pipeline.StoredPlacements, 2)
+		for i := range candidates {
+			candidates[i] = pipeline.StoredPlacements{
+				Engine: pipeline.EngineProvenance{Version: "v0.0." + strconv.Itoa(i), Checksum: strings.Repeat(strconv.Itoa(i+1), 64)},
+				Layout: pipeline.Layout{
+					BinOffsets: [][3]float64{{0, 0, 0}},
+					Placements: []pipeline.Placement{{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, float64(i), 0, 1, 0, 0, 0, 0, 1, 0}}},
+				},
+			}
+		}
+
+		reported := make([]*pipeline.StoredPlacements, len(candidates))
+		errs := make([]error, len(candidates))
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range candidates {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				reported[i], errs[i] = artifacts.CreatePlacements(ctx, jobID, candidates[i])
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		for i, err := range errs {
+			if err != nil || reported[i] == nil {
+				t.Fatalf("CreatePlacements from caller %d = %+v, %v", i, reported[i], err)
+			}
+		}
+		if !reflect.DeepEqual(*reported[0], *reported[1]) {
+			t.Fatalf("callers disagree on the placements: %+v vs %+v", *reported[0], *reported[1])
+		}
+		if !reflect.DeepEqual(*reported[0], candidates[0]) && !reflect.DeepEqual(*reported[0], candidates[1]) {
+			t.Fatalf("agreed placements %+v are neither caller's", *reported[0])
+		}
+		found, err := artifacts.FindPlacements(ctx, jobID)
+		if err != nil || found == nil || !reflect.DeepEqual(*found, *reported[0]) {
+			t.Fatalf("FindPlacements = %+v, %v; want the agreed winner", found, err)
+		}
+	})
+
+	t.Run("a repeated create of the same multi-bin result accepts the bins already stored", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		jobID := newJobID(t)
+		result := pipeline.StoredResult{
+			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("c", 64)},
+			Result: pipeline.ResultFiles{
+				FileName:    "packed.obj",
+				ContentType: "model/obj",
+				Path:        writeTempFile(t, []byte("both bins")),
+				SizeBytes:   9,
+				Checksum:    strings.Repeat("d", 64),
+				Bins: []pipeline.ResultBin{
+					{Path: writeTempFile(t, []byte("bin one")), SizeBytes: 7, Checksum: strings.Repeat("1", 64)},
+					{Path: writeTempFile(t, []byte("bin two!")), SizeBytes: 8, Checksum: strings.Repeat("2", 64)},
+				},
+			},
+		}
+
+		first, err := artifacts.CreateResult(ctx, jobID, result)
+		if err != nil {
+			t.Fatalf("CreateResult (first): %v", err)
+		}
+		again, err := artifacts.CreateResult(ctx, jobID, result)
+		if err != nil {
+			t.Fatalf("CreateResult (again): %v", err)
+		}
+		if !reflect.DeepEqual(*again, *first) {
+			t.Fatalf("repeated CreateResult = %+v, want %+v", *again, *first)
+		}
+	})
+
+	t.Run("a bin already stored with other content fails the create", func(t *testing.T) {
+		ctx, client, cfg := newAzuriteContainer(t, connectionString)
+		artifacts := NewBlobArtifacts(client, cfg)
+		jobID := newJobID(t)
+		checksum := strings.Repeat("d", 64)
+		putBlob(t, ctx, client, cfg, "packing-jobs/"+jobID+"/result/bins/"+checksum+"/1", []byte("other"), map[string]*string{
+			"checksumSha256": to.Ptr(strings.Repeat("9", 64)),
+		})
+		result := pipeline.StoredResult{
+			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("c", 64)},
+			Result: pipeline.ResultFiles{
+				FileName:    "packed.obj",
+				ContentType: "model/obj",
+				Path:        writeTempFile(t, []byte("both bins")),
+				SizeBytes:   9,
+				Checksum:    checksum,
+				Bins: []pipeline.ResultBin{
+					{Path: writeTempFile(t, []byte("bin one")), SizeBytes: 7, Checksum: strings.Repeat("1", 64)},
+					{Path: writeTempFile(t, []byte("bin two!")), SizeBytes: 8, Checksum: strings.Repeat("2", 64)},
+				},
+			},
+		}
+
+		if created, err := artifacts.CreateResult(ctx, jobID, result); err == nil {
+			t.Fatalf("CreateResult = %+v, want an error for a bin stored with other content", created)
+		}
+		if found, err := artifacts.FindResult(ctx, jobID); err != nil || found != nil {
+			t.Fatalf("FindResult = %+v, %v; want no combined result after a failed bin", found, err)
 		}
 	})
 
@@ -440,7 +616,7 @@ func TestBlobArtifacts(t *testing.T) {
 		encoded := [][]byte{stored(t, combined), stored(t, bins[0]), stored(t, bins[1])}
 		result := pipeline.StoredResult{
 			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("c", 64)},
-			Result: pipeline.EngineResult{
+			Result: pipeline.ResultFiles{
 				FileName:        "packed.obj",
 				ContentType:     "model/obj",
 				ContentEncoding: "gzip",
@@ -503,7 +679,7 @@ func TestBlobArtifacts(t *testing.T) {
 		winnerBody := bytes.Repeat([]byte("w"), blockSize+1)
 		winner := pipeline.StoredResult{
 			Engine: pipeline.EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("1", 64)},
-			Result: pipeline.EngineResult{FileName: "packed.obj", ContentType: "model/obj", ContentEncoding: "gzip",
+			Result: pipeline.ResultFiles{FileName: "packed.obj", ContentType: "model/obj", ContentEncoding: "gzip",
 				Path: writeTempFile(t, stored(t, winnerBody)), SizeBytes: 10, Checksum: strings.Repeat("2", 64),
 				Bins: []pipeline.ResultBin{{SizeBytes: 10, Checksum: strings.Repeat("2", 64)}}},
 		}
@@ -541,7 +717,7 @@ func TestBlobArtifacts(t *testing.T) {
 				body: []byte(`{"writer":"a"}`),
 				stored: pipeline.StoredResult{
 					Engine: pipeline.EngineProvenance{Version: "packer 0.3.0", Checksum: strings.Repeat("1", 64)},
-					Result: pipeline.EngineResult{FileName: "output", ContentType: "application/octet-stream", SizeBytes: 14, Checksum: strings.Repeat("2", 64),
+					Result: pipeline.ResultFiles{FileName: "output", ContentType: "application/octet-stream", SizeBytes: 14, Checksum: strings.Repeat("2", 64),
 						Bins: []pipeline.ResultBin{{SizeBytes: 14, Checksum: strings.Repeat("2", 64)}}},
 				},
 			},
@@ -549,7 +725,7 @@ func TestBlobArtifacts(t *testing.T) {
 				body: []byte(`{"writer":"b","padding":"longer"}`),
 				stored: pipeline.StoredResult{
 					Engine: pipeline.EngineProvenance{Version: "packer 0.4.0", Checksum: strings.Repeat("3", 64)},
-					Result: pipeline.EngineResult{FileName: "output", ContentType: "application/octet-stream", SizeBytes: 33, Checksum: strings.Repeat("4", 64),
+					Result: pipeline.ResultFiles{FileName: "output", ContentType: "application/octet-stream", SizeBytes: 33, Checksum: strings.Repeat("4", 64),
 						Bins: []pipeline.ResultBin{{SizeBytes: 33, Checksum: strings.Repeat("4", 64)}}},
 				},
 			},

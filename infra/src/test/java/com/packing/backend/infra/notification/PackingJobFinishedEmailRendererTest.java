@@ -27,7 +27,7 @@ class PackingJobFinishedEmailRendererTest {
     private final PackingJobFinishedEmailRenderer renderer = new PackingJobFinishedEmailRenderer(new EmailTemplates());
 
     @Test
-    void aSucceededJobCarriesTheResultMetadata() {
+    void aSucceededJobPointsAtTheProjectWithoutPromisingAResultThatIsStillBeingWritten() {
         EmailMessage message = renderer.render(succeeded(), requester(), "Chassis packing");
 
         assertThat(message.to()).containsExactly("pilot@example.com");
@@ -36,10 +36,9 @@ class PackingJobFinishedEmailRendererTest {
                                       .contains("Chassis packing")
                                       .contains(JOB_ID.toString())
                                       .contains("1 m 23 s")
-                                      .contains("result.bin")
-                                      .contains("2,048 bytes")
-                                      .doesNotContain("Reason");
-        assertThat(message.textBody()).contains("Result file: result.bin");
+                                      .contains("Open the project to see the preview and download the result.")
+                                      .doesNotContain("Result file", "Reason");
+        assertThat(message.textBody()).contains("Runtime: 1 m 23 s");
     }
 
     @Test
@@ -59,8 +58,6 @@ class PackingJobFinishedEmailRendererTest {
                                                                  USER,
                                                                  PackingJobStatus.FAILED,
                                                                  "Dispatch expired before the job started",
-                                                                 null,
-                                                                 null,
                                                                  null,
                                                                  FINISHED);
 
@@ -101,8 +98,6 @@ class PackingJobFinishedEmailRendererTest {
                                       USER,
                                       PackingJobStatus.SUCCEEDED,
                                       null,
-                                      "result.bin",
-                                      2048L,
                                       STARTED,
                                       FINISHED);
     }
@@ -113,8 +108,6 @@ class PackingJobFinishedEmailRendererTest {
                                       USER,
                                       PackingJobStatus.FAILED,
                                       "engine exited 1",
-                                      null,
-                                      null,
                                       STARTED,
                                       FINISHED);
     }

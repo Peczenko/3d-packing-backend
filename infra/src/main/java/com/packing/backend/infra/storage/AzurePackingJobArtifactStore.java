@@ -63,8 +63,8 @@ class AzurePackingJobArtifactStore implements PackingJobArtifactStore {
     }
 
     @Override
-    public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
-        String key = "packing-jobs/" + jobId + "/result/placements/" + resultChecksum + ".json";
+    public Optional<byte[]> findPlacements(PackingJobId jobId) {
+        String key = "packing-jobs/" + jobId + "/result/placements.json";
         return container.findProperties(key)
                         .map(properties -> container.download(key));
     }

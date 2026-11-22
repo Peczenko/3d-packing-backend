@@ -15,6 +15,7 @@ import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PreviewStatus;
+import com.packing.backend.domain.packing.ResultStatus;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectName;
 import com.packing.backend.domain.user.Email;
@@ -27,9 +28,12 @@ import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultBi
 import com.packing.backend.infra.packing.temporal.PackingEngineContract;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultFiles;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.RunEngineInput;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.WriteResultInput;
 import com.packing.backend.infra.packing.temporal.PackingJobWorkflow;
 import com.packing.backend.infra.packing.temporal.PackingPreviewActivity;
+import com.packing.backend.infra.packing.temporal.PackingResultActivity;
 import io.temporal.activity.Activity;
 import io.temporal.client.WorkflowClient;
 import io.temporal.spring.boot.ActivityImpl;
@@ -43,7 +47,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -89,6 +92,7 @@ class PackingTemporalWiringIT {
     void aDispatchedJobRunsThroughTheWorkflowToSucceeded() throws InterruptedException {
         assertThat(workerFactory.tryGetWorker(PackingEngineContract.STATE_TASK_QUEUE)).isNotNull();
         assertThat(workerFactory.tryGetWorker(PackingPreviewActivity.TASK_QUEUE)).isNotNull();
+        assertThat(workerFactory.tryGetWorker(PackingEngineContract.RESULT_TASK_QUEUE)).isNotNull();
         assertThat(workerFactory.isStarted()).isTrue();
         Instant now = Instant.now()
                              .truncatedTo(ChronoUnit.MICROS);
@@ -115,13 +119,33 @@ class PackingTemporalWiringIT {
         assertThat(finished.dispatchedAt()).isNotNull();
         assertThat(finished.startedAt()).isNotNull();
         assertThat(finished.engineVersion()).isEqualTo("packer 0.3.0");
-        assertThat(finished.resultFileName()).isEqualTo("output");
+        assertThat(finished.binCount()).isEqualTo(1);
         assertThat(artifacts.requested).containsExactly(job.id());
+
+        PackingJob written = awaitResult(job.id());
+        assertThat(written.resultStatus()).isEqualTo(ResultStatus.READY);
+        assertThat(written.resultFileName()).isEqualTo("output");
 
         PackingJob previewed = awaitPreview(job.id());
         assertThat(previewed.preview()
                             .status()).isEqualTo(PreviewStatus.FAILED);
-        assertThat(artifacts.resultsOpened).contains(job.id());
+        assertThat(artifacts.placementsRead).contains(job.id());
+    }
+
+    private PackingJob awaitResult(PackingJobId id) throws InterruptedException {
+        Instant deadline = Instant.now()
+                                  .plus(Duration.ofSeconds(30));
+        while (Instant.now()
+                      .isBefore(deadline)) {
+            PackingJob current = jobs.findById(id)
+                                     .orElseThrow();
+            if (current.resultStatus() != ResultStatus.PENDING) {
+                return current;
+            }
+            Thread.sleep(200);
+        }
+        return jobs.findById(id)
+                   .orElseThrow();
     }
 
     private PackingJob awaitPreview(PackingJobId id) throws InterruptedException {
@@ -167,6 +191,11 @@ class PackingTemporalWiringIT {
         }
 
         @Bean
+        FakeResultWriter fakeResultWriter() {
+            return new FakeResultWriter();
+        }
+
+        @Bean
         @Primary
         RecordingArtifactStore recordingArtifactStore() {
             return new RecordingArtifactStore();
@@ -190,21 +219,28 @@ class PackingTemporalWiringIT {
             client.getObject()
                   .newWorkflowStub(PackingJobWorkflow.class, workflowId)
                   .engineStarted(new EngineStarted(PackingEngineContract.VERSION, "packer 0.3.0", CHECKSUM));
-            return new EngineResult(PackingEngineContract.VERSION,
-                                    "packer 0.3.0",
-                                    CHECKSUM,
-                                    "output",
-                                    "application/json",
-                                    12,
-                                    "b".repeat(64),
-                                    List.of(new ResultBin(12, "b".repeat(64))));
+            return new EngineResult(PackingEngineContract.VERSION, "packer 0.3.0", CHECKSUM, 1);
+        }
+    }
+
+    @ActivityImpl(taskQueues = PackingEngineContract.RESULT_TASK_QUEUE)
+    static class FakeResultWriter implements PackingResultActivity {
+
+        @Override
+        public ResultFiles writeResult(WriteResultInput input) {
+            return new ResultFiles(PackingEngineContract.VERSION,
+                                   "output",
+                                   "application/json",
+                                   12,
+                                   "b".repeat(64),
+                                   List.of(new ResultBin(12, "b".repeat(64))));
         }
     }
 
     static class RecordingArtifactStore implements PackingJobArtifactStore {
 
-        private final List<PackingJobId> requested     = new CopyOnWriteArrayList<>();
-        private final List<PackingJobId> resultsOpened = new CopyOnWriteArrayList<>();
+        private final List<PackingJobId> requested      = new CopyOnWriteArrayList<>();
+        private final List<PackingJobId> placementsRead = new CopyOnWriteArrayList<>();
 
         @Override
         public void writeRequestIfAbsent(PackingJobId jobId, PackingRequestEnvelope envelope) {
@@ -218,16 +254,13 @@ class PackingTemporalWiringIT {
 
         @Override
         public InputStream open(PackingArtifact artifact) {
-            if (!(artifact instanceof PackingArtifact.Result result)) {
-                throw new UnsupportedOperationException();
-            }
-            resultsOpened.add(result.jobId());
-            return new ByteArrayInputStream("o Object_0\nv 0 0 0\n".getBytes(StandardCharsets.UTF_8));
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
-            return Optional.empty();
+        public Optional<byte[]> findPlacements(PackingJobId jobId) {
+            placementsRead.add(jobId);
+            return Optional.of("{}".getBytes(StandardCharsets.UTF_8));
         }
 
         @Override

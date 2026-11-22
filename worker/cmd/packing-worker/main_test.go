@@ -21,6 +21,7 @@ func useTestEnvironment(t *testing.T) {
 	t.Setenv("TEMPORAL_ADDRESS", "temporal.test:7233")
 	t.Setenv("TEMPORAL_NAMESPACE", "test-namespace")
 	t.Setenv("PACKING_TASK_QUEUE", "test-engine")
+	t.Setenv("PACKING_RESULT_TASK_QUEUE", "test-result")
 	t.Setenv("PACKING_HEARTBEAT_INTERVAL", "7s")
 	t.Setenv("STORAGE_CONNECTION_STRING", "DefaultEndpointsProtocol=https;AccountName=fake;AccountKey="+testSecretMarker)
 	t.Setenv("STORAGE_ACCOUNT_URL", "")
@@ -123,6 +124,7 @@ func TestRunWithPassesTheLoadedConfigurationToTheConnector(t *testing.T) {
 		TemporalAddress:   "temporal.test:7233",
 		TemporalNamespace: "test-namespace",
 		TaskQueue:         "test-engine",
+		ResultTaskQueue:   "test-result",
 		HeartbeatInterval: 7 * time.Second,
 		OverrunGrace:      45 * time.Second,
 		StorageContainer:  "test-models",

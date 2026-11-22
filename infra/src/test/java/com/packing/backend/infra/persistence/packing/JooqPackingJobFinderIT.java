@@ -13,6 +13,7 @@ import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingPreview;
+import com.packing.backend.domain.packing.ResultStatus;
 import com.packing.backend.domain.project.Project;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.project.ProjectName;
@@ -453,6 +454,19 @@ class JooqPackingJobFinderIT {
     }
 
     @Test
+    void detailCarriesTheResultStateAndContainerCountBeforeTheResultIsWritten() {
+        PackingJob job = PackingJob.queue(PackingJobId.generate(), projectA, user, PackingInputs.single(), 120, now());
+        job.succeed("v0.0.5", "a".repeat(64), 3, now());
+        persist(job);
+
+        assertThat(finder().detailInProject(projectA, job.id())).hasValueSatisfying(view -> {
+            assertThat(view.resultStatus()).isEqualTo(ResultStatus.PENDING);
+            assertThat(view.binCount()).isEqualTo(3);
+            assertThat(view.resultBins()).isEmpty();
+        });
+    }
+
+    @Test
     void aLegacyJobIsListedWithoutInput() {
         PackingJobId id = LegacyPackingJobs.insert(dsl, projectA, user, PackingJobStatus.FAILED, now());
 
@@ -563,6 +577,7 @@ class JooqPackingJobFinderIT {
                                   String resultFileName,
                                   Long resultSizeBytes,
                                   String failureReason) {
+        boolean ready = status == PackingJobStatus.SUCCEEDED && resultFileName != null;
         PackingJob job = PackingJob.rehydrate(id,
                                               project,
                                               user,
@@ -574,9 +589,11 @@ class JooqPackingJobFinderIT {
                                               null,
                                               startedAt,
                                               finishedAt,
+                                              0,
+                                              ready ? ResultStatus.READY : ResultStatus.NONE,
                                               resultFileName,
                                               resultFileName == null ? null : "application/octet-stream",
-                                              resultFileName == null ? null : "b".repeat(64),
+                                              ready ? "b".repeat(64) : null,
                                               resultSizeBytes,
                                               List.of(),
                                               failureReason,

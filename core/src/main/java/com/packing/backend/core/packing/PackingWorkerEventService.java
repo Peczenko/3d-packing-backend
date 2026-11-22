@@ -29,14 +29,17 @@ public class PackingWorkerEventService {
                                                                        started.engineChecksum(),
                                                                        clock.instant());
             case PackingWorkerEvent.Succeeded succeeded -> job.succeed(
-                                                                       succeeded.resultFileName(),
-                                                                       succeeded.resultContentType(),
-                                                                       succeeded.resultSizeBytes(),
-                                                                       succeeded.resultChecksum(),
-                                                                       succeeded.resultBins(),
                                                                        succeeded.engineVersion(),
                                                                        succeeded.engineChecksum(),
+                                                                       succeeded.binCount(),
                                                                        clock.instant());
+            case PackingWorkerEvent.ResultWritten written -> job.completeResult(
+                                                                                written.resultFileName(),
+                                                                                written.resultContentType(),
+                                                                                written.resultSizeBytes(),
+                                                                                written.resultChecksum(),
+                                                                                written.resultBins());
+            case PackingWorkerEvent.ResultFailed ignored -> job.failResult();
             case PackingWorkerEvent.Failed failed -> job.fail(
                                                               failed.reason(),
                                                               failed.engineVersion(),

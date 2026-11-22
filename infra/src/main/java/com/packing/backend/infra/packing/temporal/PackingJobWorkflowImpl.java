@@ -3,7 +3,9 @@ package com.packing.backend.infra.packing.temporal;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFailureDetails;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultFiles;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.RunEngineInput;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.WriteResultInput;
 import io.temporal.activity.ActivityOptions;
 import io.temporal.common.RetryOptions;
 import io.temporal.failure.ActivityFailure;
@@ -20,6 +22,8 @@ import java.util.Optional;
 
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.ENGINE_FAILURE;
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.ENGINE_TASK_QUEUE;
+import static com.packing.backend.infra.packing.temporal.PackingEngineContract.RESULT_FAILURE;
+import static com.packing.backend.infra.packing.temporal.PackingEngineContract.RESULT_TASK_QUEUE;
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.VERSION;
 
 @WorkflowImpl(taskQueues = PackingEngineContract.STATE_TASK_QUEUE)
@@ -34,6 +38,8 @@ public class PackingJobWorkflowImpl implements PackingJobWorkflow {
     static final String   COULD_NOT_COMPLETE     = "Packing engine could not complete the job";
     static final String   PREVIEW_CHANGE         = "build-preview";
     static final int      PREVIEW_ATTEMPTS       = 3;
+    static final String   RESULT_CHANGE          = "write-result";
+    static final int      RESULT_ATTEMPTS        = 3;
 
     private static final ActivityOptions STATE_OPTIONS = ActivityOptions.newBuilder()
                                                                         .setStartToCloseTimeout(Duration.ofSeconds(30))
@@ -54,6 +60,18 @@ public class PackingJobWorkflowImpl implements PackingJobWorkflow {
                                                                                                .setBackoffCoefficient(2)
                                                                                                .build())
                                                                   .build();
+
+    static final ActivityOptions RESULT_OPTIONS = ActivityOptions.newBuilder()
+                                                                 .setTaskQueue(RESULT_TASK_QUEUE)
+                                                                 .setStartToCloseTimeout(TRANSFER_MARGIN)
+                                                                 .setHeartbeatTimeout(HEARTBEAT_TIMEOUT)
+                                                                 .setRetryOptions(RetryOptions.newBuilder()
+                                                                                              .setMaximumAttempts(RESULT_ATTEMPTS)
+                                                                                              .setInitialInterval(Duration.ofSeconds(5))
+                                                                                              .setBackoffCoefficient(2)
+                                                                                              .setDoNotRetry(RESULT_FAILURE, START_TO_CLOSE_TIMEOUT)
+                                                                                              .build())
+                                                                 .build();
 
     private final PackingStateActivities state = Workflow.newActivityStub(PackingStateActivities.class, STATE_OPTIONS);
 
@@ -85,13 +103,33 @@ public class PackingJobWorkflowImpl implements PackingJobWorkflow {
         }
         awaitStarted();
         state.recordSucceeded(jobId, result);
+        if (Workflow.getVersion(RESULT_CHANGE, Workflow.DEFAULT_VERSION, 1) == Workflow.DEFAULT_VERSION) {
+            buildPreview();
+            return;
+        }
+        Promise<Void> written = Async.procedure(this::writeResult);
         buildPreview();
+        written.get();
     }
 
     @Override
     public void engineStarted(EngineStarted signal) {
         if (started == null) {
             started = Async.procedure(state::recordStarted, jobId, signal);
+        }
+    }
+
+    private void writeResult() {
+        PackingResultActivity writer = Workflow.newActivityStub(PackingResultActivity.class, RESULT_OPTIONS);
+        try {
+            ResultFiles files = writer.writeResult(new WriteResultInput(VERSION, jobId));
+            state.recordResultWritten(jobId, files);
+        } catch (ActivityFailure failure) {
+            Workflow.newDetachedCancellationScope(() -> state.recordResultFailed(jobId))
+                    .run();
+            if (failure.getCause() instanceof CanceledFailure canceled) {
+                throw canceled;
+            }
         }
     }
 

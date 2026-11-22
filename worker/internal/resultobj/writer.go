@@ -45,13 +45,13 @@ type written struct {
 	checksum    string
 }
 
-func (w Writer) Write(ctx context.Context, inputs []pipeline.InputFile, layout pipeline.Layout, dir string) (pipeline.EngineResult, error) {
+func (w Writer) Write(ctx context.Context, inputs []pipeline.InputFile, layout pipeline.Layout, dir string) (pipeline.ResultFiles, error) {
 	if err := validate(inputs, layout); err != nil {
-		return pipeline.EngineResult{}, err
+		return pipeline.ResultFiles{}, err
 	}
 	meshes, err := w.readMeshes(inputs)
 	if err != nil {
-		return pipeline.EngineResult{}, err
+		return pipeline.ResultFiles{}, err
 	}
 
 	binCount := len(layout.BinOffsets)
@@ -70,17 +70,16 @@ func (w Writer) Write(ctx context.Context, inputs []pipeline.InputFile, layout p
 		})
 	}
 	if err := group.Wait(); err != nil {
-		return pipeline.EngineResult{}, err
+		return pipeline.ResultFiles{}, err
 	}
 
-	result := pipeline.EngineResult{
+	result := pipeline.ResultFiles{
 		FileName:        FileName,
 		ContentType:     ContentType,
 		ContentEncoding: ContentEncoding,
 		Path:            targets[0].path,
 		SizeBytes:       outputs[0].sizeBytes,
 		Checksum:        outputs[0].checksum,
-		Layout:          &layout,
 	}
 	for i, out := range outputs {
 		result.StoredBytes += out.storedBytes
