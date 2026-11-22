@@ -88,9 +88,9 @@ public class PackingStateActivitiesImpl implements PackingStateActivities {
             return List.of();
         }
         return files.resultBins()
-                     .stream()
-                     .map(bin -> new ResultBin(bin.sizeBytes(), bin.checksum()))
-                     .toList();
+                    .stream()
+                    .map(bin -> new ResultBin(bin.sizeBytes(), bin.checksum()))
+                    .toList();
     }
 
     private static PackingJobId id(String jobId) {

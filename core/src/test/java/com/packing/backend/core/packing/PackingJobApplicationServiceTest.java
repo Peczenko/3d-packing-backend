@@ -635,9 +635,9 @@ class PackingJobApplicationServiceTest {
                                                                                              .thenReturn(Optional.of(pendingResultJob(jobId, 1, PackingPreview.PENDING)));
 
         assertThatThrownBy(() -> service.prepareResultDownload(new PackingJobResultQuery(FIREBASE_UID, PROJECT_ID.value(), jobId)))
-                                                                                                                                 .isInstanceOf(ResourceConflictException.class);
+                                                                                                                                   .isInstanceOf(ResourceConflictException.class);
         assertThatThrownBy(() -> service.prepareResultBinDownload(new PackingJobResultBinQuery(FIREBASE_UID, PROJECT_ID.value(), jobId, 1)))
-                                                                                                                                        .isInstanceOf(ResourceConflictException.class);
+                                                                                                                                            .isInstanceOf(ResourceConflictException.class);
 
         verify(artifacts, never()).findResult(any());
         verify(artifacts, never()).readUrl(any(), any(), anyBoolean());

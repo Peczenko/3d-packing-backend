@@ -34,11 +34,11 @@ public class PackingWorkerEventService {
                                                                        succeeded.binCount(),
                                                                        clock.instant());
             case PackingWorkerEvent.ResultWritten written -> job.completeResult(
-                                                                               written.resultFileName(),
-                                                                               written.resultContentType(),
-                                                                               written.resultSizeBytes(),
-                                                                               written.resultChecksum(),
-                                                                               written.resultBins());
+                                                                                written.resultFileName(),
+                                                                                written.resultContentType(),
+                                                                                written.resultSizeBytes(),
+                                                                                written.resultChecksum(),
+                                                                                written.resultBins());
             case PackingWorkerEvent.ResultFailed ignored -> job.failResult();
             case PackingWorkerEvent.Failed failed -> job.fail(
                                                               failed.reason(),

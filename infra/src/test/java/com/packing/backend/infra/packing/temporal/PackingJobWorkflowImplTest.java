@@ -72,7 +72,7 @@ class PackingJobWorkflowImplTest {
     private final List<WriteResultInput> resultInputs  = new CopyOnWriteArrayList<>();
 
     private Preview preview = jobId -> {
-    };
+                            };
     private Writer  writer  = input -> FILES;
 
     private TestWorkflowEnvironment env;

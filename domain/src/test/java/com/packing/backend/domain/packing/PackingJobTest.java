@@ -71,7 +71,7 @@ class PackingJobTest {
         PackingJob job = succeededJob();
 
         assertThat(job.completeResult("output.bin", "application/octet-stream", 12, SHA_B.toUpperCase(), List.of(new ResultBin(12, SHA_B))))
-                                                                                                                                        .isTrue();
+                                                                                                                                            .isTrue();
 
         assertThat(job.resultStatus()).isEqualTo(ResultStatus.READY);
         assertThat(job.resultFileName()).isEqualTo("output.bin");
@@ -112,9 +112,9 @@ class PackingJobTest {
         PackingJob twoContainers = twoContainerJob();
 
         assertThatThrownBy(() -> twoContainers.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(7, SHA_A))))
-                                                                                                                                   .isInstanceOf(DomainRuleViolationException.class);
+                                                                                                                                      .isInstanceOf(DomainRuleViolationException.class);
         assertThatThrownBy(() -> twoContainers.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of()))
-                                                                                                             .isInstanceOf(DomainRuleViolationException.class);
+                                                                                                               .isInstanceOf(DomainRuleViolationException.class);
         assertThat(twoContainers.resultStatus()).isEqualTo(ResultStatus.PENDING);
         assertThat(twoContainers.resultFileName()).isNull();
     }
@@ -124,7 +124,7 @@ class PackingJobTest {
         PackingJob job = succeededJob();
 
         assertThatThrownBy(() -> job.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(11, SHA_B))))
-                                                                                                                           .isInstanceOf(DomainRuleViolationException.class);
+                                                                                                                             .isInstanceOf(DomainRuleViolationException.class);
         assertThat(job.resultStatus()).isEqualTo(ResultStatus.PENDING);
 
         job.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)));
