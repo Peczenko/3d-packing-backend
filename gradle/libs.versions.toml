@@ -10,7 +10,7 @@ springdoc = "2.9.0"
 archunit = "1.4.1"
 spotless = "8.9.0"
 checkstyle = "13.10.0"
-temporal = "1.40.0"
+temporal = "1.41.1"
 jsonSchemaValidator = "1.5.9"
 
 [libraries]
