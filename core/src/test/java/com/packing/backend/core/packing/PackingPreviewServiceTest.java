@@ -12,6 +12,7 @@ import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
 import com.packing.backend.domain.packing.PreviewStatus;
 import com.packing.backend.domain.packing.ResultBin;
+import com.packing.backend.domain.packing.ResultStatus;
 import com.packing.backend.domain.project.ProjectId;
 import com.packing.backend.domain.user.UserId;
 import org.junit.jupiter.api.BeforeEach;
@@ -94,6 +95,27 @@ class PackingPreviewServiceTest {
     }
 
     @Test
+    void buildRendersThePreviewWhileTheResultIsStillBeingWritten() {
+        PackingJob job = pendingResult(PackingPreview.PENDING, 2);
+        List<List<PreviewModel>> binModels = List.of(MODELS, MODELS);
+        when(jobs.findById(JOB_ID)).thenReturn(Optional.of(job), Optional.of(pendingResult(PackingPreview.PENDING, 2)));
+        when(renderer.render(JOB_ID,
+                             job.input()
+                                .items(),
+                             null,
+                             2)).thenReturn(new PackingPreviewRenderer.Rendered(MODELS, binModels));
+
+        service.build(JOB_ID);
+
+        ArgumentCaptor<PackingJob> saved = ArgumentCaptor.forClass(PackingJob.class);
+        verify(jobs).save(saved.capture());
+        assertThat(saved.getValue()
+                        .preview()).isEqualTo(PackingPreview.ready(MODELS, binModels));
+        assertThat(saved.getValue()
+                        .resultStatus()).isEqualTo(ResultStatus.PENDING);
+    }
+
+    @Test
     void buildSkipsAPreviewThatIsAlreadySettled() {
         when(jobs.findById(JOB_ID)).thenReturn(Optional.of(job(PackingPreview.ready(MODELS))));
 
@@ -148,6 +170,15 @@ class PackingPreviewServiceTest {
     }
 
     private static PackingJob job(PackingPreview preview, List<ResultBin> bins) {
+        return job(preview, bins.size(), ResultStatus.READY, bins);
+    }
+
+    private static PackingJob pendingResult(PackingPreview preview, int containers) {
+        return job(preview, containers, ResultStatus.PENDING, List.of());
+    }
+
+    private static PackingJob job(PackingPreview preview, int containers, ResultStatus result, List<ResultBin> bins) {
+        boolean ready = result == ResultStatus.READY;
         return PackingJob.rehydrate(JOB_ID,
                                     ProjectId.generate(),
                                     UserId.generate(),
@@ -159,10 +190,12 @@ class PackingPreviewServiceTest {
                                     NOW,
                                     NOW,
                                     NOW,
-                                    "packed.obj",
-                                    "model/obj",
-                                    RESULT_CHECKSUM,
-                                    12L,
+                                    containers,
+                                    result,
+                                    ready ? "packed.obj" : null,
+                                    ready ? "model/obj" : null,
+                                    ready ? RESULT_CHECKSUM : null,
+                                    ready ? 12L : null,
                                     bins,
                                     null,
                                     preview,

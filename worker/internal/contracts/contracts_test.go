@@ -70,6 +70,17 @@ func TestEngineResultRoundTrip(t *testing.T) {
 	assertActivityRoundTrip[EngineResult](t, "run-engine-result.example.json")
 }
 
+func TestWriteResultInputRoundTrip(t *testing.T) {
+	input := assertActivityRoundTrip[WriteResultInput](t, "write-result-input.example.json")
+	if input.ContractVersion != ActivityVersion {
+		t.Fatalf("example carries contract version %d, want %d", input.ContractVersion, ActivityVersion)
+	}
+}
+
+func TestResultFilesRoundTrip(t *testing.T) {
+	assertActivityRoundTrip[ResultFiles](t, "write-result-result.example.json")
+}
+
 func TestResultPlacementsRoundTrip(t *testing.T) {
 	placements := assertActivityRoundTrip[ResultPlacements](t, "result-placements.example.json")
 	if placements.Version != PlacementsVersion {
@@ -97,6 +108,22 @@ func TestValidateRunEngineInputRejectsAnotherContractVersion(t *testing.T) {
 		if !errors.Is(err, ErrUnsupportedVersion) {
 			t.Fatalf("version %d: expected ErrUnsupportedVersion, got %v", version, err)
 		}
+	}
+}
+
+func TestValidateWriteResultInputAppliesTheSameRulesAsRunEngine(t *testing.T) {
+	input, err := ValidateWriteResultInput(WriteResultInput{ContractVersion: ActivityVersion, JobID: "3F2504E0-4F89-41D3-9A0C-0305E82C3301"})
+	if err != nil {
+		t.Fatalf("ValidateWriteResultInput: %v", err)
+	}
+	if input.JobID != "3f2504e0-4f89-41d3-9a0c-0305e82c3301" {
+		t.Fatalf("jobId = %q, want lowercase", input.JobID)
+	}
+	if _, err := ValidateWriteResultInput(WriteResultInput{ContractVersion: ActivityVersion - 1, JobID: input.JobID}); !errors.Is(err, ErrUnsupportedVersion) {
+		t.Fatalf("previous version: expected ErrUnsupportedVersion, got %v", err)
+	}
+	if _, err := ValidateWriteResultInput(WriteResultInput{ContractVersion: ActivityVersion, JobID: "not-a-uuid"}); !errors.Is(err, ErrInvalidJobID) {
+		t.Fatalf("bad job id: expected ErrInvalidJobID, got %v", err)
 	}
 }
 

@@ -19,7 +19,7 @@ import static org.assertj.core.groups.Tuple.tuple;
 
 class PlacementLayoutTest {
 
-    private static final Path              EXAMPLE = Path.of("..", "contracts", "packing", "v4", "result-placements.example.json");
+    private static final Path              EXAMPLE = Path.of("..", "contracts", "packing", "v5", "result-placements.example.json");
     private static final List<PackingItem> ITEMS   = List.of(PackingInputs.item("tetra.obj", 2), PackingInputs.item("cube.obj", 1));
 
     @Test

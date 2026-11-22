@@ -24,7 +24,6 @@ import com.packing.backend.domain.packing.PackingItem;
 import com.packing.backend.domain.packing.PackingJob;
 import com.packing.backend.domain.packing.PackingJobId;
 import com.packing.backend.domain.packing.PackingJobNotFoundException;
-import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingParameters;
 import com.packing.backend.domain.packing.PreviewModel;
 import com.packing.backend.domain.packing.PreviewQuality;
@@ -115,10 +114,7 @@ public class PackingJobApplicationService {
         ProjectAccess project = access.require(query.firebaseUid(), query.projectId(), ProjectPermission.READ);
         PackingJobId jobId = new PackingJobId(query.jobId());
         PackingJob job = requireJob(project.projectId(), jobId);
-        if (job.status() != PackingJobStatus.SUCCEEDED) {
-            throw new ResourceConflictException(
-                                                "Packing job result is not available until the job succeeds");
-        }
+        job.requireResult();
         artifacts.findResult(jobId)
                  .orElseThrow(() -> new ResourceNotFoundException(
                                                                   "Result artifact for packing job " + jobId + " was not found"));

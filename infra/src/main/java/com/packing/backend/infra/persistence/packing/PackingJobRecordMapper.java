@@ -70,6 +70,8 @@ final class PackingJobRecordMapper {
                                     record.getDispatchedAt(),
                                     record.getStartedAt(),
                                     record.getFinishedAt(),
+                                    record.getBinCount(),
+                                    record.getResultStatus(),
                                     record.getResultFileName(),
                                     record.getResultContentType(),
                                     record.getResultChecksumSha256(),
@@ -99,6 +101,8 @@ final class PackingJobRecordMapper {
         record.setStartedAt(job.startedAt());
         record.setFinishedAt(job.finishedAt());
         record.setFailureReason(job.failureReason());
+        record.setBinCount(job.binCount());
+        record.setResultStatus(job.resultStatus());
         record.setResultFileName(job.resultFileName());
         record.setResultContentType(job.resultContentType());
         record.setResultSizeBytes(job.resultSizeBytes());

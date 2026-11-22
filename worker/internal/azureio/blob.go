@@ -1,6 +1,7 @@
 package azureio
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -39,19 +40,21 @@ const (
 	metaBinCount        = "binCount"
 	metaSizeBytes       = "sizeBytes"
 
-	blockSize        = 8 << 20
-	blockConcurrency = 4
+	blockSize          = 8 << 20
+	blockConcurrency   = 4
+	maxPlacementsBytes = 4 << 20
 )
 
-var ErrResultVanished = errors.New("azureio: result conflicted on create but is not stored")
+var (
+	ErrResultVanished     = errors.New("azureio: result conflicted on create but is not stored")
+	ErrPlacementsVanished = errors.New("azureio: placements conflicted on create but are not stored")
+)
 
 func requestKey(jobID string) string { return "packing-jobs/" + jobID + "/request.json" }
 
 func resultKey(jobID string) string { return "packing-jobs/" + jobID + "/result/output" }
 
-func placementsKey(jobID, resultChecksum string) string {
-	return "packing-jobs/" + jobID + "/result/placements/" + resultChecksum + ".json"
-}
+func placementsKey(jobID string) string { return "packing-jobs/" + jobID + "/result/placements.json" }
 
 func binKey(jobID, resultChecksum string, number int) string {
 	return "packing-jobs/" + jobID + "/result/bins/" + resultChecksum + "/" + strconv.Itoa(number)
@@ -123,6 +126,92 @@ func (a *BlobArtifacts) download(ctx context.Context, key, path string) (err err
 	return err
 }
 
+func (a *BlobArtifacts) FindPlacements(ctx context.Context, jobID string) (*pipeline.StoredPlacements, error) {
+	response, err := a.container.NewBlobClient(placementsKey(jobID)).DownloadStream(ctx, nil)
+	if err != nil {
+		if bloberror.HasCode(err, bloberror.BlobNotFound, bloberror.ContainerNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("azureio: download placements for job %s: %w", jobID, err)
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxPlacementsBytes+1))
+	if closeErr := response.Body.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, fmt.Errorf("azureio: read placements for job %s: %w", jobID, err)
+	}
+	if len(body) > maxPlacementsBytes {
+		return nil, fmt.Errorf("azureio: placements for job %s exceed %d bytes", jobID, maxPlacementsBytes)
+	}
+
+	var wire contracts.ResultPlacements
+	if err := json.Unmarshal(body, &wire); err != nil {
+		return nil, fmt.Errorf("azureio: decode placements for job %s: %w", jobID, err)
+	}
+	if wire.Version != contracts.PlacementsVersion {
+		return nil, fmt.Errorf("azureio: placements for job %s are version %d, want %d", jobID, wire.Version, contracts.PlacementsVersion)
+	}
+	layout := pipeline.Layout{BinOffsets: wire.BinOffsets, Placements: make([]pipeline.Placement, 0, len(wire.Placements))}
+	for _, placement := range wire.Placements {
+		layout.Placements = append(layout.Placements, pipeline.Placement{Item: placement.Item, Bin: placement.Bin, Matrix: placement.Matrix})
+	}
+	return &pipeline.StoredPlacements{
+		Engine: pipeline.EngineProvenance{
+			Version:  resultMetadataValue(response.Metadata, metaEngineVersion),
+			Checksum: resultMetadataValue(response.Metadata, metaEngineChecksum),
+		},
+		Layout: layout,
+	}, nil
+}
+
+func (a *BlobArtifacts) CreatePlacements(ctx context.Context, jobID string, placements pipeline.StoredPlacements) (*pipeline.StoredPlacements, error) {
+	wire := contracts.ResultPlacements{
+		Version:    contracts.PlacementsVersion,
+		BinOffsets: placements.Layout.BinOffsets,
+		Placements: make([]contracts.ResultPlacement, 0, len(placements.Layout.Placements)),
+	}
+	for _, placement := range placements.Layout.Placements {
+		wire.Placements = append(wire.Placements, contracts.ResultPlacement{Item: placement.Item, Bin: placement.Bin, Matrix: placement.Matrix})
+	}
+	body, err := json.Marshal(wire)
+	if err != nil {
+		return nil, fmt.Errorf("azureio: encode placements for job %s: %w", jobID, err)
+	}
+
+	_, err = a.container.NewBlockBlobClient(placementsKey(jobID)).Upload(ctx, streaming.NopCloser(bytes.NewReader(body)), &blockblob.UploadOptions{
+		Metadata: map[string]*string{
+			metaEngineVersion:   to.Ptr(placements.Engine.Version),
+			metaEngineChecksum:  to.Ptr(placements.Engine.Checksum),
+			metaContractVersion: to.Ptr(strconv.Itoa(contracts.ActivityVersion)),
+			metaBinCount:        to.Ptr(strconv.Itoa(len(placements.Layout.BinOffsets))),
+		},
+		HTTPHeaders:      &blob.HTTPHeaders{BlobContentType: to.Ptr("application/json")},
+		AccessConditions: ifAbsent(),
+	})
+	if err == nil {
+		return &placements, nil
+	}
+	if !bloberror.HasCode(err, bloberror.BlobAlreadyExists, bloberror.ConditionNotMet) {
+		return nil, fmt.Errorf("azureio: upload placements for job %s: %w", jobID, err)
+	}
+
+	existing, findErr := a.FindPlacements(ctx, jobID)
+	if findErr != nil {
+		return nil, fmt.Errorf("azureio: read winning placements for job %s: %w", jobID, findErr)
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("%w: job %s", ErrPlacementsVanished, jobID)
+	}
+	return existing, nil
+}
+
+func ifAbsent() *blob.AccessConditions {
+	return &blob.AccessConditions{
+		ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: to.Ptr(azcore.ETagAny)},
+	}
+}
+
 func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline.StoredResult, error) {
 	properties, err := a.container.NewBlobClient(resultKey(jobID)).GetProperties(ctx, nil)
 	if err != nil {
@@ -138,7 +227,7 @@ func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline
 			Version:  resultMetadataValue(properties.Metadata, metaEngineVersion),
 			Checksum: resultMetadataValue(properties.Metadata, metaEngineChecksum),
 		},
-		Result: pipeline.EngineResult{
+		Result: pipeline.ResultFiles{
 			FileName:        resultMetadataValue(properties.Metadata, metaFileName),
 			ContentType:     resultMetadataValue(properties.Metadata, metaContentType),
 			ContentEncoding: valueOf(properties.ContentEncoding),
@@ -154,7 +243,7 @@ func (a *BlobArtifacts) FindResult(ctx context.Context, jobID string) (*pipeline
 	return stored, nil
 }
 
-func (a *BlobArtifacts) findBins(ctx context.Context, jobID string, result pipeline.EngineResult, recorded string) ([]pipeline.ResultBin, error) {
+func (a *BlobArtifacts) findBins(ctx context.Context, jobID string, result pipeline.ResultFiles, recorded string) ([]pipeline.ResultBin, error) {
 	count, err := strconv.Atoi(recorded)
 	if err != nil || count < 1 || count > contracts.MaxTotalCopies {
 		return nil, nil
@@ -188,16 +277,10 @@ func (a *BlobArtifacts) CreateResult(ctx context.Context, jobID string, result p
 		}
 	}
 
-	if err := a.uploadPlacements(ctx, jobID, result.Result); err != nil {
-		return nil, err
-	}
-
 	err := a.uploadFile(ctx, resultKey(jobID), result.Result.Path, &blockblob.CommitBlockListOptions{
-		Metadata:    resultMetadata(result),
-		HTTPHeaders: resultHeaders(result.Result),
-		AccessConditions: &blob.AccessConditions{
-			ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: to.Ptr(azcore.ETagAny)},
-		},
+		Metadata:         resultMetadata(result),
+		HTTPHeaders:      resultHeaders(result.Result),
+		AccessConditions: ifAbsent(),
 	})
 	if err == nil {
 		return storedForm(result), nil
@@ -256,7 +339,7 @@ func (a *BlobArtifacts) uploadFile(ctx context.Context, key, path string, option
 	return err
 }
 
-func resultHeaders(result pipeline.EngineResult) *blob.HTTPHeaders {
+func resultHeaders(result pipeline.ResultFiles) *blob.HTTPHeaders {
 	headers := &blob.HTTPHeaders{BlobContentType: to.Ptr(result.ContentType)}
 	if result.ContentEncoding != "" {
 		headers.BlobContentEncoding = to.Ptr(result.ContentEncoding)
@@ -289,47 +372,29 @@ func storedForm(result pipeline.StoredResult) *pipeline.StoredResult {
 	result.Result.Bins = bins
 	result.Result.Path = ""
 	result.Result.StoredBytes = 0
-	result.Result.Layout = nil
 	return &result
 }
 
-func (a *BlobArtifacts) uploadPlacements(ctx context.Context, jobID string, result pipeline.EngineResult) error {
-	if result.Layout == nil {
-		return nil
-	}
-	wire := contracts.ResultPlacements{
-		Version:    contracts.PlacementsVersion,
-		BinOffsets: result.Layout.BinOffsets,
-		Placements: make([]contracts.ResultPlacement, 0, len(result.Layout.Placements)),
-	}
-	for _, placement := range result.Layout.Placements {
-		wire.Placements = append(wire.Placements, contracts.ResultPlacement{Item: placement.Item, Bin: placement.Bin, Matrix: placement.Matrix})
-	}
-	body, err := json.Marshal(wire)
-	if err != nil {
-		return fmt.Errorf("azureio: encode placements for job %s: %w", jobID, err)
-	}
-	_, err = a.container.NewBlockBlobClient(placementsKey(jobID, result.Checksum)).UploadBuffer(ctx, body, &blockblob.UploadBufferOptions{
-		HTTPHeaders: &blob.HTTPHeaders{BlobContentType: to.Ptr("application/json")},
-	})
-	if err != nil {
-		return fmt.Errorf("azureio: upload placements for job %s: %w", jobID, err)
-	}
-	return nil
-}
-
-func (a *BlobArtifacts) uploadBin(ctx context.Context, jobID string, result pipeline.EngineResult, number int, bin pipeline.ResultBin) error {
-	err := a.uploadFile(ctx, binKey(jobID, result.Checksum, number), bin.Path, &blockblob.CommitBlockListOptions{
+func (a *BlobArtifacts) uploadBin(ctx context.Context, jobID string, result pipeline.ResultFiles, number int, bin pipeline.ResultBin) error {
+	key := binKey(jobID, result.Checksum, number)
+	err := a.uploadFile(ctx, key, bin.Path, &blockblob.CommitBlockListOptions{
 		Metadata: map[string]*string{
 			metaChecksum:  to.Ptr(bin.Checksum),
 			metaSizeBytes: to.Ptr(strconv.FormatInt(bin.SizeBytes, 10)),
 		},
-		HTTPHeaders: resultHeaders(result),
+		HTTPHeaders:      resultHeaders(result),
+		AccessConditions: ifAbsent(),
 	})
-	if err != nil {
-		return fmt.Errorf("azureio: upload bin %d for job %s: %w", number, jobID, err)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if bloberror.HasCode(err, bloberror.BlobAlreadyExists, bloberror.ConditionNotMet, bloberror.InvalidBlockList) {
+		properties, findErr := a.container.NewBlobClient(key).GetProperties(ctx, nil)
+		if findErr == nil && resultMetadataValue(properties.Metadata, metaChecksum) == bin.Checksum {
+			return nil
+		}
+	}
+	return fmt.Errorf("azureio: upload bin %d for job %s: %w", number, jobID, err)
 }
 
 func resultMetadata(result pipeline.StoredResult) map[string]*string {

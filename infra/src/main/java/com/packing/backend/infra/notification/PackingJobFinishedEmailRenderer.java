@@ -9,7 +9,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.Locale;
 import java.util.Map;
 
 @Component
@@ -24,7 +23,7 @@ class PackingJobFinishedEmailRenderer {
         boolean succeeded = event.status() == PackingJobStatus.SUCCEEDED;
         String headline = succeeded ? "Packing job succeeded" : "Packing job failed";
         String summary = succeeded
-                                   ? "The result is ready to download from the project."
+                                   ? "Open the project to see the preview and download the result."
                                    : "No result was produced. You can submit the job again once the cause is resolved.";
         MailFields fields = fieldsOf(event, projectName);
 
@@ -53,8 +52,6 @@ class PackingJobFinishedEmailRenderer {
         fields.put("Job", event.jobId());
         fields.put("Status", event.status());
         fields.putIfPresent("Runtime", runtimeOf(event), PackingJobFinishedEmailRenderer::describe);
-        fields.putIfPresent("Result file", event.resultFileName());
-        fields.putIfPresent("Result size", event.resultSizeBytes(), PackingJobFinishedEmailRenderer::bytes);
         fields.putIfPresent("Reason", event.failureReason());
         return fields;
     }
@@ -67,9 +64,5 @@ class PackingJobFinishedEmailRenderer {
         long seconds = Math.max(runtime.toSeconds(), 0);
         long minutes = seconds / 60;
         return minutes == 0 ? seconds + " s" : minutes + " m " + seconds % 60 + " s";
-    }
-
-    private static String bytes(long size) {
-        return String.format(Locale.ROOT, "%,d bytes", size);
     }
 }

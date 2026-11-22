@@ -22,6 +22,7 @@ const (
 	requestFileName       = "request.json"
 	inputsDirName         = "inputs"
 	unreportedFailure     = "packer failed without reporting a reason"
+	unwritableResult      = "the result could not be written"
 	maxEngineVersionBytes = 255
 )
 
@@ -72,45 +73,64 @@ func (a *Activity) RunEngine(ctx context.Context, input contracts.RunEngineInput
 	stopHeartbeat := a.startHeartbeat(ctx)
 	defer stopHeartbeat()
 
-	stored, err := a.handle(ctx, in.JobID)
+	stored, err := a.pack(ctx, in.JobID)
 	if err != nil {
 		return contracts.EngineResult{}, err
 	}
 	return toEngineResult(stored), nil
 }
 
-func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, error) {
-	stored, err := a.artifacts.FindResult(ctx, jobID)
+func (a *Activity) WriteResult(ctx context.Context, input contracts.WriteResultInput) (contracts.ResultFiles, error) {
+	if a.heartbeatInterval <= 0 {
+		return contracts.ResultFiles{}, fmt.Errorf("pipeline: heartbeat interval must be positive, got %s", a.heartbeatInterval)
+	}
+	in, err := contracts.ValidateWriteResultInput(input)
 	if err != nil {
-		return StoredResult{}, fmt.Errorf("pipeline: look up result for job %s: %w", jobID, err)
+		return contracts.ResultFiles{}, invalidInput(err)
+	}
+
+	stopHeartbeat := a.startHeartbeat(ctx)
+	defer stopHeartbeat()
+
+	stored, err := a.write(ctx, in.JobID)
+	if err != nil {
+		return contracts.ResultFiles{}, err
+	}
+	return toResultFiles(stored), nil
+}
+
+func (a *Activity) pack(ctx context.Context, jobID string) (StoredPlacements, error) {
+	stored, err := a.artifacts.FindPlacements(ctx, jobID)
+	if err != nil {
+		return StoredPlacements{}, fmt.Errorf("pipeline: look up placements for job %s: %w", jobID, err)
 	}
 	if stored != nil {
-		if err := validateStoredResult(*stored); err != nil {
-			return StoredResult{}, fmt.Errorf("pipeline: stored result for job %s is unusable: %w", jobID, err)
+		if err := validateStoredPlacements(*stored); err != nil {
+			return StoredPlacements{}, fmt.Errorf("pipeline: stored placements for job %s are unusable: %w", jobID, err)
 		}
 		if err := a.signalStarted(ctx, stored.Engine); err != nil {
-			return StoredResult{}, fmt.Errorf("pipeline: resignal started for job %s: %w", jobID, err)
+			return StoredPlacements{}, fmt.Errorf("pipeline: resignal started for job %s: %w", jobID, err)
 		}
 		return *stored, nil
 	}
 
 	workspace, err := os.MkdirTemp(a.workRoot, "packing-"+jobID+"-")
 	if err != nil {
-		return StoredResult{}, fmt.Errorf("pipeline: create workspace for job %s: %w", jobID, err)
+		return StoredPlacements{}, fmt.Errorf("pipeline: create workspace for job %s: %w", jobID, err)
 	}
 	defer os.RemoveAll(workspace)
 
 	envelope, err := a.fetchRequest(ctx, jobID, workspace)
 	if err != nil {
-		return StoredResult{}, err
+		return StoredPlacements{}, err
 	}
 
 	engine, err := a.engine.Provenance(ctx)
 	if err != nil {
-		return StoredResult{}, fmt.Errorf("pipeline: read packer provenance for job %s: %w", jobID, err)
+		return StoredPlacements{}, fmt.Errorf("pipeline: read packer provenance for job %s: %w", jobID, err)
 	}
 	if err := validateProvenance(engine); err != nil {
-		return StoredResult{}, fmt.Errorf("pipeline: packer provenance for job %s is unusable: %w", jobID, err)
+		return StoredPlacements{}, fmt.Errorf("pipeline: packer provenance for job %s is unusable: %w", jobID, err)
 	}
 
 	log := activity.GetLogger(ctx)
@@ -120,13 +140,13 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 	if err != nil {
 		var failure *EngineFailure
 		if errors.As(err, &failure) {
-			return StoredResult{}, engineFailure(engine, failure.Reason)
+			return StoredPlacements{}, engineFailure(engine, failure.Reason)
 		}
-		return StoredResult{}, err
+		return StoredPlacements{}, err
 	}
 
 	if err := a.signalStarted(ctx, engine); err != nil {
-		return StoredResult{}, fmt.Errorf("pipeline: signal started for job %s: %w", jobID, err)
+		return StoredPlacements{}, fmt.Errorf("pipeline: signal started for job %s: %w", jobID, err)
 	}
 
 	phase = time.Now()
@@ -142,24 +162,88 @@ func (a *Activity) handle(ctx context.Context, jobID string) (StoredResult, erro
 	if err != nil {
 		var failure *EngineFailure
 		if errors.As(err, &failure) && ctx.Err() == nil {
-			return StoredResult{}, engineFailure(engine, failure.Reason)
+			return StoredPlacements{}, engineFailure(engine, failure.Reason)
 		}
-		return StoredResult{}, fmt.Errorf("pipeline: run packer for job %s: %w", jobID, err)
+		return StoredPlacements{}, fmt.Errorf("pipeline: run packer for job %s: %w", jobID, err)
 	}
 
 	phase = time.Now()
-	result, err := a.writer.Write(ctx, inputs, packing.Layout, workspace)
+	created, err := a.artifacts.CreatePlacements(ctx, jobID, StoredPlacements{Engine: engine, Layout: packing.Layout})
+	log.Info("placements stored", "jobId", jobID, "elapsed", time.Since(phase).String(), "error", err)
+	if err != nil {
+		return StoredPlacements{}, fmt.Errorf("pipeline: store placements for job %s: %w", jobID, err)
+	}
+	if created == nil {
+		return StoredPlacements{}, fmt.Errorf("pipeline: store placements for job %s: nothing reported", jobID)
+	}
+	if err := validateStoredPlacements(*created); err != nil {
+		return StoredPlacements{}, fmt.Errorf("pipeline: stored placements for job %s are unusable: %w", jobID, err)
+	}
+	return *created, nil
+}
+
+func (a *Activity) write(ctx context.Context, jobID string) (StoredResult, error) {
+	stored, err := a.artifacts.FindResult(ctx, jobID)
+	if err != nil {
+		return StoredResult{}, fmt.Errorf("pipeline: look up result for job %s: %w", jobID, err)
+	}
+	if stored != nil {
+		if err := validateStoredResult(*stored); err != nil {
+			return StoredResult{}, fmt.Errorf("pipeline: stored result for job %s is unusable: %w", jobID, err)
+		}
+		return *stored, nil
+	}
+
+	placements, err := a.artifacts.FindPlacements(ctx, jobID)
+	if err != nil {
+		return StoredResult{}, fmt.Errorf("pipeline: look up placements for job %s: %w", jobID, err)
+	}
+	if placements == nil {
+		return StoredResult{}, fmt.Errorf("pipeline: job %s has no stored placements to write a result from", jobID)
+	}
+	if err := validateStoredPlacements(*placements); err != nil {
+		return StoredResult{}, fmt.Errorf("pipeline: stored placements for job %s are unusable: %w", jobID, err)
+	}
+
+	workspace, err := os.MkdirTemp(a.workRoot, "result-"+jobID+"-")
+	if err != nil {
+		return StoredResult{}, fmt.Errorf("pipeline: create workspace for job %s: %w", jobID, err)
+	}
+	defer os.RemoveAll(workspace)
+
+	envelope, err := a.fetchRequest(ctx, jobID, workspace)
+	if err != nil {
+		return StoredResult{}, err
+	}
+
+	log := activity.GetLogger(ctx)
+	phase := time.Now()
+	inputs, err := a.downloadInputs(ctx, jobID, workspace, envelope.Items)
+	log.Info("inputs downloaded", "jobId", jobID, "items", len(envelope.Items), "elapsed", time.Since(phase).String(), "error", err)
+	if err != nil {
+		var failure *EngineFailure
+		if errors.As(err, &failure) {
+			return StoredResult{}, resultFailure(failure.Reason)
+		}
+		return StoredResult{}, err
+	}
+	if err := validateLayout(inputs, placements.Layout); err != nil {
+		return StoredResult{}, fmt.Errorf("pipeline: placements for job %s do not match its request: %w", jobID, err)
+	}
+
+	phase = time.Now()
+	result, err := a.writer.Write(ctx, inputs, placements.Layout, workspace)
 	log.Info("result written", "jobId", jobID, "elapsed", time.Since(phase).String(), "resultBytes", result.SizeBytes, "storedBytes", result.StoredBytes, "error", err)
 	if err != nil {
 		var failure *EngineFailure
 		if errors.As(err, &failure) && ctx.Err() == nil {
-			return StoredResult{}, engineFailure(engine, failure.Reason)
+			return StoredResult{}, resultFailure(failure.Reason)
 		}
 		return StoredResult{}, fmt.Errorf("pipeline: write result for job %s: %w", jobID, err)
 	}
 
 	phase = time.Now()
-	created, err := a.artifacts.CreateResult(ctx, jobID, StoredResult{Engine: engine, Result: result})
+	created, err := a.artifacts.CreateResult(ctx, jobID, StoredResult{Engine: placements.Engine, Result: result})
 	log.Info("result uploaded", "jobId", jobID, "storedBytes", result.StoredBytes, "elapsed", time.Since(phase).String(), "error", err)
 	if err != nil {
 		return StoredResult{}, fmt.Errorf("pipeline: upload result for job %s: %w", jobID, err)
@@ -263,21 +347,82 @@ func engineFailure(engine EngineProvenance, reason string) error {
 	})
 }
 
-func toEngineResult(stored StoredResult) contracts.EngineResult {
+func resultFailure(reason string) error {
+	reason = stripControlCharacters(reason)
+	if reason == "" {
+		reason = unwritableResult
+	}
+	return temporal.NewNonRetryableApplicationError(reason, contracts.ResultFailureType, nil)
+}
+
+func toEngineResult(stored StoredPlacements) contracts.EngineResult {
+	return contracts.EngineResult{
+		ContractVersion: contracts.ActivityVersion,
+		EngineVersion:   stored.Engine.Version,
+		EngineChecksum:  stored.Engine.Checksum,
+		BinCount:        len(stored.Layout.BinOffsets),
+	}
+}
+
+func toResultFiles(stored StoredResult) contracts.ResultFiles {
 	bins := make([]contracts.ResultBin, 0, len(stored.Result.Bins))
 	for _, bin := range stored.Result.Bins {
 		bins = append(bins, contracts.ResultBin{SizeBytes: bin.SizeBytes, Checksum: bin.Checksum})
 	}
-	return contracts.EngineResult{
+	return contracts.ResultFiles{
 		ContractVersion:   contracts.ActivityVersion,
-		EngineVersion:     stored.Engine.Version,
-		EngineChecksum:    stored.Engine.Checksum,
 		ResultFileName:    stored.Result.FileName,
 		ResultContentType: stored.Result.ContentType,
 		ResultSizeBytes:   stored.Result.SizeBytes,
 		ResultChecksum:    stored.Result.Checksum,
 		ResultBins:        bins,
 	}
+}
+
+func validateStoredPlacements(stored StoredPlacements) error {
+	if err := validateProvenance(stored.Engine); err != nil {
+		return err
+	}
+	bins := len(stored.Layout.BinOffsets)
+	if bins == 0 {
+		return errors.New("placements list no bins")
+	}
+	if len(stored.Layout.Placements) == 0 {
+		return errors.New("placements place nothing")
+	}
+	filled := make([]bool, bins)
+	for i, placement := range stored.Layout.Placements {
+		if placement.Bin < 1 || placement.Bin > bins {
+			return fmt.Errorf("placement %d names bin %d of %d", i+1, placement.Bin, bins)
+		}
+		filled[placement.Bin-1] = true
+	}
+	for i, ok := range filled {
+		if !ok {
+			return fmt.Errorf("bin %d holds no copy", i+1)
+		}
+	}
+	return nil
+}
+
+func validateLayout(inputs []InputFile, layout Layout) error {
+	want := 0
+	for _, input := range inputs {
+		want += input.Copies
+	}
+	if len(layout.Placements) != want {
+		return fmt.Errorf("they place %d copies and the request has %d", len(layout.Placements), want)
+	}
+	next := 0
+	for item, input := range inputs {
+		for range input.Copies {
+			if layout.Placements[next].Item != item {
+				return fmt.Errorf("placement %d is not a copy of item %d", next+1, item)
+			}
+			next++
+		}
+	}
+	return nil
 }
 
 func validateStoredResult(stored StoredResult) error {
@@ -299,7 +444,7 @@ func validateStoredResult(stored StoredResult) error {
 	return validateBins(stored.Result)
 }
 
-func validateBins(result EngineResult) error {
+func validateBins(result ResultFiles) error {
 	if len(result.Bins) == 0 {
 		return errors.New("result lists no bins")
 	}

@@ -9,6 +9,7 @@ import com.packing.backend.domain.packing.ResultBin;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFailureDetails;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultFiles;
 import io.temporal.spring.boot.ActivityImpl;
 import lombok.RequiredArgsConstructor;
 
@@ -39,11 +40,23 @@ public class PackingStateActivitiesImpl implements PackingStateActivities {
                                                             id(jobId),
                                                             result.engineVersion(),
                                                             result.engineChecksum(),
-                                                            result.resultFileName(),
-                                                            result.resultContentType(),
-                                                            result.resultSizeBytes(),
-                                                            result.resultChecksum(),
-                                                            resultBins(result)));
+                                                            result.binCount()));
+    }
+
+    @Override
+    public void recordResultWritten(String jobId, ResultFiles files) {
+        workerEvents.apply(new PackingWorkerEvent.ResultWritten(VERSION,
+                                                                id(jobId),
+                                                                files.resultFileName(),
+                                                                files.resultContentType(),
+                                                                files.resultSizeBytes(),
+                                                                files.resultChecksum(),
+                                                                resultBins(files)));
+    }
+
+    @Override
+    public void recordResultFailed(String jobId) {
+        workerEvents.apply(new PackingWorkerEvent.ResultFailed(VERSION, id(jobId)));
     }
 
     @Override
@@ -70,11 +83,11 @@ public class PackingStateActivitiesImpl implements PackingStateActivities {
         previews.fail(id(jobId));
     }
 
-    private static List<ResultBin> resultBins(EngineResult result) {
-        if (result.resultBins() == null) {
+    private static List<ResultBin> resultBins(ResultFiles files) {
+        if (files.resultBins() == null) {
             return List.of();
         }
-        return result.resultBins()
+        return files.resultBins()
                      .stream()
                      .map(bin -> new ResultBin(bin.sizeBytes(), bin.checksum()))
                      .toList();

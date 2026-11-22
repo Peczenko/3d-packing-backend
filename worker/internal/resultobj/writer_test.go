@@ -150,9 +150,6 @@ func TestWriteReproducesPackersOwnOutputFromItsManifest(t *testing.T) {
 	if result.FileName != "packed.obj" || result.ContentType != "model/obj" || result.ContentEncoding != "gzip" {
 		t.Fatalf("result describes itself as %q / %q / %q", result.FileName, result.ContentType, result.ContentEncoding)
 	}
-	if result.Layout == nil || len(result.Layout.Placements) != len(layout.Placements) {
-		t.Fatalf("result layout = %+v, want the layout it was written from", result.Layout)
-	}
 }
 
 func TestWriteWritesEachFileWhateverTheConcurrency(t *testing.T) {

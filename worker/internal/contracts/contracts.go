@@ -9,14 +9,16 @@ import (
 )
 
 const (
-	ActivityVersion = 4
+	ActivityVersion = 5
 	RequestVersion  = 3
 
 	PlacementsVersion = 1
 
 	RunEngineActivity   = "RunEngine"
+	WriteResultActivity = "WriteResult"
 	EngineStartedSignal = "engineStarted"
 	EngineFailureType   = "EngineFailure"
+	ResultFailureType   = "ResultFailure"
 	InvalidInputType    = "InvalidInput"
 
 	MinRuntimeSeconds = 1
@@ -50,6 +52,11 @@ type RunEngineInput struct {
 	JobID           string `json:"jobId"`
 }
 
+type WriteResultInput struct {
+	ContractVersion int    `json:"contractVersion"`
+	JobID           string `json:"jobId"`
+}
+
 type EngineStarted struct {
 	ContractVersion int    `json:"contractVersion"`
 	EngineVersion   string `json:"engineVersion"`
@@ -57,9 +64,14 @@ type EngineStarted struct {
 }
 
 type EngineResult struct {
+	ContractVersion int    `json:"contractVersion"`
+	EngineVersion   string `json:"engineVersion"`
+	EngineChecksum  string `json:"engineChecksum"`
+	BinCount        int    `json:"binCount"`
+}
+
+type ResultFiles struct {
 	ContractVersion   int         `json:"contractVersion"`
-	EngineVersion     string      `json:"engineVersion"`
-	EngineChecksum    string      `json:"engineChecksum"`
 	ResultFileName    string      `json:"resultFileName"`
 	ResultContentType string      `json:"resultContentType"`
 	ResultSizeBytes   int64       `json:"resultSizeBytes"`
@@ -109,13 +121,29 @@ type RequestEnvelope struct {
 }
 
 func ValidateRunEngineInput(input RunEngineInput) (RunEngineInput, error) {
-	if input.ContractVersion != ActivityVersion {
-		return RunEngineInput{}, fmt.Errorf("run engine input: %w", ErrUnsupportedVersion)
+	jobID, err := validateJobInput(input.ContractVersion, input.JobID)
+	if err != nil {
+		return RunEngineInput{}, fmt.Errorf("run engine input: %w", err)
 	}
-	if !uuidPattern.MatchString(input.JobID) {
-		return RunEngineInput{}, fmt.Errorf("run engine input: %w", ErrInvalidJobID)
+	return RunEngineInput{ContractVersion: input.ContractVersion, JobID: jobID}, nil
+}
+
+func ValidateWriteResultInput(input WriteResultInput) (WriteResultInput, error) {
+	jobID, err := validateJobInput(input.ContractVersion, input.JobID)
+	if err != nil {
+		return WriteResultInput{}, fmt.Errorf("write result input: %w", err)
 	}
-	return RunEngineInput{ContractVersion: input.ContractVersion, JobID: strings.ToLower(input.JobID)}, nil
+	return WriteResultInput{ContractVersion: input.ContractVersion, JobID: jobID}, nil
+}
+
+func validateJobInput(version int, jobID string) (string, error) {
+	if version != ActivityVersion {
+		return "", ErrUnsupportedVersion
+	}
+	if !uuidPattern.MatchString(jobID) {
+		return "", ErrInvalidJobID
+	}
+	return strings.ToLower(jobID), nil
 }
 
 func DecodeRequest(data []byte) (RequestEnvelope, error) {

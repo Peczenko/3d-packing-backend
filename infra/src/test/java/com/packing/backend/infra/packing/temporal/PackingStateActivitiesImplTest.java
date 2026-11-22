@@ -9,6 +9,7 @@ import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFa
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultBin;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultFiles;
 import io.temporal.spring.boot.ActivityImpl;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,42 +51,37 @@ class PackingStateActivitiesImplTest {
     }
 
     @Test
-    void recordsSucceededWithTheResultMetadata() {
-        activities.recordSucceeded(JOB,
-                                   new EngineResult(VERSION,
-                                                    "packer 0.3.0",
-                                                    CHECKSUM,
-                                                    "output",
-                                                    "application/json",
-                                                    12,
-                                                    "b".repeat(64),
-                                                    List.of(new ResultBin(7, "1".repeat(64)), new ResultBin(5, "2".repeat(64)))));
+    void recordsSucceededWithTheEngineProvenanceAndContainerCount() {
+        activities.recordSucceeded(JOB, new EngineResult(VERSION, "packer 0.3.0", CHECKSUM, 2));
 
-        verify(workerEvents).apply(new PackingWorkerEvent.Succeeded(VERSION,
-                                                                    JOB_ID,
-                                                                    "packer 0.3.0",
-                                                                    CHECKSUM,
-                                                                    "output",
-                                                                    "application/json",
-                                                                    12,
-                                                                    "b".repeat(64),
-                                                                    List.of(new com.packing.backend.domain.packing.ResultBin(7, "1".repeat(64)),
-                                                                            new com.packing.backend.domain.packing.ResultBin(5, "2".repeat(64)))));
+        verify(workerEvents).apply(new PackingWorkerEvent.Succeeded(VERSION, JOB_ID, "packer 0.3.0", CHECKSUM, 2));
     }
 
     @Test
-    void recordsAResultFromBeforeBinsWithNone() {
-        activities.recordSucceeded(JOB, new EngineResult(3, "packer 0.3.0", CHECKSUM, "output", "application/json", 12, "b".repeat(64), null));
+    void recordsTheWrittenResultWithItsFiles() {
+        activities.recordResultWritten(JOB,
+                                       new ResultFiles(VERSION,
+                                                       "output",
+                                                       "application/json",
+                                                       12,
+                                                       "b".repeat(64),
+                                                       List.of(new ResultBin(7, "1".repeat(64)), new ResultBin(5, "2".repeat(64)))));
 
-        verify(workerEvents).apply(new PackingWorkerEvent.Succeeded(VERSION,
-                                                                    JOB_ID,
-                                                                    "packer 0.3.0",
-                                                                    CHECKSUM,
-                                                                    "output",
-                                                                    "application/json",
-                                                                    12,
-                                                                    "b".repeat(64),
-                                                                    List.of()));
+        verify(workerEvents).apply(new PackingWorkerEvent.ResultWritten(VERSION,
+                                                                        JOB_ID,
+                                                                        "output",
+                                                                        "application/json",
+                                                                        12,
+                                                                        "b".repeat(64),
+                                                                        List.of(new com.packing.backend.domain.packing.ResultBin(7, "1".repeat(64)),
+                                                                                new com.packing.backend.domain.packing.ResultBin(5, "2".repeat(64)))));
+    }
+
+    @Test
+    void recordsAResultThatCouldNotBeWritten() {
+        activities.recordResultFailed(JOB);
+
+        verify(workerEvents).apply(new PackingWorkerEvent.ResultFailed(VERSION, JOB_ID));
     }
 
     @Test

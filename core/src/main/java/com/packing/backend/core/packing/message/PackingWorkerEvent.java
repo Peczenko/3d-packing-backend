@@ -11,19 +11,22 @@ public sealed interface PackingWorkerEvent {
 
     PackingJobId jobId();
 
-    String engineVersion();
-
-    String engineChecksum();
-
     record Started(int messageVersion, PackingJobId jobId,
             String engineVersion, String engineChecksum) implements PackingWorkerEvent {
     }
 
     record Succeeded(int messageVersion, PackingJobId jobId,
             String engineVersion, String engineChecksum,
+            int binCount) implements PackingWorkerEvent {
+    }
+
+    record ResultWritten(int messageVersion, PackingJobId jobId,
             String resultFileName, String resultContentType,
             long resultSizeBytes, String resultChecksum,
             List<ResultBin> resultBins) implements PackingWorkerEvent {
+    }
+
+    record ResultFailed(int messageVersion, PackingJobId jobId) implements PackingWorkerEvent {
     }
 
     record Failed(int messageVersion, PackingJobId jobId,

@@ -12,6 +12,7 @@ const (
 	defaultTemporalAddress   = "localhost:7233"
 	defaultTemporalNamespace = "packing"
 	defaultTaskQueue         = "packing-engine"
+	defaultResultTaskQueue   = "packing-result"
 	defaultStorageContainer  = "models"
 	defaultPackerPath        = "/usr/local/bin/packer"
 	defaultHeartbeatInterval = 10 * time.Second
@@ -29,6 +30,7 @@ type Config struct {
 	TemporalAddress         string
 	TemporalNamespace       string
 	TaskQueue               string
+	ResultTaskQueue         string
 	HeartbeatInterval       time.Duration
 	OverrunGrace            time.Duration
 	StorageConnectionString string
@@ -44,6 +46,7 @@ func Load() (Config, error) {
 		TemporalAddress:         envOr("TEMPORAL_ADDRESS", defaultTemporalAddress),
 		TemporalNamespace:       envOr("TEMPORAL_NAMESPACE", defaultTemporalNamespace),
 		TaskQueue:               envOr("PACKING_TASK_QUEUE", defaultTaskQueue),
+		ResultTaskQueue:         envOr("PACKING_RESULT_TASK_QUEUE", defaultResultTaskQueue),
 		HeartbeatInterval:       defaultHeartbeatInterval,
 		OverrunGrace:            defaultOverrunGrace,
 		StorageConnectionString: os.Getenv("STORAGE_CONNECTION_STRING"),

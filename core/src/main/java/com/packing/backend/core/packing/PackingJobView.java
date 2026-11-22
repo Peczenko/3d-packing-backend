@@ -3,6 +3,7 @@ package com.packing.backend.core.packing;
 import com.packing.backend.domain.packing.PackingJobStatus;
 import com.packing.backend.domain.packing.PackingPreview;
 import com.packing.backend.domain.packing.ResultBin;
+import com.packing.backend.domain.packing.ResultStatus;
 
 import java.time.Instant;
 import java.util.List;
@@ -18,10 +19,12 @@ public record PackingJobView(
         Instant startedAt,
         Instant finishedAt,
         String failureReason,
+        ResultStatus resultStatus,
         String resultFileName,
         String resultContentType,
         Long resultSizeBytes,
         String resultChecksum,
+        int binCount,
         List<ResultBin> resultBins,
         PackingJobInputView input,
         PackingPreview preview) {

@@ -232,7 +232,7 @@ class GltfpackPreviewRendererIT {
         }
 
         @Override
-        public Optional<byte[]> findPlacements(PackingJobId jobId, String resultChecksum) {
+        public Optional<byte[]> findPlacements(PackingJobId jobId) {
             return Optional.ofNullable(placements)
                            .map(json -> json.getBytes(StandardCharsets.UTF_8));
         }

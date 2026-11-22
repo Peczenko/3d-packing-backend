@@ -4,7 +4,9 @@ import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineFa
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineResult;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.EngineStarted;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultBin;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.ResultFiles;
 import com.packing.backend.infra.packing.temporal.PackingEngineContract.RunEngineInput;
+import com.packing.backend.infra.packing.temporal.PackingEngineContract.WriteResultInput;
 import com.packing.backend.infra.packing.temporal.PackingJobWorkflow.PackingJobInput;
 import io.temporal.activity.Activity;
 import io.temporal.activity.ActivityOptions;
@@ -30,9 +32,12 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.ENGINE_FAILURE;
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.ENGINE_TASK_QUEUE;
+import static com.packing.backend.infra.packing.temporal.PackingEngineContract.RESULT_FAILURE;
+import static com.packing.backend.infra.packing.temporal.PackingEngineContract.RESULT_TASK_QUEUE;
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.STATE_TASK_QUEUE;
 import static com.packing.backend.infra.packing.temporal.PackingEngineContract.VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,20 +59,21 @@ class PackingJobWorkflowImplTest {
     private static final PackingJobInput INPUT    = new PackingJobInput(JOB_ID, 60);
     private static final String          CHECKSUM = "a".repeat(64);
     private static final EngineStarted   STARTED  = new EngineStarted(VERSION, "packer 0.3.0", CHECKSUM);
-    private static final EngineResult    RESULT   = new EngineResult(VERSION,
-                                                                     "packer 0.3.0",
-                                                                     CHECKSUM,
-                                                                     "output",
-                                                                     "application/json",
-                                                                     12,
-                                                                     "b".repeat(64),
-                                                                     List.of(new ResultBin(12, "b".repeat(64))));
+    private static final EngineResult    RESULT   = new EngineResult(VERSION, "packer 0.3.0", CHECKSUM, 1);
+    private static final ResultFiles     FILES    = new ResultFiles(VERSION,
+                                                                    "output",
+                                                                    "application/json",
+                                                                    12,
+                                                                    "b".repeat(64),
+                                                                    List.of(new ResultBin(12, "b".repeat(64))));
 
-    private final List<RunEngineInput> engineInputs  = new CopyOnWriteArrayList<>();
-    private final List<String>         previewInputs = new CopyOnWriteArrayList<>();
+    private final List<RunEngineInput>   engineInputs  = new CopyOnWriteArrayList<>();
+    private final List<String>           previewInputs = new CopyOnWriteArrayList<>();
+    private final List<WriteResultInput> resultInputs  = new CopyOnWriteArrayList<>();
 
     private Preview preview = jobId -> {
     };
+    private Writer  writer  = input -> FILES;
 
     private TestWorkflowEnvironment env;
     private PackingStateActivities  state;
@@ -219,6 +225,100 @@ class PackingJobWorkflowImplTest {
     }
 
     @Test
+    void aSucceededJobWritesItsResultAfterTheSuccessIsRecorded() {
+        runJob(input -> {
+            signalStarted(STARTED);
+            return RESULT;
+        });
+
+        InOrder order = inOrder(state);
+        order.verify(state)
+             .recordSucceeded(JOB_ID, RESULT);
+        order.verify(state)
+             .recordResultWritten(JOB_ID, FILES);
+        verify(state, never()).recordResultFailed(anyString());
+        assertThat(resultInputs).containsExactly(new WriteResultInput(VERSION, JOB_ID));
+    }
+
+    @Test
+    void thePreviewIsBuiltWhileTheResultIsStillBeingWritten() {
+        CountDownLatch previewStarted = new CountDownLatch(1);
+        AtomicBoolean overlapped = new AtomicBoolean();
+        preview = jobId -> previewStarted.countDown();
+        writer = input -> {
+            overlapped.set(await(previewStarted));
+            return FILES;
+        };
+
+        runJob(input -> {
+            signalStarted(STARTED);
+            return RESULT;
+        });
+
+        assertThat(overlapped).isTrue();
+        verify(state).recordResultWritten(JOB_ID, FILES);
+    }
+
+    @Test
+    void aResultThatCannotBeWrittenIsRecordedOnceWithoutRetryingOrFailingTheJob() {
+        writer = input -> {
+            throw ApplicationFailure.newFailure("Input file 'bunny.obj' is no longer available", RESULT_FAILURE);
+        };
+
+        runJob(input -> {
+            signalStarted(STARTED);
+            return RESULT;
+        });
+
+        verify(state).recordSucceeded(JOB_ID, RESULT);
+        verify(state).recordResultFailed(JOB_ID);
+        verify(state, never()).recordResultWritten(anyString(), any());
+        verify(state, never()).recordFailed(anyString(), any());
+        assertThat(resultInputs).hasSize(1);
+        assertThat(previewInputs).containsExactly(JOB_ID);
+    }
+
+    @Test
+    void aResultThatKeepsFailingIsRecordedAsFailedAfterThreeAttempts() {
+        writer = input -> {
+            throw new IllegalStateException("blob storage unavailable");
+        };
+
+        runJob(input -> {
+            signalStarted(STARTED);
+            return RESULT;
+        });
+
+        verify(state).recordResultFailed(JOB_ID);
+        assertThat(resultInputs).hasSize(PackingJobWorkflowImpl.RESULT_ATTEMPTS);
+    }
+
+    @Test
+    void aJobThatDidNotSucceedNeverWritesAResult() {
+        runJob(input -> {
+            throw ApplicationFailure.newFailure("packer exited with code 2",
+                                                ENGINE_FAILURE,
+                                                new EngineFailureDetails(VERSION, "packer 0.3.0", CHECKSUM, "packer exited with code 2"));
+        });
+
+        assertThat(resultInputs).isEmpty();
+        verify(state, never()).recordResultFailed(anyString());
+    }
+
+    @Test
+    void resultOptionsUseTheirOwnQueueAHeartbeatAndThreeAttemptsAndNeverRetryAResultFailure() {
+        ActivityOptions options = PackingJobWorkflowImpl.RESULT_OPTIONS;
+
+        assertThat(options.getTaskQueue()).isEqualTo(RESULT_TASK_QUEUE);
+        assertThat(options.getStartToCloseTimeout()).isEqualTo(PackingJobWorkflowImpl.TRANSFER_MARGIN);
+        assertThat(options.getHeartbeatTimeout()).isEqualTo(Duration.ofSeconds(60));
+        assertThat(options.getRetryOptions()
+                          .getMaximumAttempts()).isEqualTo(3);
+        assertThat(options.getRetryOptions()
+                          .getDoNotRetry()).containsExactly(RESULT_FAILURE, "TemporalTimeout:StartToClose");
+    }
+
+    @Test
     void aPreviewThatKeepsFailingIsRecordedAsFailedWithoutFailingTheJob() {
         preview = jobId -> {
             throw new IllegalStateException("gltfpack exited with 3");
@@ -322,6 +422,11 @@ class PackingJobWorkflowImplTest {
             engineInputs.add(input);
             return engine.run(input);
         });
+        Worker resultWorker = env.newWorker(RESULT_TASK_QUEUE);
+        resultWorker.registerActivitiesImplementations((PackingResultActivity) input -> {
+            resultInputs.add(input);
+            return writer.write(input);
+        });
         Worker previewWorker = env.newWorker(PackingPreviewActivity.TASK_QUEUE);
         previewWorker.registerActivitiesImplementations((PackingPreviewActivity) jobId -> {
             previewInputs.add(jobId);
@@ -337,12 +442,13 @@ class PackingJobWorkflowImplTest {
                                                   .build());
     }
 
-    private static void await(CountDownLatch latch) {
+    private static boolean await(CountDownLatch latch) {
         try {
-            latch.await(10, TimeUnit.SECONDS);
+            return latch.await(10, TimeUnit.SECONDS);
         } catch (InterruptedException interrupted) {
             Thread.currentThread()
                   .interrupt();
+            return false;
         }
     }
 
@@ -365,5 +471,11 @@ class PackingJobWorkflowImplTest {
     private interface Preview {
 
         void build(String jobId);
+    }
+
+    @FunctionalInterface
+    private interface Writer {
+
+        ResultFiles write(WriteResultInput input);
     }
 }

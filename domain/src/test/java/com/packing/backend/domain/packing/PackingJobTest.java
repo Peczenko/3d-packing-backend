@@ -35,6 +35,8 @@ class PackingJobTest {
         assertThat(job.input()).isEqualTo(input);
         assertThat(job.isLegacy()).isFalse();
         assertThat(job.version()).isZero();
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.NONE);
+        assertThat(job.binCount()).isZero();
         assertThat(job.domainEvents()).containsExactly(
                                                        new PackingJobQueued(JOB_ID, PROJECT_ID, NOW));
     }
@@ -44,37 +46,134 @@ class PackingJobTest {
         PackingJob job = queuedJob();
         job.markDispatched(NOW.plusSeconds(1));
         job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(2));
-        job.succeed("output.bin",
-                    "application/octet-stream",
-                    12,
-                    SHA_B,
-                    List.of(),
-                    "packer 0.3.0",
-                    SHA_A,
-                    NOW.plusSeconds(3));
+        job.succeed("packer 0.3.0", SHA_A, 1, NOW.plusSeconds(3));
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
         assertThat(job.engineVersion()).isEqualTo("packer 0.3.0");
         assertThat(job.engineChecksum()).isEqualTo(SHA_A);
+        assertThat(job.binCount()).isEqualTo(1);
+        assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(3));
+    }
+
+    @Test
+    void succeedingLeavesTheResultToBeWrittenAndThePreviewToBeBuilt() {
+        PackingJob job = succeededJob();
+
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.PENDING);
+        assertThat(job.preview()).isEqualTo(PackingPreview.PENDING);
+        assertThat(job.resultFileName()).isNull();
+        assertThat(job.resultChecksum()).isNull();
+        assertThat(job.resultBins()).isEmpty();
+    }
+
+    @Test
+    void completingThePendingResultRecordsItsFile() {
+        PackingJob job = succeededJob();
+
+        assertThat(job.completeResult("output.bin", "application/octet-stream", 12, SHA_B.toUpperCase(), List.of(new ResultBin(12, SHA_B))))
+                                                                                                                                        .isTrue();
+
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.READY);
         assertThat(job.resultFileName()).isEqualTo("output.bin");
         assertThat(job.resultContentType()).isEqualTo("application/octet-stream");
         assertThat(job.resultSizeBytes()).isEqualTo(12L);
         assertThat(job.resultChecksum()).isEqualTo(SHA_B);
-        assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(3));
+        assertThat(job.resultBins()).containsExactly(new ResultBin(12, SHA_B));
+    }
+
+    @Test
+    void aSettledResultIgnoresEveryLaterOutcome() {
+        PackingJob ready = readyJob();
+        PackingJob failed = succeededJob();
+        failed.failResult();
+
+        assertThat(ready.completeResult("different.bin", "model/obj", 99, SHA_A, List.of(new ResultBin(99, SHA_A)))).isFalse();
+        assertThat(ready.failResult()).isFalse();
+        assertThat(ready.resultFileName()).isEqualTo("output.bin");
+        assertThat(ready.resultStatus()).isEqualTo(ResultStatus.READY);
+        assertThat(failed.completeResult("output.bin", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)))).isFalse();
+        assertThat(failed.resultStatus()).isEqualTo(ResultStatus.FAILED);
+        assertThat(failed.resultFileName()).isNull();
+    }
+
+    @Test
+    void onlyASucceededJobWritesAResult() {
+        PackingJob queued = queuedJob();
+        PackingJob failed = failedJob();
+
+        assertThat(queued.completeResult("output.bin", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)))).isFalse();
+        assertThat(failed.failResult()).isFalse();
+        assertThat(queued.resultStatus()).isEqualTo(ResultStatus.NONE);
+        assertThat(failed.resultStatus()).isEqualTo(ResultStatus.NONE);
+    }
+
+    @Test
+    void theResultMustListOneFilePerContainer() {
+        PackingJob twoContainers = twoContainerJob();
+
+        assertThatThrownBy(() -> twoContainers.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(7, SHA_A))))
+                                                                                                                                   .isInstanceOf(DomainRuleViolationException.class);
+        assertThatThrownBy(() -> twoContainers.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of()))
+                                                                                                             .isInstanceOf(DomainRuleViolationException.class);
+        assertThat(twoContainers.resultStatus()).isEqualTo(ResultStatus.PENDING);
+        assertThat(twoContainers.resultFileName()).isNull();
+    }
+
+    @Test
+    void aSingleContainerMustBeTheWholeResult() {
+        PackingJob job = succeededJob();
+
+        assertThatThrownBy(() -> job.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(11, SHA_B))))
+                                                                                                                           .isInstanceOf(DomainRuleViolationException.class);
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.PENDING);
+
+        job.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)));
+        assertThat(job.requireResultBin(1)).isEqualTo(new ResultBin(12, SHA_B));
+    }
+
+    @Test
+    void completingTheResultRecordsEachFilledContainerInOrder() {
+        PackingJob job = twoContainerJob();
+
+        job.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_B.toUpperCase())));
+
+        assertThat(job.resultBins()).containsExactly(new ResultBin(7, SHA_A), new ResultBin(5, SHA_B));
+        assertThat(job.requireResultBin(2)).isEqualTo(new ResultBin(5, SHA_B));
+    }
+
+    @Test
+    void succeedingNeedsAtLeastOneContainerAndLeavesNothingHalfDone() {
+        PackingJob job = queuedJob();
+
+        assertThatThrownBy(() -> job.succeed("v0.0.5", SHA_A, 0, NOW)).isInstanceOf(DomainRuleViolationException.class);
+
+        assertThat(job.status()).isEqualTo(PackingJobStatus.QUEUED);
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.NONE);
+        assertThat(job.engineVersion()).isNull();
+        assertThat(job.domainEvents()).hasSize(1);
+    }
+
+    @Test
+    void requireResultSeparatesAJobStillRunningFromAResultStillBeingWrittenOrLost() {
+        PackingJob queued = queuedJob();
+        PackingJob pending = succeededJob();
+        PackingJob failed = succeededJob();
+        failed.failResult();
+
+        assertThatThrownBy(queued::requireResult).isInstanceOf(ResourceConflictException.class)
+                                                 .hasMessageContaining("until the job succeeds");
+        assertThatThrownBy(pending::requireResult).isInstanceOf(ResourceConflictException.class)
+                                                  .hasMessageContaining("still writing");
+        assertThatThrownBy(failed::requireResult).isInstanceOf(ResourceConflictException.class)
+                                                 .hasMessageContaining("could not be written");
+        readyJob().requireResult();
     }
 
     @Test
     void succeedsQueuedJobWhenStartedMessageArrivesLate() {
         PackingJob job = queuedJob();
 
-        assertThat(job.succeed("output.bin",
-                               "application/octet-stream",
-                               12,
-                               SHA_B,
-                               List.of(),
-                               "packer 0.3.0",
-                               SHA_A,
-                               NOW.plusSeconds(1))).isTrue();
+        assertThat(job.succeed("packer 0.3.0", SHA_A, 1, NOW.plusSeconds(1))).isTrue();
 
         assertThat(job.status()).isEqualTo(PackingJobStatus.SUCCEEDED);
         assertThat(job.finishedAt()).isEqualTo(NOW.plusSeconds(1));
@@ -171,33 +270,20 @@ class PackingJobTest {
         PackingJob job = succeededJob();
         Instant originalFinishedAt = job.finishedAt();
 
-        assertThat(job.succeed("output.bin",
-                               "application/octet-stream",
-                               12,
-                               SHA_B,
-                               List.of(),
-                               "packer 0.3.0",
-                               SHA_A,
-                               NOW.plusSeconds(3))).isFalse();
+        assertThat(job.succeed("different", SHA_B, 3, NOW.plusSeconds(3))).isFalse();
 
         assertThat(job.finishedAt()).isEqualTo(originalFinishedAt);
-        assertThat(job.resultFileName()).isEqualTo("output.bin");
-        assertThat(job.resultChecksum()).isEqualTo(SHA_B);
+        assertThat(job.engineVersion()).isEqualTo("packer 0.3.0");
+        assertThat(job.binCount()).isEqualTo(1);
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.PENDING);
     }
 
     @Test
-    void ignoresDifferentLateResultMessagesAfterSucceededWithoutChangingTerminalData() {
-        PackingJob job = succeededJob();
+    void ignoresDifferentLateMessagesAfterSucceededWithoutChangingTerminalData() {
+        PackingJob job = readyJob();
         Instant originalFinishedAt = job.finishedAt();
 
-        assertThat(job.succeed("different.bin",
-                               "application/octet-stream",
-                               99,
-                               SHA_A,
-                               List.of(),
-                               "different",
-                               SHA_B,
-                               NOW.plusSeconds(3))).isFalse();
+        assertThat(job.succeed("different", SHA_B, 3, NOW.plusSeconds(3))).isFalse();
         assertThat(job.fail("different failure", "different", SHA_B, NOW.plusSeconds(4))).isFalse();
         assertThat(job.failStalled("different failure", NOW.plusSeconds(5))).isFalse();
 
@@ -213,14 +299,7 @@ class PackingJobTest {
         PackingJob job = failedJob();
         Instant originalFinishedAt = job.finishedAt();
 
-        assertThat(job.succeed("output.bin",
-                               "application/octet-stream",
-                               12,
-                               SHA_B,
-                               List.of(),
-                               "packer 0.3.0",
-                               SHA_A,
-                               NOW.plusSeconds(3))).isFalse();
+        assertThat(job.succeed("packer 0.3.0", SHA_A, 1, NOW.plusSeconds(3))).isFalse();
         assertThat(job.fail("different failure", "different", SHA_B, NOW.plusSeconds(4))).isFalse();
         assertThat(job.failStalled("different failure", NOW.plusSeconds(5))).isFalse();
 
@@ -246,21 +325,13 @@ class PackingJobTest {
     }
 
     @Test
-    void normalizesUppercaseEngineAndResultChecksums() {
+    void normalizesUppercaseEngineChecksums() {
         PackingJob job = queuedJob();
 
         job.markRunning("packer 0.3.0", SHA_A.toUpperCase(), NOW.plusSeconds(1));
-        job.succeed("output.bin",
-                    "application/octet-stream",
-                    12,
-                    SHA_B.toUpperCase(),
-                    List.of(),
-                    "packer 0.3.0",
-                    SHA_A.toUpperCase(),
-                    NOW.plusSeconds(2));
+        job.succeed("packer 0.3.0", SHA_A.toUpperCase(), 1, NOW.plusSeconds(2));
 
         assertThat(job.engineChecksum()).isEqualTo(SHA_A);
-        assertThat(job.resultChecksum()).isEqualTo(SHA_B);
     }
 
     @Test
@@ -273,10 +344,22 @@ class PackingJobTest {
                                                                         USER_ID,
                                                                         PackingJobStatus.SUCCEEDED,
                                                                         null,
-                                                                        "output.bin",
-                                                                        12L,
                                                                         NOW.plusSeconds(1),
                                                                         NOW.plusSeconds(2)));
+    }
+
+    @Test
+    void writingTheResultRaisesNoFurtherEvent() {
+        PackingJob written = succeededJob();
+        PackingJob lost = succeededJob();
+        written.pullDomainEvents();
+        lost.pullDomainEvents();
+
+        written.completeResult("output.bin", "application/octet-stream", 12, SHA_B, List.of(new ResultBin(12, SHA_B)));
+        lost.failResult();
+
+        assertThat(written.domainEvents()).isEmpty();
+        assertThat(lost.domainEvents()).isEmpty();
     }
 
     @Test
@@ -289,8 +372,6 @@ class PackingJobTest {
                                                                         USER_ID,
                                                                         PackingJobStatus.FAILED,
                                                                         "engine exited",
-                                                                        null,
-                                                                        null,
                                                                         null,
                                                                         NOW.plusSeconds(1)));
     }
@@ -307,8 +388,6 @@ class PackingJobTest {
                                                                         PackingJobStatus.FAILED,
                                                                         "dead-lettered",
                                                                         null,
-                                                                        null,
-                                                                        null,
                                                                         NOW.plusSeconds(1)));
     }
 
@@ -317,7 +396,7 @@ class PackingJobTest {
         PackingJob job = succeededJob();
         job.pullDomainEvents();
 
-        job.succeed("output.bin", "application/octet-stream", 12, SHA_B, List.of(), "packer 0.3.0", SHA_A, NOW.plusSeconds(3));
+        job.succeed("packer 0.3.0", SHA_A, 1, NOW.plusSeconds(3));
         job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(4));
         job.failStalled("dead-lettered", NOW.plusSeconds(5));
 
@@ -371,7 +450,8 @@ class PackingJobTest {
         job.pullDomainEvents();
 
         assertThat(job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(2))).isFalse();
-        assertThat(job.succeed("output.bin", "application/octet-stream", 12, SHA_B, List.of(), "packer 0.3.0", SHA_A, NOW.plusSeconds(3))).isFalse();
+        assertThat(job.succeed("packer 0.3.0", SHA_A, 1, NOW.plusSeconds(3))).isFalse();
+        assertThat(job.completeResult("output.bin", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)))).isFalse();
         assertThat(job.fail("engine exited", "packer 0.3.0", SHA_A, NOW.plusSeconds(4))).isFalse();
         assertThat(job.failStalled("dead-lettered", NOW.plusSeconds(5))).isFalse();
 
@@ -404,6 +484,8 @@ class PackingJobTest {
                                               NOW,
                                               NOW.plusSeconds(1),
                                               NOW.plusSeconds(2),
+                                              0,
+                                              ResultStatus.NONE,
                                               null,
                                               null,
                                               null,
@@ -433,6 +515,8 @@ class PackingJobTest {
                                               NOW,
                                               NOW.plusSeconds(1),
                                               NOW.plusSeconds(2),
+                                              0,
+                                              ResultStatus.READY,
                                               "output.bin",
                                               "application/octet-stream",
                                               SHA_B,
@@ -445,16 +529,39 @@ class PackingJobTest {
 
         assertThat(job.isLegacy()).isTrue();
         assertThat(job.input()).isNull();
+        job.requireResult();
+        assertThatThrownBy(() -> job.requireResultBin(1)).isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void rehydrateRefusesANegativeContainerCount() {
+        assertThatThrownBy(() -> PackingJob.rehydrate(JOB_ID,
+                                                      PROJECT_ID,
+                                                      USER_ID,
+                                                      PackingInputs.single(),
+                                                      60,
+                                                      PackingJobStatus.QUEUED,
+                                                      null,
+                                                      null,
+                                                      null,
+                                                      null,
+                                                      null,
+                                                      -1,
+                                                      ResultStatus.NONE,
+                                                      null,
+                                                      null,
+                                                      null,
+                                                      null,
+                                                      List.of(),
+                                                      null,
+                                                      PackingPreview.NONE,
+                                                      0,
+                                                      NOW)).isInstanceOf(DomainRuleViolationException.class);
     }
 
     @Test
     void aQueuedJobHasNoPreview() {
         assertThat(queuedJob().preview()).isEqualTo(PackingPreview.NONE);
-    }
-
-    @Test
-    void succeedingLeavesThePreviewPending() {
-        assertThat(succeededJob().preview()).isEqualTo(PackingPreview.PENDING);
     }
 
     @Test
@@ -539,10 +646,19 @@ class PackingJobTest {
     }
 
     @Test
+    void containerPreviewsAreServedWhileTheResultIsStillBeingWritten() {
+        PackingJob job = twoContainerJob();
+        job.completePreview(List.of(model(PreviewQuality.HIGH)), List.of(List.of(model(PreviewQuality.HIGH)), List.of(model(PreviewQuality.HIGH))));
+
+        assertThat(job.resultStatus()).isEqualTo(ResultStatus.PENDING);
+        assertThat(job.requireBinPreview(2, PreviewQuality.HIGH)).isEqualTo(model(PreviewQuality.HIGH));
+        assertThatThrownBy(() -> job.requireResultBin(2)).isInstanceOf(ResourceConflictException.class);
+    }
+
+    @Test
     void aPreviewMustCoverEveryContainerOfAMultiContainerResultAndNoneOfASingleOne() {
         PackingJob twoContainers = twoContainerJob();
-        PackingJob oneContainer = queuedJob();
-        oneContainer.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)), "v0.0.5", SHA_A, NOW);
+        PackingJob oneContainer = succeededJob();
         List<PreviewModel> high = List.of(model(PreviewQuality.HIGH));
 
         assertThatThrownBy(() -> twoContainers.completePreview(high, List.of())).isInstanceOf(DomainRuleViolationException.class);
@@ -555,8 +671,7 @@ class PackingJobTest {
 
     @Test
     void theOnlyContainerOfAResultSharesTheWholePreview() {
-        PackingJob job = queuedJob();
-        job.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)), "v0.0.5", SHA_A, NOW);
+        PackingJob job = succeededJob();
         job.completePreview(List.of(model(PreviewQuality.HIGH), model(PreviewQuality.MEDIUM)), List.of());
 
         assertThat(job.requireBinPreview(1, PreviewQuality.MEDIUM)).isEqualTo(model(PreviewQuality.MEDIUM));
@@ -582,6 +697,8 @@ class PackingJobTest {
                                                                        NOW,
                                                                        NOW,
                                                                        NOW,
+                                                                       2,
+                                                                       ResultStatus.READY,
                                                                        "packed.obj",
                                                                        "model/obj",
                                                                        SHA_B,
@@ -613,40 +730,16 @@ class PackingJobTest {
     }
 
     @Test
-    void succeedingRecordsEachFilledContainerInOrder() {
-        PackingJob job = queuedJob();
-        List<ResultBin> bins = List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_B.toUpperCase()));
-
-        job.succeed("packed.obj", "model/obj", 12, SHA_B, bins, "v0.0.5", SHA_A, NOW.plusSeconds(2));
-
-        assertThat(job.resultBins()).containsExactly(new ResultBin(7, SHA_A), new ResultBin(5, SHA_B));
-        assertThat(job.requireResultBin(2)).isEqualTo(new ResultBin(5, SHA_B));
-    }
-
-    @Test
-    void aSingleContainerMustBeTheWholeResult() {
-        PackingJob job = queuedJob();
-
-        assertThatThrownBy(() -> job.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(11, SHA_B)), "v0.0.5", SHA_A, NOW))
-                                                                                                                                            .isInstanceOf(DomainRuleViolationException.class);
-        assertThat(job.status()).isEqualTo(PackingJobStatus.QUEUED);
-        assertThat(job.resultBins()).isEmpty();
-
-        job.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(12, SHA_B)), "v0.0.5", SHA_A, NOW);
-        assertThat(job.requireResultBin(1)).isEqualTo(new ResultBin(12, SHA_B));
-    }
-
-    @Test
     void requireResultBinDistinguishesAnUnfinishedJobFromAContainerNeverFilled() {
         PackingJob queued = queuedJob();
-        PackingJob twoBins = queuedJob();
-        twoBins.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_A)), "v0.0.5", SHA_A, NOW);
-        PackingJob beforeBins = succeededJob();
+        PackingJob pending = twoContainerJob();
+        PackingJob twoBins = twoContainerJob();
+        twoBins.completeResult("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_A)));
 
         assertThatThrownBy(() -> queued.requireResultBin(1)).isInstanceOf(ResourceConflictException.class);
+        assertThatThrownBy(() -> pending.requireResultBin(1)).isInstanceOf(ResourceConflictException.class);
         assertThatThrownBy(() -> twoBins.requireResultBin(0)).isInstanceOf(ResourceNotFoundException.class);
         assertThatThrownBy(() -> twoBins.requireResultBin(3)).isInstanceOf(ResourceNotFoundException.class);
-        assertThatThrownBy(() -> beforeBins.requireResultBin(1)).isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -672,20 +765,19 @@ class PackingJobTest {
     private PackingJob succeededJob() {
         PackingJob job = queuedJob();
         job.markRunning("packer 0.3.0", SHA_A, NOW.plusSeconds(1));
-        job.succeed("output.bin",
-                    "application/octet-stream",
-                    12,
-                    SHA_B,
-                    List.of(),
-                    "packer 0.3.0",
-                    SHA_A,
-                    NOW.plusSeconds(2));
+        job.succeed("packer 0.3.0", SHA_A, 1, NOW.plusSeconds(2));
+        return job;
+    }
+
+    private PackingJob readyJob() {
+        PackingJob job = succeededJob();
+        job.completeResult("output.bin", "application/octet-stream", 12, SHA_B, List.of(new ResultBin(12, SHA_B)));
         return job;
     }
 
     private PackingJob twoContainerJob() {
         PackingJob job = queuedJob();
-        job.succeed("packed.obj", "model/obj", 12, SHA_B, List.of(new ResultBin(7, SHA_A), new ResultBin(5, SHA_A)), "v0.0.5", SHA_A, NOW);
+        job.succeed("v0.0.5", SHA_A, 2, NOW);
         return job;
     }
 

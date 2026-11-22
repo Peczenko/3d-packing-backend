@@ -14,6 +14,7 @@ func clearEnv(t *testing.T) {
 		"TEMPORAL_ADDRESS",
 		"TEMPORAL_NAMESPACE",
 		"PACKING_TASK_QUEUE",
+		"PACKING_RESULT_TASK_QUEUE",
 		"PACKING_HEARTBEAT_INTERVAL",
 		"STORAGE_CONNECTION_STRING",
 		"STORAGE_ACCOUNT_URL",
@@ -40,6 +41,7 @@ func TestLoadDefaults(t *testing.T) {
 		TemporalAddress:         "localhost:7233",
 		TemporalNamespace:       "packing",
 		TaskQueue:               "packing-engine",
+		ResultTaskQueue:         "packing-result",
 		HeartbeatInterval:       10 * time.Second,
 		OverrunGrace:            120 * time.Second,
 		StorageConnectionString: "DefaultEndpointsProtocol=https;AccountName=example;AccountKey=z",
@@ -58,6 +60,7 @@ func TestLoadAppliesOverrides(t *testing.T) {
 	t.Setenv("TEMPORAL_ADDRESS", "temporal:7233")
 	t.Setenv("TEMPORAL_NAMESPACE", "other")
 	t.Setenv("PACKING_TASK_QUEUE", "custom-engine")
+	t.Setenv("PACKING_RESULT_TASK_QUEUE", "custom-result")
 	t.Setenv("PACKING_HEARTBEAT_INTERVAL", "3s")
 	t.Setenv("STORAGE_ACCOUNT_URL", "https://example.blob.core.windows.net")
 	t.Setenv("STORAGE_CONTAINER_NAME", "custom-models")
@@ -74,6 +77,7 @@ func TestLoadAppliesOverrides(t *testing.T) {
 		TemporalAddress:   "temporal:7233",
 		TemporalNamespace: "other",
 		TaskQueue:         "custom-engine",
+		ResultTaskQueue:   "custom-result",
 		HeartbeatInterval: 3 * time.Second,
 		OverrunGrace:      90 * time.Second,
 		StorageAccountURL: "https://example.blob.core.windows.net",

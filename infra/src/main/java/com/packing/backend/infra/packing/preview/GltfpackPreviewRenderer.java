@@ -58,7 +58,10 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
         Path work = null;
         try {
             work = Files.createTempDirectory("packing-preview-" + jobId + "-");
-            Optional<PlacementLayout> placements = placements(jobId, items, resultChecksum, binCount);
+            Optional<PlacementLayout> placements = placements(jobId, items, binCount);
+            if (placements.isEmpty() && resultChecksum == null) {
+                throw new IllegalStateException("Packing job " + jobId + " has neither placements nor a result to preview");
+            }
             Rendered rendered = placements.isPresent()
                                                        ? renderPlaced(jobId, items, placements.get(), binCount, work)
                                                        : renderResult(jobId, items, resultChecksum, binCount, work);
@@ -77,17 +80,16 @@ public class GltfpackPreviewRenderer implements PackingPreviewRenderer {
         }
     }
 
-    private Optional<PlacementLayout> placements(PackingJobId jobId, List<PackingItem> items, String resultChecksum, int binCount) {
-        Optional<byte[]> stored = artifacts.findPlacements(jobId, resultChecksum);
-        if (stored.isEmpty()) {
-            return Optional.empty();
-        }
-        try {
-            return Optional.of(PlacementLayout.parse(stored.get(), items, binCount));
-        } catch (IllegalArgumentException e) {
-            log.warn("Ignoring the placements of packing job {}: {}", jobId, e.getMessage());
-            return Optional.empty();
-        }
+    private Optional<PlacementLayout> placements(PackingJobId jobId, List<PackingItem> items, int binCount) {
+        return artifacts.findPlacements(jobId)
+                        .map(stored -> {
+                            try {
+                                return PlacementLayout.parse(stored, items, binCount);
+                            } catch (IllegalArgumentException e) {
+                                throw new UnrecognizedPackerOutputException("The placements of packing job " + jobId + " are unusable: "
+                                        + e.getMessage());
+                            }
+                        });
     }
 
     private Rendered renderPlaced(PackingJobId jobId, List<PackingItem> items, PlacementLayout placements, int binCount, Path work)

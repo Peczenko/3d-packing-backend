@@ -43,6 +43,8 @@ public final class PackingJob extends AggregateRoot {
     private Instant          dispatchedAt;
     private Instant          startedAt;
     private Instant          finishedAt;
+    private int              binCount;
+    private ResultStatus     resultStatus;
     private String           resultFileName;
     private String           resultContentType;
     private String           resultChecksum;
@@ -63,6 +65,8 @@ public final class PackingJob extends AggregateRoot {
                        Instant dispatchedAt,
                        Instant startedAt,
                        Instant finishedAt,
+                       int binCount,
+                       ResultStatus resultStatus,
                        String resultFileName,
                        String resultContentType,
                        String resultChecksum,
@@ -84,6 +88,11 @@ public final class PackingJob extends AggregateRoot {
         this.dispatchedAt = dispatchedAt;
         this.startedAt = startedAt;
         this.finishedAt = finishedAt;
+        if (binCount < 0) {
+            throw new DomainRuleViolationException("binCount must not be negative");
+        }
+        this.binCount = binCount;
+        this.resultStatus = Objects.requireNonNull(resultStatus, "resultStatus");
         this.resultFileName = resultFileName;
         this.resultContentType = resultContentType;
         this.resultChecksum = resultChecksum;
@@ -112,6 +121,8 @@ public final class PackingJob extends AggregateRoot {
                                         null,
                                         null,
                                         null,
+                                        0,
+                                        ResultStatus.NONE,
                                         null,
                                         null,
                                         null,
@@ -136,6 +147,8 @@ public final class PackingJob extends AggregateRoot {
                                        Instant dispatchedAt,
                                        Instant startedAt,
                                        Instant finishedAt,
+                                       int binCount,
+                                       ResultStatus resultStatus,
                                        String resultFileName,
                                        String resultContentType,
                                        String resultChecksum,
@@ -156,6 +169,8 @@ public final class PackingJob extends AggregateRoot {
                               dispatchedAt,
                               startedAt,
                               finishedAt,
+                              binCount,
+                              resultStatus,
                               resultFileName,
                               resultContentType,
                               resultChecksum,
@@ -188,15 +203,31 @@ public final class PackingJob extends AggregateRoot {
         return true;
     }
 
-    public boolean succeed(String fileName,
-                           String contentType,
-                           long sizeBytes,
-                           String checksum,
-                           List<ResultBin> bins,
-                           String version,
-                           String engineChecksum,
-                           Instant now) {
+    public boolean succeed(String version, String engineChecksum, int containers, Instant now) {
         if (isTerminal()) {
+            return false;
+        }
+
+        String requiredVersion = requireText(version, "engineVersion");
+        String requiredEngineChecksum = requireSha256(engineChecksum, "engineChecksum");
+        if (containers < 1) {
+            throw new DomainRuleViolationException("A packing job that succeeded fills at least one container");
+        }
+        Instant finished = Objects.requireNonNull(now, "now");
+
+        this.engineVersion = requiredVersion;
+        this.engineChecksum = requiredEngineChecksum;
+        binCount = containers;
+        status = PackingJobStatus.SUCCEEDED;
+        finishedAt = finished;
+        resultStatus = ResultStatus.PENDING;
+        preview = PackingPreview.PENDING;
+        recordFinished(finished);
+        return true;
+    }
+
+    public boolean completeResult(String fileName, String contentType, long sizeBytes, String checksum, List<ResultBin> bins) {
+        if (resultStatus != ResultStatus.PENDING) {
             return false;
         }
 
@@ -205,21 +236,25 @@ public final class PackingJob extends AggregateRoot {
         requirePositiveSize(sizeBytes);
         String requiredChecksum = requireSha256(checksum, "resultChecksum");
         List<ResultBin> requiredBins = requireBins(bins, sizeBytes, requiredChecksum);
-        String requiredVersion = requireText(version, "engineVersion");
-        String requiredEngineChecksum = requireSha256(engineChecksum, "engineChecksum");
-        Instant finished = Objects.requireNonNull(now, "now");
+        if (requiredBins.size() != binCount) {
+            throw new DomainRuleViolationException("A result in " + binCount + " containers needs " + binCount
+                    + " container files, not " + requiredBins.size());
+        }
 
         resultFileName = requiredFileName;
         resultContentType = requiredContentType;
         resultSizeBytes = sizeBytes;
         resultChecksum = requiredChecksum;
         resultBins = requiredBins;
-        this.engineVersion = requiredVersion;
-        this.engineChecksum = requiredEngineChecksum;
-        status = PackingJobStatus.SUCCEEDED;
-        finishedAt = finished;
-        preview = PackingPreview.PENDING;
-        recordFinished(finished);
+        resultStatus = ResultStatus.READY;
+        return true;
+    }
+
+    public boolean failResult() {
+        if (resultStatus != ResultStatus.PENDING) {
+            return false;
+        }
+        resultStatus = ResultStatus.FAILED;
         return true;
     }
 
@@ -272,9 +307,9 @@ public final class PackingJob extends AggregateRoot {
         if (preview.status() != PreviewStatus.PENDING) {
             return false;
         }
-        int expected = resultBins.size() > 1 ? resultBins.size() : 0;
+        int expected = binCount > 1 ? binCount : 0;
         if (bins.size() != expected) {
-            throw new DomainRuleViolationException("A result in " + resultBins.size() + " containers needs " + expected
+            throw new DomainRuleViolationException("A result in " + binCount + " containers needs " + expected
                     + " container previews, not " + bins.size());
         }
         preview = PackingPreview.ready(models, bins);
@@ -296,20 +331,27 @@ public final class PackingJob extends AggregateRoot {
     }
 
     public PreviewModel requireBinPreview(int number, PreviewQuality quality) {
-        requireResultBin(number);
+        requireSucceeded();
+        requireContainer(number, binCount);
         requirePreviewReady();
-        return preview.binModel(number, resultBins.size(), quality)
+        return preview.binModel(number, binCount, quality)
                       .orElseThrow(() -> new ResourceNotFoundException("Packing job " + id + " has no " + quality
                               + " preview of result bin " + number));
     }
 
+    public void requireResult() {
+        requireSucceeded();
+        if (resultStatus == ResultStatus.PENDING) {
+            throw new ResourceConflictException("Packing job " + id + " is still writing its result");
+        }
+        if (resultStatus != ResultStatus.READY) {
+            throw new ResourceConflictException("Packing job " + id + " has no result because it could not be written");
+        }
+    }
+
     public ResultBin requireResultBin(int number) {
-        if (status != PackingJobStatus.SUCCEEDED) {
-            throw new ResourceConflictException("Packing job result is not available until the job succeeds");
-        }
-        if (number < 1 || number > resultBins.size()) {
-            throw new ResourceNotFoundException("Packing job " + id + " has no result bin " + number);
-        }
+        requireResult();
+        requireContainer(number, resultBins.size());
         return resultBins.get(number - 1);
     }
 
@@ -327,10 +369,20 @@ public final class PackingJob extends AggregateRoot {
                                            requestedBy,
                                            status,
                                            failureReason,
-                                           resultFileName,
-                                           resultSizeBytes,
                                            startedAt,
                                            now));
+    }
+
+    private void requireSucceeded() {
+        if (status != PackingJobStatus.SUCCEEDED) {
+            throw new ResourceConflictException("Packing job result is not available until the job succeeds");
+        }
+    }
+
+    private void requireContainer(int number, int containers) {
+        if (number < 1 || number > containers) {
+            throw new ResourceNotFoundException("Packing job " + id + " has no result bin " + number);
+        }
     }
 
     private void requirePreviewReady() {

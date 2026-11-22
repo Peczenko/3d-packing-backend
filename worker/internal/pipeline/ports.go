@@ -32,7 +32,7 @@ type Packing struct {
 	SearchSeconds      float64
 }
 
-type EngineResult struct {
+type ResultFiles struct {
 	FileName        string
 	ContentType     string
 	ContentEncoding string
@@ -41,7 +41,6 @@ type EngineResult struct {
 	Checksum        string
 	StoredBytes     int64
 	Bins            []ResultBin
-	Layout          *Layout
 }
 
 type Placement struct {
@@ -67,7 +66,7 @@ type Engine interface {
 }
 
 type ResultWriter interface {
-	Write(ctx context.Context, inputs []InputFile, layout Layout, dir string) (EngineResult, error)
+	Write(ctx context.Context, inputs []InputFile, layout Layout, dir string) (ResultFiles, error)
 }
 
 type EngineFailure struct {
@@ -85,11 +84,18 @@ type Signaler interface {
 type Artifacts interface {
 	DownloadRequest(context.Context, string, string) error
 	DownloadInput(ctx context.Context, storageKey, path string) error
+	FindPlacements(context.Context, string) (*StoredPlacements, error)
+	CreatePlacements(context.Context, string, StoredPlacements) (*StoredPlacements, error)
 	FindResult(context.Context, string) (*StoredResult, error)
 	CreateResult(context.Context, string, StoredResult) (*StoredResult, error)
 }
 
+type StoredPlacements struct {
+	Engine EngineProvenance
+	Layout Layout
+}
+
 type StoredResult struct {
 	Engine EngineProvenance
-	Result EngineResult
+	Result ResultFiles
 }

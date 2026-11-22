@@ -102,21 +102,51 @@ func (s *fakeSignaler) sent() []signal {
 type fakeArtifacts struct {
 	rec *recorder
 
-	find        *StoredResult
-	findErr     error
-	request     []byte
-	downloadErr error
-	inputs      map[string][]byte
-	inputErr    error
-	created     *StoredResult
-	createErr   error
+	placements          *StoredPlacements
+	findPlacementsErr   error
+	createdPlacements   *StoredPlacements
+	createPlacementsErr error
+	find                *StoredResult
+	findErr             error
+	request             []byte
+	downloadErr         error
+	inputs              map[string][]byte
+	inputErr            error
+	created             *StoredResult
+	createErr           error
 
-	mu            sync.Mutex
-	findJobID     string
-	downloadJobID string
-	inputKeys     []string
-	createJobID   string
-	createOffered StoredResult
+	mu                    sync.Mutex
+	findPlacementsJobID   string
+	createPlacementsJobID string
+	placementsOffered     StoredPlacements
+	findJobID             string
+	downloadJobID         string
+	inputKeys             []string
+	createJobID           string
+	createOffered         StoredResult
+}
+
+func (a *fakeArtifacts) FindPlacements(_ context.Context, jobID string) (*StoredPlacements, error) {
+	a.rec.record("findPlacements")
+	a.mu.Lock()
+	a.findPlacementsJobID = jobID
+	a.mu.Unlock()
+	if a.findPlacementsErr != nil {
+		return nil, a.findPlacementsErr
+	}
+	return a.placements, nil
+}
+
+func (a *fakeArtifacts) CreatePlacements(_ context.Context, jobID string, offered StoredPlacements) (*StoredPlacements, error) {
+	a.rec.record("createPlacements")
+	a.mu.Lock()
+	a.createPlacementsJobID = jobID
+	a.placementsOffered = offered
+	a.mu.Unlock()
+	if a.createPlacementsErr != nil {
+		return nil, a.createPlacementsErr
+	}
+	return a.createdPlacements, nil
 }
 
 func (a *fakeArtifacts) FindResult(_ context.Context, jobID string) (*StoredResult, error) {
@@ -208,7 +238,7 @@ func (e *fakeEngine) Run(ctx context.Context, request RunRequest) (Packing, erro
 
 type fakeWriter struct {
 	rec   *recorder
-	write func(context.Context, []InputFile, Layout, string) (EngineResult, error)
+	write func(context.Context, []InputFile, Layout, string) (ResultFiles, error)
 
 	mu         sync.Mutex
 	lastInputs []InputFile
@@ -216,7 +246,7 @@ type fakeWriter struct {
 	lastDir    string
 }
 
-func (w *fakeWriter) Write(ctx context.Context, inputs []InputFile, layout Layout, dir string) (EngineResult, error) {
+func (w *fakeWriter) Write(ctx context.Context, inputs []InputFile, layout Layout, dir string) (ResultFiles, error) {
 	w.rec.record("write")
 	w.mu.Lock()
 	w.lastInputs = inputs
@@ -227,15 +257,33 @@ func (w *fakeWriter) Write(ctx context.Context, inputs []InputFile, layout Layou
 }
 
 var (
-	packed = Packing{
-		Layout: Layout{
-			BinOffsets: [][3]float64{{0, 0, 0}},
-			Placements: []Placement{{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, 0}}},
+	twoCopies = Layout{
+		BinOffsets: [][3]float64{{0, 0, 0}, {1650, 0, 0}},
+		Placements: []Placement{
+			{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, 0}},
+			{Item: 0, Bin: 2, Matrix: [12]float64{0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 2.5}},
 		},
+	}
+	packed = Packing{
+		Layout:             twoCopies,
 		PreparationSeconds: 1,
 		SearchSeconds:      2,
 	}
-	engineResult = EngineResult{
+	winnerPlacements = StoredPlacements{
+		Engine: EngineProvenance{Version: "v0.0.4", Checksum: strings.Repeat("9", 64)},
+		Layout: Layout{
+			BinOffsets: [][3]float64{{0, 0, 0}},
+			Placements: []Placement{
+				{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}},
+				{Item: 0, Bin: 1, Matrix: [12]float64{1, 0, 0, 9, 0, 1, 0, 0, 0, 0, 1, 0}},
+			},
+		},
+	}
+	storedPlacements = StoredPlacements{
+		Engine: EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("b", 64)},
+		Layout: twoCopies,
+	}
+	writtenResult = ResultFiles{
 		FileName:        "packed.obj",
 		ContentType:     "model/obj",
 		ContentEncoding: "gzip",
@@ -246,7 +294,7 @@ var (
 	}
 	createdResult = StoredResult{
 		Engine: EngineProvenance{Version: "v0.0.5", Checksum: strings.Repeat("b", 64)},
-		Result: EngineResult{
+		Result: ResultFiles{
 			FileName:    "packed.obj",
 			ContentType: "model/obj",
 			SizeBytes:   99,
@@ -259,7 +307,7 @@ var (
 	}
 	storedResult = StoredResult{
 		Engine: EngineProvenance{Version: "v0.0.1", Checksum: strings.Repeat("e", 64)},
-		Result: EngineResult{
+		Result: ResultFiles{
 			FileName:    "packed.obj",
 			ContentType: "model/obj",
 			SizeBytes:   42,
@@ -273,14 +321,13 @@ func pack(context.Context, RunRequest) (Packing, error) {
 	return packed, nil
 }
 
-func writeOutput(_ context.Context, _ []InputFile, layout Layout, dir string) (EngineResult, error) {
+func writeOutput(_ context.Context, _ []InputFile, _ Layout, dir string) (ResultFiles, error) {
 	path := filepath.Join(dir, "packed.obj.gz")
 	if err := os.WriteFile(path, []byte("packed\n"), 0o600); err != nil {
-		return EngineResult{}, err
+		return ResultFiles{}, err
 	}
-	result := engineResult
+	result := writtenResult
 	result.Path = path
-	result.Layout = &layout
 	return result, nil
 }
 
@@ -305,10 +352,11 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{
 		rec: rec,
 		artifacts: &fakeArtifacts{
-			rec:     rec,
-			request: requestBody(),
-			inputs:  map[string][]byte{testStorageKey: []byte(testInput)},
-			created: cloneResult(createdResult),
+			rec:               rec,
+			request:           requestBody(),
+			inputs:            map[string][]byte{testStorageKey: []byte(testInput)},
+			createdPlacements: clonePlacements(winnerPlacements),
+			created:           cloneResult(createdResult),
 		},
 		engine: &fakeEngine{
 			rec:        rec,
@@ -327,14 +375,31 @@ func newHarness(t *testing.T) *harness {
 	return h
 }
 
+func newWriteHarness(t *testing.T) *harness {
+	t.Helper()
+	h := newHarness(t)
+	h.artifacts.placements = clonePlacements(storedPlacements)
+	return h
+}
+
 func cloneResult(result StoredResult) *StoredResult {
 	copied := result
 	return &copied
 }
 
+func clonePlacements(placements StoredPlacements) *StoredPlacements {
+	copied := placements
+	copied.Layout.BinOffsets = slices.Clone(placements.Layout.BinOffsets)
+	copied.Layout.Placements = slices.Clone(placements.Layout.Placements)
+	return &copied
+}
+
+func (h *harness) activity() *Activity {
+	return NewActivity(h.artifacts, h.engine, h.writer, h.signaler, h.workRoot, h.interval)
+}
+
 func (h *harness) run(in contracts.RunEngineInput) (contracts.EngineResult, error) {
-	act := NewActivity(h.artifacts, h.engine, h.writer, h.signaler, h.workRoot, h.interval)
-	h.env.RegisterActivityWithOptions(act.RunEngine, activity.RegisterOptions{Name: contracts.RunEngineActivity})
+	h.env.RegisterActivityWithOptions(h.activity().RunEngine, activity.RegisterOptions{Name: contracts.RunEngineActivity})
 	value, err := h.env.ExecuteActivity(contracts.RunEngineActivity, in)
 	if err != nil {
 		return contracts.EngineResult{}, err
@@ -342,6 +407,19 @@ func (h *harness) run(in contracts.RunEngineInput) (contracts.EngineResult, erro
 	var result contracts.EngineResult
 	if err := value.Get(&result); err != nil {
 		return contracts.EngineResult{}, err
+	}
+	return result, nil
+}
+
+func (h *harness) writeResult(in contracts.WriteResultInput) (contracts.ResultFiles, error) {
+	h.env.RegisterActivityWithOptions(h.activity().WriteResult, activity.RegisterOptions{Name: contracts.WriteResultActivity})
+	value, err := h.env.ExecuteActivity(contracts.WriteResultActivity, in)
+	if err != nil {
+		return contracts.ResultFiles{}, err
+	}
+	var result contracts.ResultFiles
+	if err := value.Get(&result); err != nil {
+		return contracts.ResultFiles{}, err
 	}
 	return result, nil
 }
@@ -409,7 +487,26 @@ func assertEngineFailure(t *testing.T, err error, reason string) {
 	}
 }
 
-func TestRunEngineSuccessCallsPortsInOrderAndReturnsTheStoredWinner(t *testing.T) {
+func assertResultFailure(t *testing.T, err error, reason string) {
+	t.Helper()
+	appErr := applicationError(t, err)
+	if appErr.Type() != contracts.ResultFailureType || !appErr.NonRetryable() {
+		t.Fatalf("error type %s nonRetryable=%t, want non-retryable %s", appErr.Type(), appErr.NonRetryable(), contracts.ResultFailureType)
+	}
+	if appErr.Message() != reason {
+		t.Fatalf("reason = %q, want %q", appErr.Message(), reason)
+	}
+}
+
+func assertInvalidInput(t *testing.T, err error) {
+	t.Helper()
+	appErr := applicationError(t, err)
+	if appErr.Type() != contracts.InvalidInputType || !appErr.NonRetryable() {
+		t.Fatalf("error type %s nonRetryable=%t, want non-retryable %s", appErr.Type(), appErr.NonRetryable(), contracts.InvalidInputType)
+	}
+}
+
+func TestRunEngineStoresThePlacementsAndReturnsTheStoredWinner(t *testing.T) {
 	h := newHarness(t)
 
 	result, err := h.run(input())
@@ -418,25 +515,34 @@ func TestRunEngineSuccessCallsPortsInOrderAndReturnsTheStoredWinner(t *testing.T
 	}
 
 	assertCalls(t, h.rec.snapshot(), []string{
-		"findResult", "download", "provenance", "downloadInput", "signal:engineStarted", "run", "write", "createResult",
+		"findPlacements", "download", "provenance", "downloadInput", "signal:engineStarted", "run", "createPlacements",
 	})
 	assertWorkspaceRemoved(t, h.workRoot)
 	want := contracts.EngineResult{
-		ContractVersion:   contracts.ActivityVersion,
-		EngineVersion:     createdResult.Engine.Version,
-		EngineChecksum:    createdResult.Engine.Checksum,
-		ResultFileName:    createdResult.Result.FileName,
-		ResultContentType: createdResult.Result.ContentType,
-		ResultSizeBytes:   createdResult.Result.SizeBytes,
-		ResultChecksum:    createdResult.Result.Checksum,
-		ResultBins: []contracts.ResultBin{
-			{SizeBytes: 60, Checksum: strings.Repeat("1", 64)},
-			{SizeBytes: 39, Checksum: strings.Repeat("2", 64)},
-		},
+		ContractVersion: contracts.ActivityVersion,
+		EngineVersion:   winnerPlacements.Engine.Version,
+		EngineChecksum:  winnerPlacements.Engine.Checksum,
+		BinCount:        1,
 	}
-	if !reflect.DeepEqual(result, want) {
+	if result != want {
 		t.Fatalf("result = %+v, want the stored winner %+v", result, want)
 	}
+	h.artifacts.mu.Lock()
+	defer h.artifacts.mu.Unlock()
+	offered := StoredPlacements{Engine: EngineProvenance{Version: testEngineVer, Checksum: testEngineSum}, Layout: packed.Layout}
+	if !reflect.DeepEqual(h.artifacts.placementsOffered, offered) {
+		t.Fatalf("stored %+v, want the packer's layout under its provenance %+v", h.artifacts.placementsOffered, offered)
+	}
+}
+
+func TestRunEngineLeavesWritingTheResultToWriteResult(t *testing.T) {
+	h := newHarness(t)
+
+	if _, err := h.run(input()); err != nil {
+		t.Fatalf("RunEngine: %v", err)
+	}
+
+	assertNoCalls(t, h.rec.snapshot(), "findResult", "write", "createResult")
 }
 
 func TestRunEngineSignalsStartedToItsOwnWorkflowWithTheEngineProvenance(t *testing.T) {
@@ -475,9 +581,9 @@ func TestRunEnginePassesTheLowercasedJobIdToEveryPort(t *testing.T) {
 	h.artifacts.mu.Lock()
 	defer h.artifacts.mu.Unlock()
 	for name, got := range map[string]string{
-		"FindResult":      h.artifacts.findJobID,
-		"DownloadRequest": h.artifacts.downloadJobID,
-		"CreateResult":    h.artifacts.createJobID,
+		"FindPlacements":   h.artifacts.findPlacementsJobID,
+		"DownloadRequest":  h.artifacts.downloadJobID,
+		"CreatePlacements": h.artifacts.createPlacementsJobID,
 	} {
 		if got != testJobID {
 			t.Fatalf("%s received job id %q, want %q", name, got, testJobID)
@@ -534,66 +640,49 @@ func TestRunEngineBuildsRunRequestFromEnvelope(t *testing.T) {
 	if filepath.Dir(workspace) != h.workRoot || !strings.HasPrefix(filepath.Base(workspace), "packing-"+testJobID+"-") {
 		t.Fatalf("workspace %s is not a job-named directory under %s", workspace, h.workRoot)
 	}
-
-	h.writer.mu.Lock()
-	if h.writer.lastDir != workspace || !reflect.DeepEqual(h.writer.lastInputs, request.Inputs) || !reflect.DeepEqual(h.writer.lastLayout, packed.Layout) {
-		t.Fatalf("writer got %s, %+v, %+v; want the packer's workspace %s, inputs %+v and layout %+v",
-			h.writer.lastDir, h.writer.lastInputs, h.writer.lastLayout, workspace, request.Inputs, packed.Layout)
-	}
-	h.writer.mu.Unlock()
-
-	h.artifacts.mu.Lock()
-	defer h.artifacts.mu.Unlock()
-	want := engineResult
-	want.Path = filepath.Join(workspace, "packed.obj.gz")
-	want.Layout = &packed.Layout
-	if !reflect.DeepEqual(h.artifacts.createOffered.Result, want) {
-		t.Fatalf("uploaded %+v, want the written result %+v", h.artifacts.createOffered.Result, want)
-	}
 }
 
-func TestRunEngineReturnsAStoredResultWithoutRunningThePacker(t *testing.T) {
+func TestRunEngineReturnsStoredPlacementsWithoutRunningThePacker(t *testing.T) {
 	h := newHarness(t)
-	h.artifacts.find = cloneResult(storedResult)
+	h.artifacts.placements = clonePlacements(storedPlacements)
 
 	result, err := h.run(input())
 	if err != nil {
 		t.Fatalf("RunEngine: %v", err)
 	}
 
-	assertCalls(t, h.rec.snapshot(), []string{"findResult", "signal:engineStarted"})
-	if result.EngineVersion != storedResult.Engine.Version || result.ResultChecksum != storedResult.Result.Checksum {
-		t.Fatalf("result = %+v, want the stored %+v", result, storedResult)
+	assertCalls(t, h.rec.snapshot(), []string{"findPlacements", "signal:engineStarted"})
+	want := contracts.EngineResult{
+		ContractVersion: contracts.ActivityVersion,
+		EngineVersion:   storedPlacements.Engine.Version,
+		EngineChecksum:  storedPlacements.Engine.Checksum,
+		BinCount:        2,
+	}
+	if result != want {
+		t.Fatalf("result = %+v, want the stored %+v", result, want)
 	}
 	started := h.signaler.sent()[0].arg.(contracts.EngineStarted)
-	if started.EngineVersion != storedResult.Engine.Version || started.EngineChecksum != storedResult.Engine.Checksum {
-		t.Fatalf("started carries %+v, want the stored provenance %+v", started, storedResult.Engine)
+	if started.EngineVersion != storedPlacements.Engine.Version || started.EngineChecksum != storedPlacements.Engine.Checksum {
+		t.Fatalf("started carries %+v, want the stored provenance %+v", started, storedPlacements.Engine)
 	}
 }
 
-func TestRunEngineRejectsAnUnusableStoredResultForRetry(t *testing.T) {
+func TestRunEngineRejectsUnusableStoredPlacementsForRetry(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		corrupt func(*StoredResult)
+		corrupt func(*StoredPlacements)
 	}{
-		{"result checksum", func(r *StoredResult) { r.Result.Checksum = "not-a-checksum" }},
-		{"no bins", func(r *StoredResult) { r.Result.Bins = nil }},
-		{"a bin without a size", func(r *StoredResult) {
-			r.Result.Bins = []ResultBin{{SizeBytes: 1, Checksum: strings.Repeat("1", 64)}, {Checksum: strings.Repeat("2", 64)}}
-		}},
-		{"a bin checksum", func(r *StoredResult) {
-			r.Result.Bins = []ResultBin{{SizeBytes: 1, Checksum: strings.Repeat("1", 64)}, {SizeBytes: 1, Checksum: "x"}}
-		}},
-		{"a single bin that is not the combined result", func(r *StoredResult) {
-			r.Result.Bins = []ResultBin{{SizeBytes: 41, Checksum: r.Result.Checksum}}
-		}},
+		{"engine checksum", func(p *StoredPlacements) { p.Engine.Checksum = "not-a-checksum" }},
+		{"no bins", func(p *StoredPlacements) { p.Layout.BinOffsets = nil }},
+		{"nothing placed", func(p *StoredPlacements) { p.Layout.Placements = nil }},
+		{"a bin out of range", func(p *StoredPlacements) { p.Layout.Placements[1].Bin = 3 }},
+		{"an empty bin", func(p *StoredPlacements) { p.Layout.Placements[1].Bin = 1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
-			broken := cloneResult(storedResult)
-			broken.Result.Bins = slices.Clone(broken.Result.Bins)
+			broken := clonePlacements(storedPlacements)
 			tc.corrupt(broken)
-			h.artifacts.find = broken
+			h.artifacts.placements = broken
 
 			_, err := h.run(input())
 
@@ -622,23 +711,10 @@ func TestRunEngineReportsAnEngineFailureAsNonRetryableWithItsDetails(t *testing.
 			_, err := h.run(input())
 
 			assertEngineFailure(t, err, tc.want)
-			assertNoCalls(t, h.rec.snapshot(), "write", "createResult")
+			assertNoCalls(t, h.rec.snapshot(), "createPlacements")
 			assertWorkspaceRemoved(t, h.workRoot)
 		})
 	}
-}
-
-func TestRunEngineReportsAnInputTheWriterCannotReadAsAnEngineFailure(t *testing.T) {
-	h := newHarness(t)
-	h.writer.write = func(context.Context, []InputFile, Layout, string) (EngineResult, error) {
-		return EngineResult{}, &EngineFailure{Reason: "Input file 'bunny.obj' could not be read back to write the result: line 2: \"x\" is not a coordinate"}
-	}
-
-	_, err := h.run(input())
-
-	assertEngineFailure(t, err, `Input file 'bunny.obj' could not be read back to write the result: line 2: "x" is not a coordinate`)
-	assertNoCalls(t, h.rec.snapshot(), "createResult")
-	assertWorkspaceRemoved(t, h.workRoot)
 }
 
 func TestRunEngineReportsUnusableInputsAsEngineFailures(t *testing.T) {
@@ -665,7 +741,7 @@ func TestRunEngineReportsUnusableInputsAsEngineFailures(t *testing.T) {
 			_, err := h.run(input())
 
 			assertEngineFailure(t, err, tc.reason)
-			assertNoCalls(t, h.rec.snapshot(), "signal:engineStarted", "run", "createResult")
+			assertNoCalls(t, h.rec.snapshot(), "signal:engineStarted", "run", "createPlacements")
 			assertWorkspaceRemoved(t, h.workRoot)
 		})
 	}
@@ -677,23 +753,19 @@ func TestRunEngineTreatsInfrastructureFailuresAsRetryable(t *testing.T) {
 		arrange func(*harness)
 		absent  []string
 	}{
-		{name: "result lookup", arrange: func(h *harness) { h.artifacts.findErr = errors.New("storage down") }, absent: []string{"download", "signal:engineStarted"}},
+		{name: "placements lookup", arrange: func(h *harness) { h.artifacts.findPlacementsErr = errors.New("storage down") }, absent: []string{"download", "signal:engineStarted"}},
 		{name: "request download", arrange: func(h *harness) { h.artifacts.downloadErr = errors.New("storage down") }, absent: []string{"signal:engineStarted", "run"}},
 		{name: "provenance", arrange: func(h *harness) { h.engine.provenanceErr = errors.New("packer missing") }, absent: []string{"downloadInput", "signal:engineStarted", "run"}},
 		{name: "unusable provenance", arrange: func(h *harness) { h.engine.provenance.Checksum = "short" }, absent: []string{"downloadInput", "signal:engineStarted", "run"}},
 		{name: "input download", arrange: func(h *harness) { h.artifacts.inputErr = errors.New("storage down") }, absent: []string{"signal:engineStarted", "run"}},
 		{name: "signal", arrange: func(h *harness) { h.signaler.err = errors.New("temporal down") }, absent: []string{"run"}},
-		{name: "upload", arrange: func(h *harness) { h.artifacts.createErr = errors.New("storage down") }},
+		{name: "storing the placements", arrange: func(h *harness) { h.artifacts.createPlacementsErr = errors.New("storage down") }},
+		{name: "unusable winning placements", arrange: func(h *harness) { h.artifacts.createdPlacements.Layout.BinOffsets = nil }},
 		{name: "packer infrastructure", arrange: func(h *harness) {
 			h.engine.run = func(context.Context, RunRequest) (Packing, error) {
 				return Packing{}, errors.New("exec format error")
 			}
-		}, absent: []string{"write", "createResult"}},
-		{name: "writing the result", arrange: func(h *harness) {
-			h.writer.write = func(context.Context, []InputFile, Layout, string) (EngineResult, error) {
-				return EngineResult{}, errors.New("disk full")
-			}
-		}, absent: []string{"createResult"}},
+		}, absent: []string{"createPlacements"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
@@ -724,11 +796,8 @@ func TestRunEngineRejectsAnInvalidRequestWithoutRunningThePacker(t *testing.T) {
 
 			_, err := h.run(input())
 
-			appErr := applicationError(t, err)
-			if appErr.Type() != contracts.InvalidInputType || !appErr.NonRetryable() {
-				t.Fatalf("error type %s nonRetryable=%t, want non-retryable %s", appErr.Type(), appErr.NonRetryable(), contracts.InvalidInputType)
-			}
-			assertCalls(t, h.rec.snapshot(), []string{"findResult", "download"})
+			assertInvalidInput(t, err)
+			assertCalls(t, h.rec.snapshot(), []string{"findPlacements", "download"})
 			assertWorkspaceRemoved(t, h.workRoot)
 		})
 	}
@@ -736,17 +805,14 @@ func TestRunEngineRejectsAnInvalidRequestWithoutRunningThePacker(t *testing.T) {
 
 func TestRunEngineRejectsAnInvalidInputWithoutTouchingAnyPort(t *testing.T) {
 	for _, in := range []contracts.RunEngineInput{
-		{ContractVersion: 1, JobID: testJobID},
+		{ContractVersion: contracts.ActivityVersion - 1, JobID: testJobID},
 		{ContractVersion: contracts.ActivityVersion, JobID: "not-a-uuid"},
 	} {
 		h := newHarness(t)
 
 		_, err := h.run(in)
 
-		appErr := applicationError(t, err)
-		if appErr.Type() != contracts.InvalidInputType || !appErr.NonRetryable() {
-			t.Fatalf("input %+v: error type %s nonRetryable=%t, want non-retryable %s", in, appErr.Type(), appErr.NonRetryable(), contracts.InvalidInputType)
-		}
+		assertInvalidInput(t, err)
 		assertCalls(t, h.rec.snapshot(), nil)
 	}
 }
@@ -780,4 +846,254 @@ func TestRunEngineRefusesANonPositiveHeartbeatInterval(t *testing.T) {
 
 	assertRetryable(t, err)
 	assertCalls(t, h.rec.snapshot(), nil)
+}
+
+func writeInput() contracts.WriteResultInput {
+	return contracts.WriteResultInput{ContractVersion: contracts.ActivityVersion, JobID: testJobID}
+}
+
+func TestWriteResultWritesFromTheStoredPlacementsAndReturnsTheStoredWinner(t *testing.T) {
+	h := newWriteHarness(t)
+
+	result, err := h.writeResult(writeInput())
+	if err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+
+	assertCalls(t, h.rec.snapshot(), []string{"findResult", "findPlacements", "download", "downloadInput", "write", "createResult"})
+	assertWorkspaceRemoved(t, h.workRoot)
+	want := contracts.ResultFiles{
+		ContractVersion:   contracts.ActivityVersion,
+		ResultFileName:    createdResult.Result.FileName,
+		ResultContentType: createdResult.Result.ContentType,
+		ResultSizeBytes:   createdResult.Result.SizeBytes,
+		ResultChecksum:    createdResult.Result.Checksum,
+		ResultBins: []contracts.ResultBin{
+			{SizeBytes: 60, Checksum: strings.Repeat("1", 64)},
+			{SizeBytes: 39, Checksum: strings.Repeat("2", 64)},
+		},
+	}
+	if !reflect.DeepEqual(result, want) {
+		t.Fatalf("result = %+v, want the stored winner %+v", result, want)
+	}
+}
+
+func TestWriteResultHandsTheWriterTheStoredLayoutAndUploadsUnderItsProvenance(t *testing.T) {
+	h := newWriteHarness(t)
+
+	if _, err := h.writeResult(writeInput()); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+
+	h.writer.mu.Lock()
+	workspace := h.writer.lastDir
+	inputs := h.writer.lastInputs
+	layout := h.writer.lastLayout
+	h.writer.mu.Unlock()
+	if filepath.Dir(workspace) != h.workRoot || !strings.HasPrefix(filepath.Base(workspace), "result-"+testJobID+"-") {
+		t.Fatalf("workspace %s is not a job-named directory under %s", workspace, h.workRoot)
+	}
+	if len(inputs) != 1 || filepath.Base(inputs[0].Path) != "0.obj" || inputs[0].DisplayName != testFileName || inputs[0].Copies != 2 {
+		t.Fatalf("writer got inputs %+v, want inputs/0.obj as %s with 2 copies", inputs, testFileName)
+	}
+	if !reflect.DeepEqual(layout, storedPlacements.Layout) {
+		t.Fatalf("writer got layout %+v, want the stored %+v", layout, storedPlacements.Layout)
+	}
+
+	h.artifacts.mu.Lock()
+	defer h.artifacts.mu.Unlock()
+	want := writtenResult
+	want.Path = filepath.Join(workspace, "packed.obj.gz")
+	if h.artifacts.createOffered.Engine != storedPlacements.Engine || !reflect.DeepEqual(h.artifacts.createOffered.Result, want) {
+		t.Fatalf("uploaded %+v, want the written result %+v under the placements' provenance %+v",
+			h.artifacts.createOffered, want, storedPlacements.Engine)
+	}
+}
+
+func TestWriteResultNeverRunsThePackerOrSignalsStarted(t *testing.T) {
+	h := newWriteHarness(t)
+
+	if _, err := h.writeResult(writeInput()); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+
+	assertNoCalls(t, h.rec.snapshot(), "provenance", "run", "signal:engineStarted", "createPlacements")
+}
+
+func TestWriteResultPassesTheLowercasedJobIdToEveryPort(t *testing.T) {
+	h := newWriteHarness(t)
+
+	if _, err := h.writeResult(contracts.WriteResultInput{ContractVersion: contracts.ActivityVersion, JobID: strings.ToUpper(testJobID)}); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+
+	h.artifacts.mu.Lock()
+	defer h.artifacts.mu.Unlock()
+	for name, got := range map[string]string{
+		"FindResult":      h.artifacts.findJobID,
+		"FindPlacements":  h.artifacts.findPlacementsJobID,
+		"DownloadRequest": h.artifacts.downloadJobID,
+		"CreateResult":    h.artifacts.createJobID,
+	} {
+		if got != testJobID {
+			t.Fatalf("%s received job id %q, want %q", name, got, testJobID)
+		}
+	}
+}
+
+func TestWriteResultReturnsAStoredResultWithoutWriting(t *testing.T) {
+	h := newWriteHarness(t)
+	h.artifacts.find = cloneResult(storedResult)
+
+	result, err := h.writeResult(writeInput())
+	if err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+
+	assertCalls(t, h.rec.snapshot(), []string{"findResult"})
+	if result.ResultChecksum != storedResult.Result.Checksum || result.ResultSizeBytes != storedResult.Result.SizeBytes {
+		t.Fatalf("result = %+v, want the stored %+v", result, storedResult)
+	}
+}
+
+func TestWriteResultRejectsAnUnusableStoredResultForRetry(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		corrupt func(*StoredResult)
+	}{
+		{"result checksum", func(r *StoredResult) { r.Result.Checksum = "not-a-checksum" }},
+		{"no bins", func(r *StoredResult) { r.Result.Bins = nil }},
+		{"a bin without a size", func(r *StoredResult) {
+			r.Result.Bins = []ResultBin{{SizeBytes: 1, Checksum: strings.Repeat("1", 64)}, {Checksum: strings.Repeat("2", 64)}}
+		}},
+		{"a bin checksum", func(r *StoredResult) {
+			r.Result.Bins = []ResultBin{{SizeBytes: 1, Checksum: strings.Repeat("1", 64)}, {SizeBytes: 1, Checksum: "x"}}
+		}},
+		{"a single bin that is not the combined result", func(r *StoredResult) {
+			r.Result.Bins = []ResultBin{{SizeBytes: 41, Checksum: r.Result.Checksum}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newWriteHarness(t)
+			broken := cloneResult(storedResult)
+			broken.Result.Bins = slices.Clone(broken.Result.Bins)
+			tc.corrupt(broken)
+			h.artifacts.find = broken
+
+			_, err := h.writeResult(writeInput())
+
+			assertRetryable(t, err)
+			assertNoCalls(t, h.rec.snapshot(), "write", "createResult")
+		})
+	}
+}
+
+func TestWriteResultReportsUnusableInputsAsResultFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		arrange func(*harness)
+		reason  string
+	}{
+		{
+			name:    "deleted after the job succeeded",
+			arrange: func(h *harness) { h.artifacts.inputs = map[string][]byte{} },
+			reason:  "Input file 'bunny.obj' is no longer available",
+		},
+		{
+			name:    "bytes changed",
+			arrange: func(h *harness) { h.artifacts.inputs[testStorageKey] = []byte("v 9 9 9\n") },
+			reason:  "Input file 'bunny.obj' does not match its recorded checksum",
+		},
+		{
+			name: "unreadable by the writer",
+			arrange: func(h *harness) {
+				h.writer.write = func(context.Context, []InputFile, Layout, string) (ResultFiles, error) {
+					return ResultFiles{}, &EngineFailure{Reason: "Input file 'bunny.obj' could not be read back to write the result: line 2: \"x\" is not a coordinate"}
+				}
+			},
+			reason: `Input file 'bunny.obj' could not be read back to write the result: line 2: "x" is not a coordinate`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newWriteHarness(t)
+			tc.arrange(h)
+
+			_, err := h.writeResult(writeInput())
+
+			assertResultFailure(t, err, tc.reason)
+			assertNoCalls(t, h.rec.snapshot(), "createResult")
+			assertWorkspaceRemoved(t, h.workRoot)
+		})
+	}
+}
+
+func TestWriteResultTreatsInfrastructureFailuresAsRetryable(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		arrange func(*harness)
+		absent  []string
+	}{
+		{name: "result lookup", arrange: func(h *harness) { h.artifacts.findErr = errors.New("storage down") }, absent: []string{"findPlacements", "write"}},
+		{name: "placements lookup", arrange: func(h *harness) { h.artifacts.findPlacementsErr = errors.New("storage down") }, absent: []string{"download", "write"}},
+		{name: "no placements", arrange: func(h *harness) { h.artifacts.placements = nil }, absent: []string{"download", "write"}},
+		{name: "unusable placements", arrange: func(h *harness) { h.artifacts.placements.Engine.Version = "" }, absent: []string{"download", "write"}},
+		{name: "placements for another request", arrange: func(h *harness) {
+			h.artifacts.placements.Layout.Placements = h.artifacts.placements.Layout.Placements[:1]
+			h.artifacts.placements.Layout.BinOffsets = h.artifacts.placements.Layout.BinOffsets[:1]
+		}, absent: []string{"write"}},
+		{name: "request download", arrange: func(h *harness) { h.artifacts.downloadErr = errors.New("storage down") }, absent: []string{"write"}},
+		{name: "input download", arrange: func(h *harness) { h.artifacts.inputErr = errors.New("storage down") }, absent: []string{"write"}},
+		{name: "writing", arrange: func(h *harness) {
+			h.writer.write = func(context.Context, []InputFile, Layout, string) (ResultFiles, error) {
+				return ResultFiles{}, errors.New("disk full")
+			}
+		}, absent: []string{"createResult"}},
+		{name: "upload", arrange: func(h *harness) { h.artifacts.createErr = errors.New("storage down") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newWriteHarness(t)
+			tc.arrange(h)
+
+			_, err := h.writeResult(writeInput())
+
+			assertRetryable(t, err)
+			assertNoCalls(t, h.rec.snapshot(), tc.absent...)
+			assertWorkspaceRemoved(t, h.workRoot)
+		})
+	}
+}
+
+func TestWriteResultRejectsAnInvalidInputWithoutTouchingAnyPort(t *testing.T) {
+	for _, in := range []contracts.WriteResultInput{
+		{ContractVersion: contracts.ActivityVersion - 1, JobID: testJobID},
+		{ContractVersion: contracts.ActivityVersion, JobID: "not-a-uuid"},
+	} {
+		h := newWriteHarness(t)
+
+		_, err := h.writeResult(in)
+
+		assertInvalidInput(t, err)
+		assertCalls(t, h.rec.snapshot(), nil)
+	}
+}
+
+func TestWriteResultHeartbeatsWhileWriting(t *testing.T) {
+	h := newWriteHarness(t)
+	h.interval = 10 * time.Millisecond
+	h.writer.write = func(ctx context.Context, inputs []InputFile, layout Layout, dir string) (ResultFiles, error) {
+		select {
+		case <-time.After(200 * time.Millisecond):
+		case <-ctx.Done():
+			return ResultFiles{}, ctx.Err()
+		}
+		return writeOutput(ctx, inputs, layout, dir)
+	}
+
+	if _, err := h.writeResult(writeInput()); err != nil {
+		t.Fatalf("WriteResult: %v", err)
+	}
+
+	if got := h.heartbeats.Load(); got < 1 {
+		t.Fatalf("recorded %d heartbeats during a 200ms write at a 10ms interval, want at least one", got)
+	}
 }

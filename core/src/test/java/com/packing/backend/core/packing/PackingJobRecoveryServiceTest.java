@@ -26,7 +26,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collection;
-import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,14 +92,7 @@ class PackingJobRecoveryServiceTest {
     @Test
     void leavesATerminalJobUnchangedAndNotifiesNobody() {
         PackingJob job = runningJob();
-        job.succeed("existing.bin",
-                    "application/octet-stream",
-                    1,
-                    CHECKSUM,
-                    List.of(),
-                    "packer 0.1.0",
-                    CHECKSUM,
-                    NOW.minusSeconds(1));
+        job.succeed("packer 0.1.0", CHECKSUM, 1, NOW.minusSeconds(1));
         job.pullDomainEvents();
         when(jobs.findById(job.id())).thenReturn(Optional.of(job));
 
@@ -126,8 +118,6 @@ class PackingJobRecoveryServiceTest {
                                                                           job.requestedBy(),
                                                                           PackingJobStatus.FAILED,
                                                                           REASON,
-                                                                          null,
-                                                                          null,
                                                                           NOW.minusSeconds(10),
                                                                           NOW));
     }
